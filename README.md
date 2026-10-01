@@ -16,7 +16,7 @@ docker compose up -d --build
 
 Open `http://<docker-host>:8580/admin/` on your computer. On first visit you'll be asked to **choose a 4-digit PIN**. That PIN unlocks both the kiosk and the admin site.
 
-Then point the Pi at `http://<docker-host>:8580/kiosk/` (see [docs/pi-kiosk.md](docs/pi-kiosk.md)).
+Then point the Pi at `http://<docker-host>:8580/kiosk/` (see [docs/pi-kiosk.md](docs/pi-kiosk.md); `sudo bash install.sh` on the Pi sets it all up from a menu).
 
 The database is a single file in `./data/quartermaster.db`. Keep that folder on a volume you trust.
 
@@ -38,6 +38,10 @@ A code the system has never seen is **never rejected**. It is logged against the
 ### Quick inventory (kiosk)
 
 *Inventory* drills down: **caliber → bullet weight → specific product/UPC**, with rounds and boxes at every level. Unidentified boxes appear as their own row, so totals stay honest.
+
+### Reset
+
+*Settings → Reset* erases all inventory data (history, products, barcodes, photos, calibers back to the starter list, preferences) and keeps the PIN. It asks for the PIN and the word RESET, and saves a copy of the old data in the server's `backups` folder first.
 
 ### Portrait mounting
 
@@ -118,7 +122,7 @@ app/
   main.py  config.py  db.py  models.py  security.py  services.py  codes.py  seed.py  cli.py
   routers/   auth.py  batches.py  catalog.py  inventory.py  labels.py  photos.py  settings.py  backup.py
   static/    shared/ (api, dom, PIN pad)   kiosk/ (incl. camera.js)   admin/
-pi/          camera_helper.py + systemd unit (only for Pi CSI camera modules)
+pi/          install.sh: one self-contained installer for the Pi kiosk (includes the camera helper)
 tests/       auth/lockout/idle, inventory/batch/drill-down, photos, backup/restore
 docs/        pi-kiosk.md
 ```

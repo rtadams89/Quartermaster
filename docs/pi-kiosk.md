@@ -11,6 +11,31 @@ The UI is laid out for the official 7" 800x480 touchscreen and everything is fin
 > **Status:** these steps follow the standard Raspberry Pi OS kiosk recipe, but they have not been run on your Pi yet.
 > Treat the first boot as a shakedown and adjust package or user names to match your install.
 
+## Quick install (recommended)
+
+After flashing Raspberry Pi OS Lite (64-bit, Bookworm or newer) and getting the Pi onto your network (see step 1 below for the imager settings), copy the single file `pi/install.sh` to it and run it (everything else is built into that one file):
+
+```bash
+scp pi/install.sh kiosk@pikiosk.local:~/     # from your computer
+ssh kiosk@pikiosk.local
+sudo bash install.sh
+```
+
+It asks a handful of questions, each with a sensible default (just press Enter):
+
+1. The **server address** (it checks it can reach the server).
+2. Which Linux **user** runs the kiosk (and creates it if needed).
+3. The **orientation**: landscape, or portrait in either direction, rotated by the page or by the OS.
+4. Which **camera** takes box photos: none, a USB webcam, or a Pi camera module (which also installs the helper service).
+5. Whether to apply the **mouse-arrow fix** and turn off **screen blanking**.
+6. Whether to **start at boot**.
+
+It then shows a summary, installs the packages, writes the files described in the rest of this page, and offers to reboot. Your answers are saved in `/etc/quartermaster-kiosk.conf`, so to change one later, run the installer again. `sudo bash install.sh --uninstall` removes everything it created, and `bash install.sh --dry-run` shows what it would do without changing anything.
+
+> **Status:** the installer's menus, generated files and launcher were exercised here against a scratch directory with stand-ins for `apt`, `systemctl`, Chromium and `wlr-randr`. It has not yet run on a real Pi, so check `journalctl -u quartermaster-kiosk -b` if the screen stays black, and tell me what you see.
+
+The sections below describe the same setup done by hand, and what each piece is for.
+
 ## 1. Image and packages
 
 1. Flash **Raspberry Pi OS Lite (64-bit, Bookworm or newer)** to the Pi 4B with Raspberry Pi Imager. In the imager's settings, set the hostname, create a user (the examples below use `kiosk`), enable SSH, and enter your Wi-Fi if you are not using Ethernet.
@@ -103,14 +128,30 @@ The first grants camera permission automatically (there is no one to click a pro
 
 Chromium cannot open CSI camera modules, so a tiny helper takes the picture instead. It listens on `127.0.0.1` only, and the kiosk page calls it automatically when it is running. There is no live preview in this mode: hold the box up, tap *Take photo*, and retake if it isn't good.
 
+The installer sets all of this up when you choose the Pi camera module. To do it by hand:
+
 1. Check the camera works first: `rpicam-still -t 1000 -o test.jpg` (it ships with Raspberry Pi OS; on a minimal install `sudo apt install rpicam-apps-lite`).
-2. Install the helper:
+2. Install the helper (its source is built into `install.sh`):
 
    ```bash
    sudo mkdir -p /opt/quartermaster
-   sudo cp pi/camera_helper.py /opt/quartermaster/
-   sudo cp pi/quartermaster-camera.service /etc/systemd/system/
-   sudo nano /etc/systemd/system/quartermaster-camera.service   # set User= and SERVER in QM_CAMERA_ORIGIN
+   bash install.sh --print-helper | sudo tee /opt/quartermaster/camera_helper.py >/dev/null
+   sudo tee /etc/systemd/system/quartermaster-camera.service >/dev/null <<'EOF'
+   [Unit]
+   Description=Quartermaster camera helper
+   After=local-fs.target
+
+   [Service]
+   User=kiosk
+   SupplementaryGroups=video
+   Environment=QM_CAMERA_ORIGIN=http://SERVER:8580
+   ExecStart=/usr/bin/python3 /opt/quartermaster/camera_helper.py
+   Restart=always
+   RestartSec=3
+
+   [Install]
+   WantedBy=multi-user.target
+   EOF
    sudo systemctl daemon-reload && sudo systemctl enable --now quartermaster-camera
    curl http://127.0.0.1:8581/health                            # should print {"ok": true, "camera": true}
    ```
@@ -132,7 +173,10 @@ If both a helper and a webcam are present, the helper is used.
 The kiosk page hides the pointer over its own content (`cursor: none`), but the arrow you see in the middle of the screen at boot is drawn by `cage`, not the page. `cage` draws a pointer whenever *any* input device claims to be a pointer, and the Pi 4's two HDMI ports each register a CEC device (`vc4-hdmi-0`, `vc4-hdmi-1`) that does ([cage issue #299](https://github.com/cage-kiosk/cage/issues/299)). The fix is to have libinput ignore those two devices:
 
 ```bash
-sudo cp pi/99-kiosk-ignore-pointers.rules /etc/udev/rules.d/
+sudo tee /etc/udev/rules.d/99-kiosk-ignore-pointers.rules >/dev/null <<'EOF'
+SUBSYSTEM=="input", ATTRS{name}=="vc4-hdmi-0", ENV{LIBINPUT_IGNORE_DEVICE}="1"
+SUBSYSTEM=="input", ATTRS{name}=="vc4-hdmi-1", ENV{LIBINPUT_IGNORE_DEVICE}="1"
+EOF
 sudo udevadm control --reload-rules && sudo udevadm trigger
 sudo reboot
 ```

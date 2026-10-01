@@ -427,7 +427,7 @@ async function labels() {
 }
 
 // ----------------------------------------------------------------- settings
-async function settings(restored) {
+async function settings(restored, wasReset) {
   const pin = (ph) => h('input', { type: 'password', inputmode: 'numeric', pattern: '\\d{4}', maxlength: 4, placeholder: ph, autocomplete: 'off', style: { width: '110px' } });
   const cur = pin('Current'), nw = pin('New'), cf = pin('Confirm');
   const [locks, prefs] = await Promise.all([get('/api/security/lockouts'), get('/api/settings')]);
@@ -440,6 +440,9 @@ async function settings(restored) {
     if (f) restoreDialog(f);
   } });
   clear(main, h('h1', {}, 'Settings'),
+    wasReset && h('div', { class: 'banner ok' },
+      h('b', {}, 'All data erased. '),
+      `Calibers are back to the starter list. The previous data was saved on the server as ${wasReset.safety_copy}.`),
     restored && h('div', { class: 'banner ok' },
       h('b', {}, 'Restore complete. '),
       `Loaded ${fmtInt(restored.restored.products)} products, ${fmtInt(restored.restored.barcodes)} barcodes, ${fmtInt(restored.restored.transactions)} history entries and ${fmtInt(restored.restored.barcode_photos)} photos. `,
@@ -469,7 +472,31 @@ async function settings(restored) {
         td(h('button', { class: 'btn sm', onclick: async () => { await post('/api/security/lockouts/clear', { ip: l.ip }); settings(); } }, 'Clear'), 'actions'))))
       : empty('No failed attempts recorded.'),
     h('h2', {}, 'Data'),
-    h('div', { class: 'toolbar' }, h('a', { class: 'btn', href: '/api/export/inventory.csv' }, 'Inventory CSV'), h('a', { class: 'btn', href: '/api/export/transactions.csv' }, 'Full history CSV')));
+    h('div', { class: 'toolbar' }, h('a', { class: 'btn', href: '/api/export/inventory.csv' }, 'Inventory CSV'), h('a', { class: 'btn', href: '/api/export/transactions.csv' }, 'Full history CSV')),
+    h('h2', {}, 'Reset'),
+    h('p', { class: 'sub' }, 'Erases all inventory data and starts fresh: history, products, barcodes, photos, calibers and preferences. Your PIN is kept. Download a backup first if you might want anything back.'),
+    h('div', { class: 'toolbar' }, h('button', { class: 'btn danger', type: 'button', onclick: resetDialog }, 'Reset all data…')));
+}
+
+function resetDialog() {
+  const pin = h('input', { type: 'password', inputmode: 'numeric', pattern: '\\d{4}', maxlength: 4, placeholder: 'PIN', autocomplete: 'off', style: { width: '110px' } });
+  const word = h('input', { type: 'text', placeholder: 'RESET', autocomplete: 'off', style: { width: '110px' } });
+  dialog({
+    title: 'Reset all data?', ok: 'Erase everything', danger: true,
+    body: h('div', {},
+      h('p', {}, 'This erases every transaction, product, barcode, photo and caliber, and puts the starter caliber list back. Your PIN stays the same.'),
+      h('p', { class: 'sub', style: { margin: '0 0 12px' } }, 'A copy of the current data is saved on the server first (in its backups folder) in case you change your mind.'),
+      h('div', { class: 'toolbar' }, pin, word),
+      h('p', { class: 'sub', style: { margin: 0 } }, 'Enter your PIN and type RESET to confirm.')),
+    onOk: async () => {
+      if (!/^\d{4}$/.test(pin.value)) throw new Error('Enter your 4-digit PIN');
+      if (word.value.trim() !== 'RESET') throw new Error('Type RESET to confirm');
+      const r = await post('/api/reset', { pin: pin.value, confirm: 'RESET' });
+      toast('All data erased', 'ok');
+      refreshBadge();
+      settings(null, r);
+    },
+  });
 }
 
 function restoreDialog(file) {

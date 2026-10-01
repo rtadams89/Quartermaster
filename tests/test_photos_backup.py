@@ -261,3 +261,33 @@ def test_restore_rejects_incompatible_schema(authed, tmp_path):
 def test_backup_and_restore_need_login(client):
     assert client.get("/api/backup").status_code == 401
     assert client.post("/api/restore", content=b"x").status_code == 401
+
+
+# -------------------------------------------------------------------- reset
+def test_reset_erases_data_keeps_pin_and_saves_a_copy(authed):
+    make_product(authed)
+    authed.put("/api/settings", json={"photo_prompt": False})
+    run_batch(authed, "in", [("012345678905", 2)])
+    assert authed.get("/api/products").json()
+    r = authed.post("/api/reset", json={"pin": "1234", "confirm": "RESET"})
+    assert r.status_code == 200, r.text
+    assert r.json()["safety_copy"].startswith("backups/pre-reset-")
+    assert authed.get("/api/products").json() == []
+    assert authed.get("/api/transactions").json() == []
+    assert len(authed.get("/api/calibers").json()) >= 15           # starter list is back
+    assert authed.get("/api/settings").json()["photo_prompt"] is True  # preferences default again
+    assert authed.get("/api/auth/status").json()["authenticated"]  # still logged in, PIN unchanged
+    con = sqlite3.connect(str(Path(config.DB_PATH).parent / r.json()["safety_copy"]))
+    assert con.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == 1  # the copy holds what was erased
+
+
+def test_reset_needs_the_word_and_the_right_pin(authed):
+    make_product(authed)
+    assert authed.post("/api/reset", json={"pin": "1234", "confirm": "reset"}).status_code == 400
+    assert authed.post("/api/reset", json={"pin": "9999", "confirm": "RESET"}).status_code == 400
+    assert authed.post("/api/reset", json={"confirm": "RESET"}).status_code == 422
+    assert authed.get("/api/products").json()  # nothing was erased
+
+
+def test_reset_requires_login(client):
+    assert client.post("/api/reset", json={"pin": "1234", "confirm": "RESET"}).status_code == 401

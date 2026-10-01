@@ -4,6 +4,13 @@ The version lives in one place, `app/__init__.py` (`__version__`). It is shown s
 screen and in the footer of the admin sidebar, and reported by `/api/health` and `/api/auth/status`.
 Every change bumps it (patch for fixes and docs, minor for features) and gets a line here.
 
+## 0.7.1
+- `pi/install.sh` is now the only file the Pi needs: the camera helper is built in (`--print-helper` shows it). Removed the separate helper, service and udev-rule files.
+
+## 0.7.0
+- Admin: Settings → Reset all data (needs the PIN and the word RESET; saves a copy first; keeps the PIN).
+- `pi/install.sh`: interactive Pi kiosk installer (server, user, orientation, camera, cursor fix, screen blanking, autostart), with `--uninstall`, `--dry-run` and `--yes`.
+
 ## 0.6.0
 - Kiosk and docs wording: "Check In/Out" is now "Ammo In/Out".
 - Added LICENSE: PolyForm Noncommercial 1.0.0 (derivative works allowed, no commercial use).

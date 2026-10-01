@@ -17,11 +17,15 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
 from .. import config, models, security  # noqa: F401  (models import registers every table)
-from ..db import Base, engine
+from ..db import Base, SessionLocal, engine, get_db
+from ..seed import seed
+from .auth import _too_many  # same lockout response as the PIN change
 
 router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
 
@@ -129,13 +133,13 @@ def _validate(path: Path) -> dict:
         con.close()
 
 
-def _safety_copy() -> Path:
+def _safety_copy(kind: str = "restore") -> Path:
     bdir = _data_dir() / "backups"
     bdir.mkdir(exist_ok=True)
-    dest = bdir / f"pre-restore-{datetime.now():%Y%m%d-%H%M%S}.db"
+    dest = bdir / f"pre-{kind}-{datetime.now():%Y%m%d-%H%M%S}.db"
     _snapshot(dest)
     _make_self_contained(dest)
-    for old in sorted(bdir.glob("pre-restore-*.db"))[:-KEEP_SAFETY_COPIES]:
+    for old in sorted(bdir.glob(f"pre-{kind}-*.db"))[:-KEEP_SAFETY_COPIES]:
         _unlink(old)
     return dest
 
@@ -203,3 +207,54 @@ async def restore(request: Request):
         return {"ok": True, "restored": counts, "safety_copy": f"backups/{safety.name}"}
     finally:
         _unlink(tmp)
+
+
+# -------------------------------------------------------------------- reset
+class ResetIn(BaseModel):
+    pin: str = Field(pattern=r"^\d{4}$")
+    confirm: str
+
+
+@router.post("/reset")
+def reset_all(body: ResetIn, request: Request, db: Session = Depends(get_db)):
+    """Erase all inventory data: history, products, barcodes, photos, calibers (back to the starter list),
+    draft batches, the label counter and preferences. The PIN and current logins are kept.
+
+    Needs the PIN again plus the typed word RESET, and saves a copy of the data first."""
+    if body.confirm != "RESET":
+        raise HTTPException(400, "Type RESET to confirm")
+    ip = security.client_ip(request)
+    wait = security.lock_remaining(db, ip)
+    if wait:
+        raise _too_many(wait)
+    stored = security.get_pin_hash(db)
+    if not stored or not security.verify_pin_hash(body.pin, stored):
+        lock = security.record_failure(db, ip)
+        if lock:
+            raise _too_many(lock)
+        raise HTTPException(400, "Incorrect PIN")
+    security.record_success(db, ip)
+    db.close()
+
+    safety = _safety_copy("reset")
+    con = sqlite3.connect(config.DB_PATH, timeout=30, isolation_level=None)
+    try:
+        con.execute("PRAGMA foreign_keys=OFF")
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            for t in reversed([t for t in Base.metadata.sorted_tables if t.name not in EPHEMERAL_TABLES]):
+                if t.name == "settings":
+                    con.execute('DELETE FROM "settings" WHERE key != ?', (security.PIN_KEY,))
+                else:
+                    con.execute(f'DELETE FROM "{t.name}"')
+            con.execute("COMMIT")
+        except BaseException:
+            con.execute("ROLLBACK")
+            raise
+    except sqlite3.Error as e:
+        raise HTTPException(500, f"Reset failed and nothing was changed ({e})")
+    finally:
+        con.close()
+    with SessionLocal() as s:
+        seed(s)
+    return {"ok": True, "safety_copy": f"backups/{safety.name}"}
