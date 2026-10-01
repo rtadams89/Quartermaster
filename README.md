@@ -67,5 +67,3 @@ Open kiosk and admin pages reload by themselves when the server is updated. The 
 ## License
 
 [PolyForm Noncommercial 1.0.0](LICENSE): free to use and modify for any noncommercial purpose; commercial use is not allowed.
-
-Developers: see [DEVELOPMENT.md](DEVELOPMENT.md).

@@ -2,8 +2,11 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 0.9.2
+- Removed DEVELOPMENT.md.
+
 ## 0.9.1
-- Documentation rewritten for end users (hardware, server, Pi installer); developer notes moved to DEVELOPMENT.md.
+- Documentation rewritten for end users (hardware, server, Pi installer).
 
 ## 0.9.0
 - Kiosk: with `?blank=N` (set by the installer to match the screen-blank period) the page goes black just before the screen blanks and swallows the first touch or scan that wakes it.
