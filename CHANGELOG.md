@@ -4,6 +4,9 @@ The version lives in one place, `app/__init__.py` (`__version__`). It is shown s
 screen and in the footer of the admin sidebar, and reported by `/api/health` and `/api/auth/status`.
 Every change bumps it (patch for fixes and docs, minor for features) and gets a line here.
 
+## 0.4.1
+- Kiosk: invisible cursor theme (`pi/make-blank-cursor.sh`) for the pointer cage draws itself, which the page cannot hide.
+
 ## 0.4.0
 - Version number shown on the kiosk home screen and in the admin footer.
 

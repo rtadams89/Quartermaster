@@ -129,7 +129,23 @@ If both a helper and a webcam are present, the helper is used.
 
 ### Mouse pointer
 
-The kiosk page hides the pointer itself (`cursor: none` on every element), so an arrow should never show over the UI. If you still glimpse one, it is the compositor's own pointer outside the page (for example on Chromium's "can't reach server" page, or for a moment while the browser starts). Those cases are cosmetic; the pointer sits still unless a mouse is attached.
+The kiosk page hides the pointer for everything *inside* the page (`cursor: none`). That is not always enough: `cage` draws its own pointer, in the middle of the screen, until the browser has been sent a real mouse movement, and a web page cannot hide that one. The fix is an invisible cursor theme, so the compositor has nothing visible to draw:
+
+```bash
+sudo apt install xcursorgen imagemagick
+sh pi/make-blank-cursor.sh          # run as the kiosk user; creates ~/.icons/blank
+```
+
+Then add these two lines to the `[Service]` section of the kiosk unit and restart it:
+
+```ini
+Environment=XCURSOR_THEME=blank
+Environment=XCURSOR_PATH=/home/kiosk/.icons
+```
+
+(`sudo systemctl daemon-reload && sudo systemctl restart quartermaster-kiosk`.) If you ever plug in a USB mouse for setup, it stays invisible too, which is the point.
+
+> **Status:** the script is untested on a Pi, and the page-level hiding is all I could check here (headless). If an arrow still shows after this, tell me which moment (boot, error page, after a touch) and what `journalctl -u quartermaster-kiosk -b | head` says.
 
 ## 6. Portrait (rotated) mounting
 
