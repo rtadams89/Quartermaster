@@ -1,8 +1,9 @@
 # Changelog
 
-The version lives in one place, `app/__init__.py` (`__version__`). It is shown small on the kiosk home
-screen and in the footer of the admin sidebar, and reported by `/api/health` and `/api/auth/status`.
-Every change bumps it (patch for fixes and docs, minor for features) and gets a line here.
+All notable changes to Quartermaster, newest first.
+
+## 0.9.1
+- Documentation rewritten for end users (hardware, server, Pi installer); developer notes moved to DEVELOPMENT.md.
 
 ## 0.9.0
 - Kiosk: with `?blank=N` (set by the installer to match the screen-blank period) the page goes black just before the screen blanks and swallows the first touch or scan that wakes it.
