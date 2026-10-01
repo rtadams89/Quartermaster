@@ -5,6 +5,18 @@ import { detectCamera, createCamera } from '/kiosk/camera.js';
 
 const app = document.getElementById('app');
 
+// Orientation. The UI has a landscape layout (800x480) and a portrait one (480x800). A portrait
+// screen, or the ?rotate=90 / ?rotate=270 fallback that turns the page in the browser, selects the latter.
+(() => {
+  const root = document.documentElement;
+  const rotate = new URLSearchParams(location.search).get('rotate');
+  if (rotate === '90' || rotate === '270') root.classList.add('rot', 'rot-' + rotate);
+  const portrait = matchMedia('(orientation: portrait)');
+  const apply = () => root.classList.toggle('portrait', root.classList.contains('rot') || portrait.matches);
+  portrait.addEventListener('change', apply);
+  apply();
+})();
+
 const S = {
   photoPrompt: true,  // ask for a box photo when a brand-new barcode is scanned (admin setting)
   cam: null,          // { kind, at } cached camera detection

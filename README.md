@@ -39,6 +39,10 @@ A code the system has never seen is **never rejected**. It is logged against the
 
 *Inventory* drills down: **caliber → bullet weight → specific product/UPC**, with rounds and boxes at every level. Unidentified boxes appear as their own row, so totals stay honest.
 
+### Portrait mounting
+
+The kiosk has a portrait layout for a sideways-mounted display. Rotate the display in the OS, or just load `/kiosk/?rotate=90` (or `270`) and the page turns itself; see [docs/pi-kiosk.md](docs/pi-kiosk.md). The mouse pointer is always hidden on the kiosk.
+
 ### Box photos
 
 The first time the kiosk ever sees a barcode it offers to **photograph the box** (live preview with a USB webcam, or a still from a Pi camera module), so that when you sit down at the admin site you can see what the unknown code actually is. Skip it any time; you can add, view, replace (by uploading an image), or remove a photo for any code from the admin site: tap a thumbnail on the *Unidentified*, *Inventory* or *Products* pages. Photos are resized (longest side 1280 px), stripped of metadata, and stored inside the database, so backups include them. The prompt can be switched off under *Settings*, and is skipped automatically when no camera is found. Camera setup for the Pi is in [docs/pi-kiosk.md](docs/pi-kiosk.md).

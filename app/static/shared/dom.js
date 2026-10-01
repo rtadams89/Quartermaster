@@ -47,7 +47,8 @@ export function toast(msg, kind = 'info') {
   let t = document.getElementById('qm-toast');
   if (!t) {
     t = h('div', { id: 'qm-toast', role: 'status' });
-    document.body.append(t);
+    // The kiosk wraps its UI in #stage (which may be rotated); the toast must rotate with it.
+    (document.getElementById('stage') || document.body).append(t);
   }
   t.textContent = msg;
   t.className = 'show ' + kind;

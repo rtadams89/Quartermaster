@@ -124,9 +124,44 @@ If both a helper and a webcam are present, the helper is used.
 ## 5. Screen and touch
 
 - **Screen never blanks:** the service above keeps the compositor running; if the display still sleeps, add `consoleblank=0` to the end of the single line in `/boot/firmware/cmdline.txt`.
-- **Wrong rotation:** most 7" panels are right-side-up out of the box. If yours isn't, rotate with `wlr-randr` in the service's `ExecStart` (before launching Chromium) or set the rotation in `/boot/firmware/config.txt` for your panel type.
+- **Rotation / portrait mounting:** see the next section.
 - **Touch offset:** panels that connect over DSI report correct coordinates automatically. USB touch panels occasionally need a libinput calibration matrix; search for your panel's model plus "libinput calibration".
 
-## 6. Locking
+### Mouse pointer
+
+The kiosk page hides the pointer itself (`cursor: none` on every element), so an arrow should never show over the UI. If you still glimpse one, it is the compositor's own pointer outside the page (for example on Chromium's "can't reach server" page, or for a moment while the browser starts). Those cases are cosmetic; the pointer sits still unless a mouse is attached.
+
+## 6. Portrait (rotated) mounting
+
+The UI has two layouts: landscape (800x480) and portrait (480x800). It switches automatically whenever the browser window is taller than it is wide. There are two ways to get a portrait window.
+
+**Option A (recommended): rotate the display in the OS.** The compositor rotates the picture *and* the touch input together, and the kiosk page just sees a 480x800 screen. With cage, run `wlr-randr` first. Find your output name once (it is usually `DSI-1` for the official display, or `HDMI-A-1`):
+
+```bash
+sudo -u kiosk XDG_RUNTIME_DIR=/run/user/$(id -u kiosk) WAYLAND_DISPLAY=wayland-0 wlr-randr
+```
+
+(run it while the kiosk service is up; `sudo apt install wlr-randr` first). Then wrap the browser in a small script, `/usr/local/bin/qm-browser.sh`:
+
+```bash
+#!/bin/sh
+wlr-randr --output DSI-1 --transform 90      # or 270 for the other direction
+exec /usr/bin/chromium --kiosk ... http://SERVER:8580/kiosk/
+```
+
+and point `ExecStart` at `cage -s -- /usr/local/bin/qm-browser.sh`. Pick `90` or `270` to match which way you mounted the panel. If touches land in the wrong place after rotating, the touch panel isn't following the output; use Option B instead.
+
+**Option B (fallback, no OS settings): rotate inside the page.** Load the URL with a rotate parameter and the kiosk turns its own UI:
+
+```
+http://SERVER:8580/kiosk/?rotate=90     (turns the picture clockwise)
+http://SERVER:8580/kiosk/?rotate=270    (turns it counter-clockwise)
+```
+
+Touch input is mapped correctly by the browser. The camera preview rotates with the rest of the page.
+
+> **Status:** the portrait layout and `?rotate=` were checked here in a headless browser at 480x800 and at 800x480 with each rotation (no clipped content, taps land on the right buttons). Option A has not been tried on a real Pi.
+
+## 7. Locking
 
 The kiosk locks itself after 15 minutes without a touch or scan (configurable with `QM_IDLE_MINUTES` on the server) and asks for the PIN again. Anything you had scanned but not finished stays queued on the server, so after unlocking you'll see a "Resume" banner.

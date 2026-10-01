@@ -1,8 +1,19 @@
 /* Touch UI, designed for a 7" 800x480 screen. Everything is flex-sized, so other sizes work too. */
-html, body { overflow: hidden; overscroll-behavior: none; user-select: none; -webkit-user-select: none; touch-action: manipulation; cursor: default; }
-#app { height: 100dvh; width: 100vw; display: flex; flex-direction: column; position: relative; }
-button { cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
-button:disabled { opacity: .35; cursor: default; }
+html, body { overflow: hidden; overscroll-behavior: none; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+/* This is a touchscreen: never draw a mouse pointer (the compositor parks one mid-screen). */
+*, *::before, *::after { cursor: none !important; }
+#stage { position: fixed; inset: 0; }
+#app { height: 100%; width: 100%; display: flex; flex-direction: column; position: relative; }
+button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+button:disabled { opacity: .35; }
+
+/* ------------------------------------------------------------- rotation
+   The Pi display can be mounted sideways. Preferred: rotate the screen in the OS (docs/pi-kiosk.md).
+   Fallback needing no OS setup: load /kiosk/?rotate=90 (clockwise) or ?rotate=270 and the browser
+   turns the whole UI. Either way the page ends up portrait, and kiosk.js adds html.portrait. */
+html.rot #stage { inset: auto; top: 0; left: 0; width: 100vh; height: 100vw; transform-origin: 0 0; }
+html.rot-90 #stage { transform: translateX(100vw) rotate(90deg); }
+html.rot-270 #stage { transform: translateY(100vh) rotate(-90deg); }
 
 /* --------------------------------------------------------------- chrome */
 .bar { height: 56px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
@@ -119,3 +130,35 @@ button:disabled { opacity: .35; cursor: default; }
 .cam-msg { min-height: 22px; text-align: center; color: var(--warn); font-size: 16px; }
 .cam-actions { display: flex; gap: 12px; justify-content: center; }
 .cam-actions .btn { flex: 1; max-width: 260px; }
+
+/* ------------------------------------------------- portrait (480x800-ish) */
+html.portrait .bar h1 { font-size: 17px; }
+html.portrait .bar .side { min-width: 0; }
+html.portrait .bar .btn { padding: 0 12px; font-size: 15px; }
+html.portrait .bar .side.end { font-size: 14px; gap: 6px; }
+html.portrait .btn.big { padding: 0 18px; font-size: 19px; height: 56px; }
+
+html.portrait .home { grid-template-columns: 1fr; grid-template-rows: repeat(3, 1fr); gap: 12px; padding: 12px; }
+html.portrait .tile { flex-direction: row; gap: 22px; font-size: 28px; }
+html.portrait .tile .ico { font-size: 54px; }
+html.portrait .tile small { display: block; }
+html.portrait .resume { flex-wrap: wrap; margin: 10px 12px 0; }
+
+html.portrait .scan { padding: 12px; }
+html.portrait .scan-prompt .big { font-size: 28px; }
+html.portrait .last { flex-wrap: wrap; justify-content: center; }
+html.portrait .last .mid { flex-basis: 220px; }
+html.portrait .last .stepper { width: 100%; justify-content: center; }
+html.portrait .foot { padding: 8px 10px; gap: 8px; }
+html.portrait .summary { font-size: 17px; }
+
+html.portrait .row { flex-wrap: wrap; }
+html.portrait .row .info { flex-basis: calc(100% - 70px); }
+html.portrait .row .stepper { width: 100%; justify-content: flex-end; }
+
+html.portrait .totals { flex-wrap: wrap; gap: 4px 12px; }
+html.portrait .totals .extra { margin-left: 0; text-align: left; width: 100%; }
+
+html.portrait .dialog { min-width: 0; width: calc(100% - 24px); }
+html.portrait .cam-actions { gap: 8px; }
+html.portrait .cam-actions .btn { padding: 0 8px; font-size: 18px; }
