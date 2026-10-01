@@ -1,0 +1,227 @@
+"""Calibers, products, and barcode <-> product assignment (admin site)."""
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from .. import security
+from ..codes import normalize_code
+from ..db import get_db
+from ..models import Barcode, Caliber, Product, Transaction
+from ..services import product_dict, spec_text
+
+router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
+
+
+# ------------------------------------------------------------------ calibers
+class CaliberIn(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    active: bool = True
+
+
+class CaliberPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=64)
+    active: bool | None = None
+
+
+class ReorderIn(BaseModel):
+    ids: list[int]
+
+
+def _caliber_dict(c: Caliber, count: int = 0) -> dict:
+    return {"id": c.id, "name": c.name, "active": c.active, "sort_order": c.sort_order, "products": count}
+
+
+@router.get("/calibers")
+def list_calibers(db: Session = Depends(get_db)):
+    counts = dict(db.execute(select(Product.caliber_id, func.count(Product.id)).group_by(Product.caliber_id)).all())
+    rows = db.scalars(select(Caliber).order_by(Caliber.sort_order, Caliber.name))
+    return [_caliber_dict(c, counts.get(c.id, 0)) for c in rows]
+
+
+@router.post("/calibers")
+def create_caliber(body: CaliberIn, db: Session = Depends(get_db)):
+    name = body.name.strip()
+    if db.scalar(select(Caliber).where(func.lower(Caliber.name) == name.lower())):
+        raise HTTPException(409, "That caliber already exists")
+    top = db.scalar(select(func.coalesce(func.max(Caliber.sort_order), 0))) or 0
+    c = Caliber(name=name, active=body.active, sort_order=top + 10)
+    db.add(c)
+    db.commit()
+    return _caliber_dict(c)
+
+
+@router.patch("/calibers/{cid}")
+def update_caliber(cid: int, body: CaliberPatch, db: Session = Depends(get_db)):
+    c = db.get(Caliber, cid)
+    if not c:
+        raise HTTPException(404, "Caliber not found")
+    if body.name is not None:
+        name = body.name.strip()
+        dup = db.scalar(
+            select(Caliber).where(func.lower(Caliber.name) == name.lower(), Caliber.id != cid)
+        )
+        if dup:
+            raise HTTPException(409, "That caliber already exists")
+        c.name = name
+    if body.active is not None:
+        c.active = body.active
+    db.commit()
+    return _caliber_dict(c)
+
+
+@router.post("/calibers/reorder")
+def reorder_calibers(body: ReorderIn, db: Session = Depends(get_db)):
+    for pos, cid in enumerate(body.ids):
+        c = db.get(Caliber, cid)
+        if c:
+            c.sort_order = (pos + 1) * 10
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/calibers/{cid}")
+def delete_caliber(cid: int, db: Session = Depends(get_db)):
+    c = db.get(Caliber, cid)
+    if not c:
+        raise HTTPException(404, "Caliber not found")
+    if db.scalar(select(func.count(Product.id)).where(Product.caliber_id == cid)):
+        raise HTTPException(409, "Products use this caliber. Mark it inactive instead, or move those products first.")
+    db.delete(c)
+    db.commit()
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ products
+class ProductIn(BaseModel):
+    caliber_id: int
+    brand: str = Field(default="", max_length=80)
+    name: str = Field(default="", max_length=120)
+    bullet_weight_gr: float | None = Field(default=None, gt=0, le=5000)
+    bullet_type: str = Field(default="", max_length=40)
+    rounds_per_box: int = Field(gt=0, le=10000)
+    cost_per_box: float | None = Field(default=None, ge=0)
+    notes: str = ""
+
+
+def _product_full(db: Session, p: Product) -> dict:
+    d = product_dict(p)
+    d["spec"] = spec_text(p)
+    d["codes"] = [b.code for b in sorted(p.barcodes, key=lambda b: b.code)]
+    return d
+
+
+@router.get("/products")
+def list_products(caliber_id: int | None = None, q: str | None = None, db: Session = Depends(get_db)):
+    stmt = select(Product)
+    if caliber_id:
+        stmt = stmt.where(Product.caliber_id == caliber_id)
+    out = []
+    for p in db.scalars(stmt):
+        d = _product_full(db, p)
+        if q:
+            hay = " ".join([d["label"], d["caliber"] or "", d["bullet_type"], *d["codes"]]).lower()
+            if q.lower() not in hay:
+                continue
+        out.append(d)
+    out.sort(key=lambda d: ((d["caliber"] or "").lower(), d["bullet_weight_gr"] or 0, d["label"].lower()))
+    return out
+
+
+def _check_caliber(db: Session, cid: int) -> None:
+    if not db.get(Caliber, cid):
+        raise HTTPException(400, "Unknown caliber")
+
+
+@router.post("/products")
+def create_product(body: ProductIn, db: Session = Depends(get_db)):
+    _check_caliber(db, body.caliber_id)
+    p = Product(**body.model_dump())
+    db.add(p)
+    db.commit()
+    return _product_full(db, p)
+
+
+@router.put("/products/{pid}")
+def update_product(pid: int, body: ProductIn, db: Session = Depends(get_db)):
+    p = db.get(Product, pid)
+    if not p:
+        raise HTTPException(404, "Product not found")
+    _check_caliber(db, body.caliber_id)
+    for k, v in body.model_dump().items():
+        setattr(p, k, v)
+    db.commit()
+    return _product_full(db, p)
+
+
+@router.delete("/products/{pid}")
+def delete_product(pid: int, db: Session = Depends(get_db)):
+    """Deleting a product does not lose history: its codes simply become unidentified again."""
+    p = db.get(Product, pid)
+    if not p:
+        raise HTTPException(404, "Product not found")
+    for b in p.barcodes:
+        b.product_id = None
+    db.delete(p)
+    db.commit()
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ barcodes
+class AssignIn(BaseModel):
+    product_id: int | None
+
+
+class CodeIn(BaseModel):
+    code: str
+
+
+def _norm(code: str) -> str:
+    try:
+        return normalize_code(code)
+    except ValueError:
+        raise HTTPException(400, "Invalid code")
+
+
+@router.put("/barcodes/{code}")
+def assign_barcode(code: str, body: AssignIn, db: Session = Depends(get_db)):
+    """Point a code at a product (or at nothing, to make it unidentified again)."""
+    code = _norm(code)
+    bc = db.get(Barcode, code)
+    if not bc:
+        raise HTTPException(404, "Code not found")
+    if body.product_id is not None and not db.get(Product, body.product_id):
+        raise HTTPException(400, "Unknown product")
+    bc.product_id = body.product_id
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/products/{pid}/barcodes")
+def add_barcode(pid: int, body: CodeIn, db: Session = Depends(get_db)):
+    """Register a code to a product ahead of its first scan."""
+    if not db.get(Product, pid):
+        raise HTTPException(404, "Product not found")
+    code = _norm(body.code)
+    bc = db.get(Barcode, code)
+    if bc and bc.product_id not in (None, pid):
+        raise HTTPException(409, "That code already belongs to another product")
+    if not bc:
+        bc = Barcode(code=code)
+        db.add(bc)
+    bc.product_id = pid
+    db.commit()
+    return {"ok": True, "code": code}
+
+
+@router.delete("/barcodes/{code}")
+def delete_barcode(code: str, db: Session = Depends(get_db)):
+    code = _norm(code)
+    bc = db.get(Barcode, code)
+    if not bc:
+        raise HTTPException(404, "Code not found")
+    if db.scalar(select(func.count(Transaction.id)).where(Transaction.code == code)):
+        raise HTTPException(409, "This code has history. Unassign it from the product instead.")
+    db.delete(bc)
+    db.commit()
+    return {"ok": True}

@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.env
+
+# Runtime data (the SQLite database lives here). Never commit it.
+data/
+*.db
+*.db-wal
+*.db-shm

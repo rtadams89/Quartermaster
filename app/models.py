@@ -1,0 +1,121 @@
+from datetime import datetime
+
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from .db import Base, utcnow
+
+
+class Setting(Base):
+    __tablename__ = "settings"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+
+
+class AuthSession(Base):
+    """A logged-in browser. Only a hash of the cookie token is stored."""
+
+    __tablename__ = "auth_sessions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_seen: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    ip: Mapped[str] = mapped_column(String(64), default="")
+
+
+class LoginAttempt(Base):
+    """Failed-PIN bookkeeping, one row per source IP."""
+
+    __tablename__ = "login_attempts"
+    ip: Mapped[str] = mapped_column(String(64), primary_key=True)
+    failures: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_failure_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class Caliber(Base):
+    __tablename__ = "calibers"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    products: Mapped[list["Product"]] = relationship(back_populates="caliber")
+
+
+class Product(Base):
+    __tablename__ = "products"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    caliber_id: Mapped[int] = mapped_column(ForeignKey("calibers.id"))
+    brand: Mapped[str] = mapped_column(String(80), default="")
+    name: Mapped[str] = mapped_column(String(120), default="")
+    bullet_weight_gr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bullet_type: Mapped[str] = mapped_column(String(40), default="")
+    rounds_per_box: Mapped[int] = mapped_column(Integer)
+    cost_per_box: Mapped[float | None] = mapped_column(Float, nullable=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    caliber: Mapped[Caliber] = relationship(back_populates="products")
+    barcodes: Mapped[list["Barcode"]] = relationship(back_populates="product")
+
+
+class Barcode(Base):
+    """A scannable code. product_id is NULL until the code has been identified."""
+
+    __tablename__ = "barcodes"
+    code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    product_id: Mapped[int | None] = mapped_column(
+        ForeignKey("products.id"), nullable=True, index=True
+    )
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    product: Mapped[Product | None] = relationship(back_populates="barcodes")
+
+
+class Batch(Base):
+    """One check-in / check-out session. Items are queued here until finished."""
+
+    __tablename__ = "batches"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(8))  # 'in' | 'out'
+    status: Mapped[str] = mapped_column(String(12), default="draft")  # draft|finished|cancelled
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    items: Mapped[list["BatchItem"]] = relationship(
+        back_populates="batch", cascade="all, delete-orphan", order_by="BatchItem.id"
+    )
+
+
+class BatchItem(Base):
+    __tablename__ = "batch_items"
+    __table_args__ = (UniqueConstraint("batch_id", "code"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    batch_id: Mapped[int] = mapped_column(ForeignKey("batches.id"))
+    code: Mapped[str] = mapped_column(ForeignKey("barcodes.code"))
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+
+    batch: Mapped[Batch] = relationship(back_populates="items")
+
+
+class Transaction(Base):
+    """Append-only ledger. Inventory is the sum of `boxes` per code."""
+
+    __tablename__ = "transactions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    code: Mapped[str] = mapped_column(ForeignKey("barcodes.code"), index=True)
+    boxes: Mapped[int] = mapped_column(Integer)  # signed: + in, - out
+    kind: Mapped[str] = mapped_column(String(8))  # in | out | adjust
+    batch_id: Mapped[int | None] = mapped_column(ForeignKey("batches.id"), nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")

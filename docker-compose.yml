@@ -1,0 +1,20 @@
+services:
+  quartermaster:
+    build: .
+    image: quartermaster:latest
+    container_name: quartermaster
+    restart: unless-stopped
+    ports:
+      - "${QM_PORT:-8080}:8080"
+    environment:
+      TZ: ${TZ:-America/Phoenix}
+      QM_IDLE_MINUTES: ${QM_IDLE_MINUTES:-15}
+      QM_LOCKOUT_THRESHOLD: ${QM_LOCKOUT_THRESHOLD:-5}
+      QM_LOCKOUT_BASE_SECONDS: ${QM_LOCKOUT_BASE_SECONDS:-60}
+      QM_LOCKOUT_MAX_SECONDS: ${QM_LOCKOUT_MAX_SECONDS:-3600}
+      # Only set these to true if a reverse proxy in front of this container terminates
+      # the connection (TRUST_PROXY) and/or serves HTTPS (COOKIE_SECURE).
+      QM_TRUST_PROXY: ${QM_TRUST_PROXY:-false}
+      QM_COOKIE_SECURE: ${QM_COOKIE_SECURE:-false}
+    volumes:
+      - ./data:/data
