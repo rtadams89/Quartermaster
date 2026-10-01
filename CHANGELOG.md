@@ -2,6 +2,12 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 0.10.0
+- Admin: Inventory → "+ Add stock" adds boxes of a product (with a note) from the admin site, recorded as ammo in.
+
+## 0.9.3
+- Removed unused playwright from requirements-dev.txt.
+
 ## 0.9.2
 - Removed DEVELOPMENT.md.
 

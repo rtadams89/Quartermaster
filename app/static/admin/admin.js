@@ -203,8 +203,41 @@ async function inventory() {
   zero.addEventListener('change', load);
   clear(main, h('h1', {}, 'Inventory'),
     h('div', { class: 'toolbar' }, calSel, q, h('label', { class: 'chk' }, zero, 'Show zero stock'), h('span', { class: 'grow' }),
+      h('button', { class: 'btn primary', onclick: () => addStockDialog(calibers, load) }, '+ Add stock'),
       h('a', { class: 'btn', href: '/api/export/inventory.csv' }, 'Export CSV')), holder);
   await load();
+}
+
+async function addStockDialog(calibers, done) {
+  const products = (await get('/api/products')).filter((p) => p.codes.length);
+  if (!products.length) {
+    toast('Create a product with a barcode first', 'error');
+    return productDialog(calibers, null, () => { done(); });
+  }
+  const pick = h('select', {}, products.map((p) => h('option', { value: p.id }, `${p.caliber} — ${p.label} (${specOf(p)})`)));
+  const code = h('select');
+  const paintCodes = () => {
+    const p = products.find((x) => String(x.id) === pick.value);
+    clear(code, p.codes.map((c) => h('option', { value: c }, c)));
+    codeRow.style.display = p.codes.length > 1 ? '' : 'none';
+  };
+  const codeRow = labeled('Barcode', code, 'full');
+  const boxes = h('input', { type: 'number', min: 1, step: 1, value: 1 });
+  const note = h('input', { placeholder: 'e.g. bought at gun show', maxlength: 300 });
+  pick.addEventListener('change', paintCodes);
+  paintCodes();
+  const dlg = dialog({
+    title: 'Add stock', ok: 'Add to inventory',
+    body: h('div', { class: 'form' }, labeled('Product', pick, 'full'), codeRow, labeled('Boxes to add', boxes, 'full'), labeled('Note (optional)', note, 'full'),
+      h('p', { class: 'sub full', style: { margin: 0 } }, ["Not listed? ", h('a', { href: '#', onclick: (e) => { e.preventDefault(); dlg.close(); productDialog(calibers, null, () => { done(); }); } }, 'Create the product first'), '.'])),
+    onOk: async () => {
+      const n = Number(boxes.value);
+      if (!Number.isInteger(n) || n < 1) throw new Error('Enter a whole number of boxes, 1 or more');
+      await post('/api/stock', { code: code.value, boxes: n, note: note.value });
+      toast(`Added ${n} box${n === 1 ? '' : 'es'}`, 'ok');
+      done();
+    },
+  });
 }
 
 function adjustDialog(p, done) {

@@ -41,7 +41,7 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 
 **Unknown barcodes.** A barcode the system hasn't seen is still recorded, as "Unknown item". When it is new, the kiosk offers to take a photo of the box (if you have a camera). Later, open **Unidentified** in the admin site and name it, and everything already scanned picks up the details.
 
-**Inventory.** On the kiosk, tap *Inventory* and drill down by caliber, then bullet weight, then product.
+**Inventory.** On the kiosk, tap *Inventory* and drill down by caliber, then bullet weight, then product. In the admin site, *Inventory → + Add stock* adds boxes without scanning, and *Adjust* corrects a count.
 
 **Ammo without a barcode.** In the admin site, **Labels** prints your own barcode or QR labels to stick on those boxes.
 

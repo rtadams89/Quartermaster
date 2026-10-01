@@ -120,6 +120,28 @@ def adjust(body: AdjustIn, db: Session = Depends(get_db)):
     return _tx_dict(t, db.get(Barcode, code))
 
 
+class StockIn(BaseModel):
+    code: str
+    boxes: int = Field(ge=1, le=10000)
+    note: str = Field(default="", max_length=300)
+
+
+@router.post("/stock")
+def add_stock(body: StockIn, db: Session = Depends(get_db)):
+    """Add boxes of a known product from the admin site (same as scanning them in at the kiosk)."""
+    try:
+        code = normalize_code(body.code)
+    except ValueError:
+        raise HTTPException(400, "Invalid code")
+    bc = db.get(Barcode, code)
+    if not bc or bc.product_id is None:
+        raise HTTPException(404, "That code isn't attached to a product")
+    t = Transaction(code=code, boxes=body.boxes, kind="in", note=body.note.strip())
+    db.add(t)
+    db.commit()
+    return _tx_dict(t, bc)
+
+
 # -------------------------------------------------------------------- export
 def _csv(rows: list[list], header: list[str], filename: str) -> Response:
     buf = io.StringIO()

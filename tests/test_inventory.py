@@ -179,3 +179,22 @@ def test_csv_export(authed):
     r = authed.get("/api/export/inventory.csv")
     assert r.status_code == 200 and "666666666666" in r.text and ",100" in r.text
     assert "in" in authed.get("/api/export/transactions.csv").text
+
+
+def test_admin_can_add_stock_for_a_known_product(authed):
+    p = make_product(authed)
+    authed.post(f"/api/products/{p['id']}/barcodes", json={"code": "012345678905"})
+    r = authed.post("/api/stock", json={"code": "012345678905", "boxes": 3, "note": "gun show"})
+    assert r.status_code == 200, r.text
+    rows = authed.get("/api/inventory/items").json()["products"]
+    assert rows[0]["boxes"] == 3 and rows[0]["rounds"] == 150
+    tx = authed.get("/api/transactions").json()[0]
+    assert tx["kind"] == "in" and tx["boxes"] == 3 and tx["note"] == "gun show"
+
+
+def test_add_stock_rejects_unknown_codes_and_bad_quantities(authed):
+    assert authed.post("/api/stock", json={"code": "999999999999", "boxes": 1}).status_code == 404
+    p = make_product(authed)
+    authed.post(f"/api/products/{p['id']}/barcodes", json={"code": "012345678905"})
+    assert authed.post("/api/stock", json={"code": "012345678905", "boxes": 0}).status_code == 422
+    assert authed.post("/api/stock", json={"code": "012345678905", "boxes": -2}).status_code == 422
