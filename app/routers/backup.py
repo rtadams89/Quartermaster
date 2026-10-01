@@ -16,7 +16,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
@@ -216,11 +216,11 @@ class ResetIn(BaseModel):
 
 
 @router.post("/reset")
-def reset_all(body: ResetIn, request: Request, db: Session = Depends(get_db)):
-    """Erase all inventory data: history, products, barcodes, photos, calibers (back to the starter list),
-    draft batches, the label counter and preferences. The PIN and current logins are kept.
+def reset_all(body: ResetIn, request: Request, response: Response, db: Session = Depends(get_db)):
+    """Put the system back to a fresh install: every table is emptied, including the PIN, all logins and
+    the lockout counters, and the starter caliber list is put back. The next visitor sets a new PIN.
 
-    Needs the PIN again plus the typed word RESET, and saves a copy of the data first."""
+    Needs the current PIN plus the typed word RESET. No copy of the data is kept; download a backup first."""
     if body.confirm != "RESET":
         raise HTTPException(400, "Type RESET to confirm")
     ip = security.client_ip(request)
@@ -233,20 +233,15 @@ def reset_all(body: ResetIn, request: Request, db: Session = Depends(get_db)):
         if lock:
             raise _too_many(lock)
         raise HTTPException(400, "Incorrect PIN")
-    security.record_success(db, ip)
     db.close()
 
-    safety = _safety_copy("reset")
     con = sqlite3.connect(config.DB_PATH, timeout=30, isolation_level=None)
     try:
         con.execute("PRAGMA foreign_keys=OFF")
         con.execute("BEGIN IMMEDIATE")
         try:
-            for t in reversed([t for t in Base.metadata.sorted_tables if t.name not in EPHEMERAL_TABLES]):
-                if t.name == "settings":
-                    con.execute('DELETE FROM "settings" WHERE key != ?', (security.PIN_KEY,))
-                else:
-                    con.execute(f'DELETE FROM "{t.name}"')
+            for t in reversed(Base.metadata.sorted_tables):  # children before parents
+                con.execute(f'DELETE FROM "{t.name}"')
             con.execute("COMMIT")
         except BaseException:
             con.execute("ROLLBACK")
@@ -257,4 +252,5 @@ def reset_all(body: ResetIn, request: Request, db: Session = Depends(get_db)):
         con.close()
     with SessionLocal() as s:
         seed(s)
-    return {"ok": True, "safety_copy": f"backups/{safety.name}"}
+    response.delete_cookie(security.COOKIE, path="/")
+    return {"ok": True}

@@ -4,6 +4,15 @@ The version lives in one place, `app/__init__.py` (`__version__`). It is shown s
 screen and in the footer of the admin sidebar, and reported by `/api/health` and `/api/auth/status`.
 Every change bumps it (patch for fixes and docs, minor for features) and gets a line here.
 
+## 0.9.0
+- Kiosk: with `?blank=N` (set by the installer to match the screen-blank period) the page goes black just before the screen blanks and swallows the first touch or scan that wakes it.
+- Admin reset now returns to a fresh install: no safety copy, and the PIN, logins and lockouts are erased too, so the next visit sets a new PIN.
+
+## 0.8.0
+- Fixed stale UI after an update: static files now use content-hash ETags (modification time + size could collide), and open pages compare their build id to the server's (`/api/health`) and reload themselves when it changes.
+- Kiosk: `?rotate=180`. Installer: rotation is now only the page-level `?rotate=` (0/90/180/270); the OS-level `wlr-randr` option is gone.
+- Installer: screen blank timeout is a menu (never, 15 min, 1 hour, 4 hours) using swayidle + wlr-randr; replaces the on/off console-blank option.
+
 ## 0.7.1
 - `pi/install.sh` is now the only file the Pi needs: the camera helper is built in (`--print-helper` shows it). Removed the separate helper, service and udev-rule files.
 

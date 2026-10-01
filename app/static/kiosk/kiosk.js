@@ -1,4 +1,4 @@
-import { get, post, patch, sendBlob, watchSession } from '/shared/api.js';
+import { get, post, patch, sendBlob, watchSession, watchBuild } from '/shared/api.js';
 import { h, clear, fmtInt, toast } from '/shared/dom.js';
 import { renderLogin } from '/shared/login.js';
 import { detectCamera, createCamera } from '/kiosk/camera.js';
@@ -6,15 +6,53 @@ import { detectCamera, createCamera } from '/kiosk/camera.js';
 const app = document.getElementById('app');
 
 // Orientation. The UI has a landscape layout (800x480) and a portrait one (480x800). A portrait
-// screen, or the ?rotate=90 / ?rotate=270 fallback that turns the page in the browser, selects the latter.
+// screen, or ?rotate=90 / ?rotate=270 (the page turns itself), selects the latter. ?rotate=180 turns it upside-down.
 (() => {
   const root = document.documentElement;
   const rotate = new URLSearchParams(location.search).get('rotate');
   if (rotate === '90' || rotate === '270') root.classList.add('rot', 'rot-' + rotate);
+  else if (rotate === '180') root.classList.add('rot-180');
   const portrait = matchMedia('(orientation: portrait)');
   const apply = () => root.classList.toggle('portrait', root.classList.contains('rot') || portrait.matches);
   portrait.addEventListener('change', apply);
   apply();
+})();
+
+// Sleep veil. When the Pi blanks its screen after N seconds without input (see the installer), the first touch
+// that wakes the screen would also press whatever is under the finger. The installer passes the same period as
+// ?blank=N; the page goes black a few seconds before the screen does, and swallows the first touch or scan.
+(() => {
+  const secs = Number(new URLSearchParams(location.search).get('blank'));
+  if (!(secs >= 11)) return;
+  const after = (secs - 10) * 1000;
+  const veil = h('div', { id: 'veil', 'aria-hidden': 'true' });
+  const eaten = ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'click', 'keydown', 'keyup', 'keypress'];
+  const activity = ['pointerdown', 'pointermove', 'touchstart', 'keydown'];
+  let timer, state = 'awake'; // awake -> asleep -> waking -> awake
+  const arm = () => { clearTimeout(timer); timer = setTimeout(sleep, after); };
+  function sleep() {
+    state = 'asleep';
+    document.body.append(veil);
+    veil.className = '';
+  }
+  function wake() {
+    state = 'waking';
+    veil.className = 'wake';
+    // Keep eating events until the touch (or the scanner's burst) has finished, then reveal the page.
+    clearTimeout(wake.t);
+    wake.t = setTimeout(() => { veil.remove(); state = 'awake'; arm(); }, 500);
+  }
+  for (const type of eaten) {
+    window.addEventListener(type, (e) => {
+      if (state === 'awake') return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (state === 'asleep' && activity.includes(type)) wake();
+      else if (state === 'waking') { clearTimeout(wake.t); wake.t = setTimeout(() => { veil.remove(); state = 'awake'; arm(); }, 500); }
+    }, { capture: true, passive: false });
+  }
+  for (const type of activity) window.addEventListener(type, () => { if (state === 'awake') arm(); }, { capture: true, passive: true });
+  arm();
 })();
 
 const S = {
@@ -519,5 +557,8 @@ async function showInventory() {
           r.drillable && h('span', { class: 'chev' }, '›')))
         : h('div', { class: 'empty' }, 'Nothing in stock yet. Use Ammo In to add boxes.'))));
 }
+
+// Pick up a new server version by itself, but only while resting on the lock or home screen.
+watchBuild(() => S.screen === 'lock' || S.screen === 'home');
 
 boot();

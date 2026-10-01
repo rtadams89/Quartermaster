@@ -25,9 +25,9 @@ It asks a handful of questions, each with a sensible default (just press Enter):
 
 1. The **server address** (it checks it can reach the server).
 2. Which Linux **user** runs the kiosk (and creates it if needed).
-3. The **orientation**: landscape, or portrait in either direction, rotated by the page or by the OS.
+3. The **rotation** of the picture: 0°, 90°, 180° or 270° (done by the page, via `?rotate=`).
 4. Which **camera** takes box photos: none, a USB webcam, or a Pi camera module (which also installs the helper service).
-5. Whether to apply the **mouse-arrow fix** and turn off **screen blanking**.
+5. Whether to apply the **mouse-arrow fix**, and how long before the **screen blanks**: never, or after 15 minutes, 1 hour or 4 hours of inactivity.
 6. Whether to **start at boot**.
 
 It then shows a summary, installs the packages, writes the files described in the rest of this page, and offers to reboot. Your answers are saved in `/etc/quartermaster-kiosk.conf`, so to change one later, run the installer again. `sudo bash install.sh --uninstall` removes everything it created, and `bash install.sh --dry-run` shows what it would do without changing anything.
@@ -164,8 +164,8 @@ If both a helper and a webcam are present, the helper is used.
 
 ## 5. Screen and touch
 
-- **Screen never blanks:** the service above keeps the compositor running; if the display still sleeps, add `consoleblank=0` to the end of the single line in `/boot/firmware/cmdline.txt`.
-- **Rotation / portrait mounting:** see the next section.
+- **Screen blanking:** the installer sets how long the screen stays on (never, 15 minutes, 1 hour or 4 hours of inactivity) using `swayidle` and `wlr-randr` inside the kiosk launcher. A touch wakes it. So that the wake-up touch doesn't also press a button, the launcher adds `blank=<seconds>` to the kiosk URL: the page goes black about 10 seconds before the screen turns off, and swallows the first touch (or the first scan) that wakes it. The screen blanking itself relies on `cage` supporting idle notification, which I have not confirmed on cage 0.3.1: if the screen never turns off, check `journalctl -u quartermaster-kiosk -b` for `swayidle` errors (the black page still works on its own).
+- **Rotation:** see the next section.
 - **Touch offset:** panels that connect over DSI report correct coordinates automatically. USB touch panels occasionally need a libinput calibration matrix; search for your panel's model plus "libinput calibration".
 
 ### Mouse pointer
@@ -190,36 +190,19 @@ SUBSYSTEM=="input", ATTRS{name}=="vc4-hdmi-1", ENV{LIBINPUT_IGNORE_DEVICE}="1"
 
 To check, `sudo apt install libinput-tools` and run `sudo libinput list-devices`: the `vc4-hdmi` entries should be gone, and nothing but a mouse you plugged in yourself should list `pointer` under *Capabilities*. If a cursor ever returns, look for another device with `pointer` in that list (some USB scanners and touch panels register a second "mouse" interface) and add a matching rule with its exact name.
 
-## 6. Portrait (rotated) mounting
+## 6. Rotation (portrait or upside-down mounting)
 
-The UI has two layouts: landscape (800x480) and portrait (480x800). It switches automatically whenever the browser window is taller than it is wide. There are two ways to get a portrait window.
-
-**Option A (recommended): rotate the display in the OS.** The compositor rotates the picture *and* the touch input together, and the kiosk page just sees a 480x800 screen. With cage, run `wlr-randr` first. Find your output name once (it is usually `DSI-1` for the official display, or `HDMI-A-1`):
-
-```bash
-sudo -u kiosk XDG_RUNTIME_DIR=/run/user/$(id -u kiosk) WAYLAND_DISPLAY=wayland-0 wlr-randr
-```
-
-(run it while the kiosk service is up; `sudo apt install wlr-randr` first). Then wrap the browser in a small script, `/usr/local/bin/qm-browser.sh`:
-
-```bash
-#!/bin/sh
-wlr-randr --output DSI-1 --transform 90      # or 270 for the other direction
-exec /usr/bin/chromium --kiosk ... http://SERVER:8580/kiosk/
-```
-
-and point `ExecStart` at `cage -s -- /usr/local/bin/qm-browser.sh`. Pick `90` or `270` to match which way you mounted the panel. If touches land in the wrong place after rotating, the touch panel isn't following the output; use Option B instead.
-
-**Option B (fallback, no OS settings): rotate inside the page.** Load the URL with a rotate parameter and the kiosk turns its own UI:
+The kiosk page can turn itself by 90°, 180° or 270°, so the display can be mounted any way up. The installer asks for this and puts `?rotate=` on the URL; to do it by hand, load:
 
 ```
-http://SERVER:8580/kiosk/?rotate=90     (turns the picture clockwise)
-http://SERVER:8580/kiosk/?rotate=270    (turns it counter-clockwise)
+http://SERVER:8580/kiosk/?rotate=90     (UI turned clockwise)
+http://SERVER:8580/kiosk/?rotate=180    (upside-down)
+http://SERVER:8580/kiosk/?rotate=270    (UI turned counter-clockwise)
 ```
 
-Touch input is mapped correctly by the browser. The camera preview rotates with the rest of the page.
+At 90° and 270° the screen is portrait, and the kiosk switches to its portrait layout (480x800) automatically. The page does the rotating, so no operating-system display setting is involved, and touch, the scanner and the camera preview all follow it. If the picture comes out the wrong way up, use the opposite angle (90 and 270 are opposites).
 
-> **Status:** the portrait layout and `?rotate=` were checked here in a headless browser at 480x800 and at 800x480 with each rotation (no clipped content, taps land on the right buttons). Option A has not been tried on a real Pi.
+> **Status:** each rotation was checked here in a headless browser (nothing clipped, taps land on the right buttons). Not yet tried on a real Pi.
 
 ## 7. Locking
 

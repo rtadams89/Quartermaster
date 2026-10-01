@@ -1,5 +1,31 @@
 // fetch wrapper. A 401 anywhere fires 'qm:locked' so the UI can show the PIN screen.
 
+// Filled in by the server with the build this script came from (see app/assets.py).
+export const BUILD = '__BUILD__';
+
+/**
+ * Reload this page when the server has been updated. Checks every minute and whenever the tab becomes
+ * visible again. canReload() lets the page hold off while the user is in the middle of something.
+ */
+export function watchBuild(canReload) {
+  if (BUILD.startsWith('__')) return () => {}; // served without substitution (not by the app)
+  let busy = false;
+  const check = async () => {
+    if (busy) return;
+    busy = true;
+    try {
+      const res = await fetch('/api/health', { cache: 'no-store' });
+      const { build } = await res.json();
+      if (build && build !== BUILD && canReload()) location.reload();
+    } catch { /* offline: try again next time */ }
+    busy = false;
+  };
+  const timer = setInterval(check, 60000);
+  const onVisible = () => { if (document.visibilityState === 'visible') check(); };
+  document.addEventListener('visibilitychange', onVisible);
+  return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+}
+
 export class ApiError extends Error {
   constructor(status, message, retryAfter) {
     super(message);

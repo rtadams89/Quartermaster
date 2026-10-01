@@ -2,8 +2,8 @@
 # Quartermaster kiosk installer for a Raspberry Pi (Raspberry Pi OS Lite, Bookworm or newer).
 #
 # Sets the Pi up to boot straight into the Quartermaster kiosk page: installs the packages, writes the
-# systemd service and launcher, and (if you ask for them) the camera helper, the screen-rotation setting,
-# the "ignore HDMI pseudo-pointers" fix that hides the stray mouse cursor, and a no-blanking setting.
+# systemd service and launcher, and (if you ask for them) the camera helper, the screen rotation (0/90/180/270),
+# the "ignore HDMI pseudo-pointers" fix that hides the stray mouse cursor, and a screen-blank timeout.
 # Anything that is a real decision is asked in a menu; just press Enter to accept the [default].
 #
 #   sudo bash install.sh                 interactive install (safe to re-run to change a choice)
@@ -239,9 +239,12 @@ if [ "$UNINSTALL" = 1 ]; then
 fi
 
 # ----------------------------------------------------------------- defaults (saved choices win)
-KIOSK_USER=""; KIOSK_URL=""; ROTATION="none"; CAMERA="none"; IGNORE_HDMI="yes"; NO_BLANK="yes"; AUTOSTART="yes"
+KIOSK_USER=""; KIOSK_URL=""; ROTATION="0"; CAMERA="none"; IGNORE_HDMI="yes"; BLANK_AFTER="0"; AUTOSTART="yes"
 # shellcheck disable=SC1090
 [ -r "$(path "$CONF")" ] && . "$(path "$CONF")"
+# Choices saved by older versions of this installer.
+case "$ROTATION" in none) ROTATION=0 ;; browser90|os90) ROTATION=90 ;; browser270|os270) ROTATION=270 ;; esac
+case "$BLANK_AFTER" in 0|900|3600|14400) ;; *) BLANK_AFTER=0 ;; esac
 [ -n "$ARG_URL" ] && KIOSK_URL="$ARG_URL"
 if [ -z "$KIOSK_USER" ]; then
   if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then KIOSK_USER="$SUDO_USER"; else KIOSK_USER="kiosk"; fi
@@ -277,14 +280,14 @@ if [ "$DRY" = 0 ] && ! id "$KIOSK_USER" >/dev/null 2>&1; then
 fi
 
 # ----------------------------------------------------------------- 3. orientation
-step "3 of 6: screen orientation"
-menu ROTATION "How is the display mounted?" "$ROTATION" \
-  none        "Landscape, the normal way up (800x480)" \
-  browser90   "Portrait, direction A: the page rotates itself (works with no OS settings)" \
-  browser270  "Portrait, direction B: the page rotates itself, the other way" \
-  os90        "Portrait, direction A: the screen is rotated by the OS (touch should follow; try this if the page-rotated one feels off)" \
-  os270       "Portrait, direction B: the screen is rotated by the OS, the other way"
-[[ "$ROTATION" == none ]] || say "   If the picture ends up upside-down, run this installer again and pick the other direction."
+step "3 of 6: screen rotation"
+say "The kiosk page turns itself (the URL gets ?rotate=...), so no operating-system display settings are touched."
+menu ROTATION "How should the picture be turned?" "$ROTATION" \
+  0   "0°: normal landscape (800x480)" \
+  90  "90°: turned clockwise, portrait" \
+  180 "180°: upside-down landscape" \
+  270 "270°: turned counter-clockwise, portrait"
+[ "$ROTATION" = 0 ] || say "   If the picture comes out the wrong way up, run this installer again and pick the opposite angle (90 <-> 270)."
 
 # ----------------------------------------------------------------- 4. camera
 step "4 of 6: box-photo camera"
@@ -299,21 +302,26 @@ say "The Pi's two HDMI ports register fake 'mouse' devices, which makes the kios
 say "in the middle of the screen. Telling the system to ignore them hides it. (Your touchscreen is not affected.)"
 if yesno "Ignore the HDMI pseudo-pointers (recommended)?" "$([ "$IGNORE_HDMI" = yes ] && echo y || echo n)"; then IGNORE_HDMI=yes; else IGNORE_HDMI=no; fi
 say ""
-say "By default the Linux console blanks the display after a few minutes, which is bad for a wall-mounted screen."
-if yesno "Turn off console screen blanking (recommended)?" "$([ "$NO_BLANK" = yes ] && echo y || echo n)"; then NO_BLANK=yes; else NO_BLANK=no; fi
+menu BLANK_AFTER "Turn the screen off after how long without a touch or scan?" "$BLANK_AFTER" \
+  0     "Never blank (always on)" \
+  900   "After 15 minutes of inactivity" \
+  3600  "After 1 hour of inactivity" \
+  14400 "After 4 hours of inactivity"
+[ "$BLANK_AFTER" = 0 ] || say "   A touch wakes it; the page goes black just before and swallows that first touch, so it never presses a button."
 
 # ----------------------------------------------------------------- 6. start-up
 step "6 of 6: start-up"
 if yesno "Start the kiosk automatically at every boot (recommended)?" "$([ "$AUTOSTART" = yes ] && echo y || echo n)"; then AUTOSTART=yes; else AUTOSTART=no; fi
 
 # ----------------------------------------------------------------- confirm
-rot_label() { case "$1" in none) echo "landscape";; browser90) echo "portrait A (page rotates)";; browser270) echo "portrait B (page rotates)";; os90) echo "portrait A (OS rotates)";; os270) echo "portrait B (OS rotates)";; esac; }
+rot_label() { case "$1" in 0) echo "0° (normal)";; 90) echo "90° clockwise";; 180) echo "180° (upside-down)";; 270) echo "270° (counter-clockwise)";; esac; }
+blank_label() { case "$1" in 0) echo "never";; 900) echo "after 15 minutes";; 3600) echo "after 1 hour";; 14400) echo "after 4 hours";; esac; }
 cam_label() { case "$1" in none) echo "none";; usb) echo "USB webcam";; csi) echo "Pi camera module + helper";; esac; }
 printf '\n---------------------------------------------\nReady to install with:\n'
 printf '  Server:           %s\n  Kiosk user:       %s%s\n  Orientation:      %s\n  Camera:           %s\n' \
   "$KIOSK_URL" "$KIOSK_USER" "$([ "$CREATE_USER" = 1 ] && echo ' (will be created)')" "$(rot_label "$ROTATION")" "$(cam_label "$CAMERA")"
-printf '  Hide mouse arrow: %s\n  No screen blank:  %s\n  Start at boot:    %s\n---------------------------------------------\n' \
-  "$IGNORE_HDMI" "$NO_BLANK" "$AUTOSTART"
+printf '  Hide mouse arrow: %s\n  Screen blanks:    %s\n  Start at boot:    %s\n---------------------------------------------\n' \
+  "$IGNORE_HDMI" "$(blank_label "$BLANK_AFTER")" "$AUTOSTART"
 yesno "Go ahead?" y || { say "Nothing was changed."; exit 0; }
 
 # ----------------------------------------------------------------- install
@@ -322,7 +330,7 @@ PKGS=(cage fonts-dejavu-core fonts-noto-color-emoji curl)
 if [ "$DRY" = 1 ]; then CHROMIUM_PKG=chromium
 elif apt-cache show chromium >/dev/null 2>&1; then CHROMIUM_PKG=chromium; else CHROMIUM_PKG=chromium-browser; fi
 PKGS+=("$CHROMIUM_PKG")
-case "$ROTATION" in os*) PKGS+=(wlr-randr) ;; esac
+[ "$BLANK_AFTER" = 0 ] || PKGS+=(swayidle wlr-randr)
 if [ "$CAMERA" = csi ]; then
   if [ "$DRY" = 0 ] && ! apt-cache show rpicam-apps-lite >/dev/null 2>&1; then PKGS+=(libcamera-apps-lite); else PKGS+=(rpicam-apps-lite); fi
 fi
@@ -343,7 +351,7 @@ KIOSK_URL="$KIOSK_URL"
 ROTATION="$ROTATION"
 CAMERA="$CAMERA"
 IGNORE_HDMI="$IGNORE_HDMI"
-NO_BLANK="$NO_BLANK"
+BLANK_AFTER="$BLANK_AFTER"
 AUTOSTART="$AUTOSTART"
 EOF
 
@@ -353,18 +361,21 @@ put "$LAUNCHER" 755 <<'EOF'
 # Started by cage. Reads /etc/quartermaster-kiosk.conf, so changing a choice never needs a new unit file.
 . /etc/quartermaster-kiosk.conf
 
-case "$ROTATION" in
-  os90|os270)
-    out="$(wlr-randr 2>/dev/null | awk 'NR==1 {print $1}')"
-    [ -n "$out" ] && wlr-randr --output "$out" --transform "${ROTATION#os}"
-    ;;
-esac
+# Turn the screen off after BLANK_AFTER seconds without a touch or scan, and back on at the next one.
+if [ "${BLANK_AFTER:-0}" -gt 0 ] 2>/dev/null; then
+  out="$(wlr-randr 2>/dev/null | awk 'NR==1 {print $1}')"
+  if [ -n "$out" ]; then
+    swayidle -w timeout "$BLANK_AFTER" "wlr-randr --output $out --off" resume "wlr-randr --output $out --on" &
+  fi
+fi
 
+# Settings the page needs go on the URL: its rotation, and the blank period so it can swallow the wake-up touch.
 URL="$KIOSK_URL/kiosk/"
-case "$ROTATION" in
-  browser90) URL="$URL?rotate=90" ;;
-  browser270) URL="$URL?rotate=270" ;;
+SEP="?"
+case "${ROTATION:-0}" in
+  90|180|270) URL="$URL${SEP}rotate=$ROTATION"; SEP="&" ;;
 esac
+if [ "${BLANK_AFTER:-0}" -gt 0 ] 2>/dev/null; then URL="$URL${SEP}blank=$BLANK_AFTER"; fi
 
 BROWSER="$(command -v chromium || command -v chromium-browser)"
 EXTRA=""
@@ -450,18 +461,6 @@ else
   [ -e "$(path /etc/systemd/system/quartermaster-camera.service)" ] && rm -f "$(path /etc/systemd/system/quartermaster-camera.service)"
 fi
 
-if [ "$NO_BLANK" = yes ]; then
-  step "Turning off console screen blanking"
-  CMDLINE="$(path /boot/firmware/cmdline.txt)"; [ -e "$CMDLINE" ] || CMDLINE="$(path /boot/cmdline.txt)"
-  if [ -e "$CMDLINE" ]; then
-    if grep -q 'consoleblank=0' "$CMDLINE"; then say "   already set"
-    elif [ "$DRY" = 1 ] && [ -z "$ROOT" ]; then say "   [dry-run] would add consoleblank=0 to $CMDLINE"
-    else cp "$CMDLINE" "$CMDLINE.qm-backup"; sed -i '1 s/[[:space:]]*$/ consoleblank=0/' "$CMDLINE"; say "   added consoleblank=0 (backup: $CMDLINE.qm-backup)"; fi
-  else
-    say "   cmdline.txt not found; skipped. You can add consoleblank=0 to the kernel command line yourself."
-  fi
-fi
-
 step "Enabling services"
 run systemctl daemon-reload
 run systemctl set-default graphical.target
@@ -474,7 +473,7 @@ say "  Watch the log:   journalctl -u $UNIT -b"
 say "  Change a choice: run this installer again"
 say "  Remove it all:   sudo bash install.sh --uninstall"
 [ "$CAMERA" = csi ] && say "  Camera check:    curl http://127.0.0.1:8581/health    (should say \"camera\": true)"
-[ "$ROTATION" != none ] && say "  Wrong way up?    run the installer again and pick the other portrait direction"
+[ "$ROTATION" != 0 ] && say "  Wrong way up?    run the installer again and pick the opposite angle (90 <-> 270)"
 if [ "$DRY" = 0 ] && [ "$YES" = 0 ]; then
   yesno "Reboot now to start the kiosk?" y && { say "Rebooting..."; sleep 2; reboot; }
 fi

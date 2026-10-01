@@ -3,6 +3,8 @@ html, body { overflow: hidden; overscroll-behavior: none; user-select: none; -we
 /* This is a touchscreen: never draw a mouse pointer (the compositor parks one mid-screen). */
 *, *::before, *::after { cursor: none !important; }
 #stage { position: fixed; inset: 0; }
+#veil { position: fixed; inset: 0; z-index: 9999; background: #000; }
+#veil.wake { opacity: 0; transition: opacity .2s; }
 #app { height: 100%; width: 100%; display: flex; flex-direction: column; position: relative; }
 button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 button:disabled { opacity: .35; }
@@ -11,12 +13,13 @@ button:disabled { opacity: .35; }
 .bar h1 .ver { margin-left: 8px; font-size: 11px; font-weight: 500; letter-spacing: 0; color: var(--muted); opacity: .6; vertical-align: middle; }
 
 /* ------------------------------------------------------------- rotation
-   The Pi display can be mounted sideways. Preferred: rotate the screen in the OS (docs/pi-kiosk.md).
-   Fallback needing no OS setup: load /kiosk/?rotate=90 (clockwise) or ?rotate=270 and the browser
-   turns the whole UI. Either way the page ends up portrait, and kiosk.js adds html.portrait. */
+   The display can be mounted any way up. Load /kiosk/?rotate=90 (clockwise), 180 or 270 and the page
+   turns the whole UI; the Pi installer sets this up for you. 90 and 270 make the page portrait, and
+   kiosk.js then adds html.portrait. */
 html.rot #stage { inset: auto; top: 0; left: 0; width: 100vh; height: 100vw; transform-origin: 0 0; }
 html.rot-90 #stage { transform: translateX(100vw) rotate(90deg); }
 html.rot-270 #stage { transform: translateY(100vh) rotate(-90deg); }
+html.rot-180 #stage { transform: rotate(180deg); }
 
 /* --------------------------------------------------------------- chrome */
 .bar { height: 56px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 10px; background: var(--panel); border-bottom: 1px solid var(--line); }

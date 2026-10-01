@@ -2,10 +2,10 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import __version__
+from .assets import FreshStatic
 from .db import Base, SessionLocal, engine
 from .routers import auth, backup, batches, catalog, inventory, labels, photos, settings
 from .seed import seed
@@ -38,9 +38,9 @@ for r in (auth.router, batches.router, catalog.router, photos.router, inventory.
           settings.router, backup.router):
     app.include_router(r)
 
-app.mount("/shared", StaticFiles(directory=STATIC / "shared"), name="shared")
-app.mount("/kiosk", StaticFiles(directory=STATIC / "kiosk", html=True), name="kiosk")
-app.mount("/admin", StaticFiles(directory=STATIC / "admin", html=True), name="admin")
+app.mount("/shared", FreshStatic(directory=STATIC / "shared"), name="shared")
+app.mount("/kiosk", FreshStatic(directory=STATIC / "kiosk", html=True), name="kiosk")
+app.mount("/admin", FreshStatic(directory=STATIC / "admin", html=True), name="admin")
 
 
 # Browsers ask for icons at the site root regardless of which page they are on.

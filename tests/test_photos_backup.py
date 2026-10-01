@@ -264,21 +264,27 @@ def test_backup_and_restore_need_login(client):
 
 
 # -------------------------------------------------------------------- reset
-def test_reset_erases_data_keeps_pin_and_saves_a_copy(authed):
+def test_reset_returns_to_a_fresh_install_with_no_pin_and_no_copy(authed):
+    backups = Path(config.DB_PATH).parent / "backups"
+    before = sorted(backups.glob("*")) if backups.exists() else []
     make_product(authed)
     authed.put("/api/settings", json={"photo_prompt": False})
     run_batch(authed, "in", [("012345678905", 2)])
-    assert authed.get("/api/products").json()
     r = authed.post("/api/reset", json={"pin": "1234", "confirm": "RESET"})
     assert r.status_code == 200, r.text
-    assert r.json()["safety_copy"].startswith("backups/pre-reset-")
+    assert r.json() == {"ok": True}                                    # no safety copy is mentioned or made
+    assert (sorted(backups.glob("*")) if backups.exists() else []) == before
+    s = authed.get("/api/auth/status").json()
+    assert s["pin_set"] is False and s["authenticated"] is False        # PIN gone, logged out
+    assert authed.get("/api/calibers").status_code == 401
+    # first-run setup works again, and the system is empty apart from the starter calibers
+    assert authed.post("/api/auth/setup", json={"pin": "4321"}).status_code == 200
     assert authed.get("/api/products").json() == []
     assert authed.get("/api/transactions").json() == []
-    assert len(authed.get("/api/calibers").json()) >= 15           # starter list is back
-    assert authed.get("/api/settings").json()["photo_prompt"] is True  # preferences default again
-    assert authed.get("/api/auth/status").json()["authenticated"]  # still logged in, PIN unchanged
-    con = sqlite3.connect(str(Path(config.DB_PATH).parent / r.json()["safety_copy"]))
-    assert con.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == 1  # the copy holds what was erased
+    assert len(authed.get("/api/calibers").json()) >= 15
+    assert authed.get("/api/settings").json()["photo_prompt"] is True
+    assert authed.post("/api/auth/logout").status_code == 200
+    assert authed.post("/api/auth/login", json={"pin": "1234"}).status_code == 401  # the old PIN no longer works
 
 
 def test_reset_needs_the_word_and_the_right_pin(authed):

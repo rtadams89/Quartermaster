@@ -41,11 +41,15 @@ A code the system has never seen is **never rejected**. It is logged against the
 
 ### Reset
 
-*Settings → Reset* erases all inventory data (history, products, barcodes, photos, calibers back to the starter list, preferences) and keeps the PIN. It asks for the PIN and the word RESET, and saves a copy of the old data in the server's `backups` folder first.
+*Settings → Reset* returns the system to a fresh install: all history, products, barcodes, photos, preferences and the PIN are erased (calibers go back to the starter list) and you choose a new PIN. It asks for the current PIN and the word RESET, and keeps no copy of the old data, so download a backup first.
 
-### Portrait mounting
+### Rotation
 
-The kiosk has a portrait layout for a sideways-mounted display. Rotate the display in the OS, or just load `/kiosk/?rotate=90` (or `270`) and the page turns itself; see [docs/pi-kiosk.md](docs/pi-kiosk.md). The mouse pointer is always hidden on the kiosk.
+The kiosk can be mounted any way up: load `/kiosk/?rotate=90`, `180` or `270` and the page turns itself (the Pi installer sets this for you); see [docs/pi-kiosk.md](docs/pi-kiosk.md). The mouse pointer is always hidden on the kiosk.
+
+### Updates
+
+The web UIs are served so that an update always shows up: files are revalidated by content hash, and an open kiosk or admin page notices a new server version by itself and reloads (the kiosk waits until it is on the lock or home screen, admin until you close any dialog and stop typing).
 
 ### Box photos
 
