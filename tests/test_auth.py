@@ -7,7 +7,7 @@ from app.models import AuthSession
 
 def test_requires_pin_setup_then_login(client):
     s = client.get("/api/auth/status").json()
-    assert s == {"pin_set": False, "authenticated": False, "idle_minutes": 15, "retry_after": 0}
+    assert s == {"pin_set": False, "authenticated": False, "idle_minutes": 15, "retry_after": 0, "version": __import__("app").__version__}
     assert client.get("/api/calibers").status_code == 401
     assert client.post("/api/auth/login", json={"pin": "1234"}).status_code == 409
     assert client.post("/api/auth/setup", json={"pin": "1234"}).status_code == 200

@@ -502,13 +502,16 @@ async function route() {
   }
 }
 
+let version = '';
+
 function shell() {
   main = h('main');
   clear(app, h('div', { class: 'shell' },
     h('nav', {}, h('div', { class: 'brand' }, 'Quartermaster'),
       NAV.map(([k, label]) => h('a', { href: '#/' + k, 'data-page': k }, label)),
       h('div', { class: 'spacer' }),
-      h('a', { href: '#', onclick: async (e) => { e.preventDefault(); try { await post('/api/auth/logout'); } catch { /* */ } lock(); } }, 'Lock')),
+      h('a', { href: '#', onclick: async (e) => { e.preventDefault(); try { await post('/api/auth/logout'); } catch { /* */ } lock(); } }, 'Lock'),
+      h('footer', { class: 'ver' }, 'Quartermaster' + (version ? ' v' + version : ''))),
     main));
   route();
   refreshBadge();
@@ -532,6 +535,7 @@ async function boot() {
   }
   session?.stop();
   session = watchSession({ idleMinutes: status.idle_minutes, onLock: () => { toast(`Locked after ${status.idle_minutes} minutes of inactivity`); lock(); } });
+  version = status.version || version;
   shell();
 }
 

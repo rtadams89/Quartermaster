@@ -7,6 +7,9 @@ html, body { overflow: hidden; overscroll-behavior: none; user-select: none; -we
 button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 button:disabled { opacity: .35; }
 
+/* Version tag next to the home title: present but quiet. */
+.bar h1 .ver { margin-left: 8px; font-size: 11px; font-weight: 500; letter-spacing: 0; color: var(--muted); opacity: .6; vertical-align: middle; }
+
 /* ------------------------------------------------------------- rotation
    The Pi display can be mounted sideways. Preferred: rotate the screen in the OS (docs/pi-kiosk.md).
    Fallback needing no OS setup: load /kiosk/?rotate=90 (clockwise) or ?rotate=270 and the browser

@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import config, security
+from .. import __version__, config, security
 from ..db import get_db, iso, utcnow
 from ..models import LoginAttempt
 
@@ -35,7 +35,7 @@ def _too_many(seconds: int) -> HTTPException:
 
 @router.get("/health")
 def health():
-    return {"ok": True}
+    return {"ok": True, "version": __version__}
 
 
 @router.get("/auth/status")
@@ -45,6 +45,7 @@ def status(request: Request, db: Session = Depends(get_db)):
         "pin_set": security.get_pin_hash(db) is not None,
         "authenticated": security.find_session(db, request) is not None,
         "idle_minutes": config.IDLE_MINUTES,
+        "version": __version__,
         "retry_after": security.lock_remaining(db, ip),
     }
 

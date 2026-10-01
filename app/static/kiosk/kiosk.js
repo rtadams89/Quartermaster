@@ -26,6 +26,7 @@ const S = {
   inv: { caliber: null, weight: null },
   screen: 'lock',
   session: null,
+  version: '',        // from /api/auth/status; shown small on the home screen
 };
 
 document.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -133,6 +134,7 @@ async function boot() {
     mount(h('div', { class: 'empty' }, 'Cannot reach the Quartermaster server.', h('div', {}, h('button', { class: 'btn primary', style: { marginTop: '18px' }, onclick: boot }, 'Retry'))));
     return;
   }
+  S.version = status.version || S.version;
   if (!status.authenticated) {
     S.screen = 'lock';
     renderLogin(app, status, boot);
@@ -155,7 +157,7 @@ function showHome() {
   const b = S.batch && S.batch.items.length ? S.batch : null;
   mount(
     bar({
-      title: 'Quartermaster',
+      title: ['Quartermaster', S.version && h('span', { class: 'ver' }, 'v' + S.version)],
       left: null,
       right: [clock(), h('button', { class: 'btn', 'aria-label': 'Lock', onclick: lockNow }, '🔒')],
     }),
