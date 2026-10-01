@@ -4,14 +4,16 @@ The version lives in one place, `app/__init__.py` (`__version__`). It is shown s
 screen and in the footer of the admin sidebar, and reported by `/api/health` and `/api/auth/status`.
 Every change bumps it (patch for fixes and docs, minor for features) and gets a line here.
 
-## 0.5.1
-- `pi/make-blank-cursor.sh` no longer needs xcursorgen (not available on Pi OS); it writes the cursor file with python3.
+## 0.6.0
+- Kiosk and docs wording: "Check In/Out" is now "Ammo In/Out".
+- Added LICENSE: PolyForm Noncommercial 1.0.0 (derivative works allowed, no commercial use).
+
+## 0.5.4
+- Cleanup: removed the cursor-theme and cursor-debug scripts; the udev rule (`pi/99-kiosk-ignore-pointers.rules`) is the one cursor fix.
+  The Pi 4's HDMI CEC pseudo-pointers made cage draw a cursor; libinput now ignores them.
 
 ## 0.5.0
 - Favicon (SVG, ICO and touch icon) on the kiosk, admin and landing pages.
-
-## 0.4.1
-- Kiosk: invisible cursor theme (`pi/make-blank-cursor.sh`) for the pointer cage draws itself, which the page cannot hide.
 
 ## 0.4.0
 - Version number shown on the kiosk home screen and in the admin footer.

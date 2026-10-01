@@ -2,7 +2,7 @@
 
 Ammunition inventory with a barcode-scanner kiosk.
 
-- **Kiosk** (`/kiosk/`): a touch UI for a Raspberry Pi with a 7" 800x480 screen and a USB barcode scanner. Tap *Check In* or *Check Out*, scan boxes, review the quantities, tap *Finish*.
+- **Kiosk** (`/kiosk/`): a touch UI for a Raspberry Pi with a 7" 800x480 screen and a USB barcode scanner. Tap *Ammo In* or *Ammo Out*, scan boxes, review the quantities, tap *Finish*.
 - **Admin site** (`/admin/`): the full-featured site for a computer. Identify unknown barcodes, manage products and calibers, correct counts, read the history, print your own labels, export CSV.
 - **One server** (this repo) runs in Docker and owns the SQLite database. The Pi only loads a URL.
 
@@ -22,14 +22,14 @@ The database is a single file in `./data/quartermaster.db`. Keep that folder on 
 
 ## How it works
 
-### Check-in / check-out (kiosk)
+### Ammo in / ammo out (kiosk)
 
-1. Tap **Check In** or **Check Out**.
+1. Tap **Ammo In** or **Ammo Out**.
 2. Scan boxes. Each scan adds one box to a **queue**; scanning the same box again adds another. The card shows the last item scanned with `−` / `+` buttons, and you can tap the number to type a quantity.
 3. Tap **Review & Finish**. Every queued item is listed with its quantity, all editable (or removable).
 4. Tap **Finish**. Only now are the changes written to the inventory.
 
-The queue is kept on the server, so a reboot or an idle lock mid-scan doesn't lose it; you'll get a *Resume* banner. Checking out more than you have on record asks for confirmation instead of blocking you.
+The queue is kept on the server, so a reboot or an idle lock mid-scan doesn't lose it; you'll get a *Resume* banner. Taking out more than you have on record asks for confirmation instead of blocking you.
 
 ### Unknown barcodes
 
@@ -96,7 +96,7 @@ All optional; see `.env.example`.
 
 ## Design notes
 
-- **Ledger, not a counter.** Every check-in/out/correction is an immutable row in `transactions`; on-hand is the sum per code. History, audit, and retroactive identification all fall out of that. Mistakes are fixed with a correcting entry, not by editing history.
+- **Ledger, not a counter.** Every ammo-in/out/correction is an immutable row in `transactions`; on-hand is the sum per code. History, audit, and retroactive identification all fall out of that. Mistakes are fixed with a correcting entry, not by editing history.
 - **Photos live in the database** (a separate table, so listings never load image bytes). That keeps backup and restore a single file.
 - **Boxes are the unit.** Quantities are whole boxes; rounds = boxes × the product's rounds-per-box. Partially used boxes aren't tracked.
 - **Plain stack:** FastAPI + SQLAlchemy + SQLite on the server; the two UIs are dependency-free ES modules with no build step and no CDN, so they work on a LAN with no internet. There are no schema migrations yet; tables are created on first start. Add Alembic if the schema starts changing.
@@ -122,3 +122,8 @@ pi/          camera_helper.py + systemd unit (only for Pi CSI camera modules)
 tests/       auth/lockout/idle, inventory/batch/drill-down, photos, backup/restore
 docs/        pi-kiosk.md
 ```
+
+## License
+
+Quartermaster is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use it, change it, and build your own versions of it for any noncommercial purpose (personal use, hobby, research, education, charities and similar), and you may share your changes under the same terms. You may not use it, or anything derived from it, commercially. It is source-available rather than "open source" in the OSI sense, because open-source licenses cannot prohibit commercial use. For commercial licensing, contact the copyright holder.
+

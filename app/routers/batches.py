@@ -1,4 +1,4 @@
-"""Kiosk check-in / check-out: scans are queued in a draft batch, then committed."""
+"""Kiosk ammo in / ammo out: scans are queued in a draft batch, then committed."""
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select

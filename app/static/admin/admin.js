@@ -158,7 +158,7 @@ async function dashboard() {
       h('tr', {}, td(r.label), boxesCell(r.boxes), td(fmtInt(r.rounds), 'num'), td(h('div', { class: 'bar-cell' }, h('div', { class: 'bar', style: { width: `${Math.round((r.rounds / max) * 100)}%` } })), ''))))
       : empty('Nothing in stock yet.'),
     h('h2', {}, 'Recent activity'),
-    recent.length ? txTable(recent) : empty('No activity yet. Check some boxes in from the kiosk.'));
+    recent.length ? txTable(recent) : empty('No activity yet. Scan some ammo in from the kiosk.'));
 }
 const card = (k, v) => h('div', { class: 'card' }, h('div', { class: 'k' }, k), h('div', { class: 'v' }, v));
 
@@ -248,7 +248,7 @@ async function identifyDialog(code, done, hasPhoto = false) {
     title: 'Identify code', wide: true, ok: 'Save',
     body: h('div', {},
       hasPhoto && h('img', { class: 'id-photo', src: photoUrl(code), alt: 'Photo of the box' }),
-      h('p', { class: 'sub', style: { margin: '0 0 12px' } }, ['Barcode ', h('b', {}, code), '. Every check-in and check-out already logged for it will pick up these details.']), seg, wrap),
+      h('p', { class: 'sub', style: { margin: '0 0 12px' } }, ['Barcode ', h('b', {}, code), '. Every ammo in and ammo out already logged for it will pick up these details.']), seg, wrap),
     onOk: async () => {
       let pid;
       if (mode === 'existing') pid = Number(pick.value);

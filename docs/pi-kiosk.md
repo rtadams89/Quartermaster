@@ -77,7 +77,7 @@ Plug it in and it should just work: it presents itself as a USB keyboard, "types
 - Use a **2D imager** in **USB HID / keyboard-emulation** mode (the usual factory default) so it reads both UPCs and the QR codes you print yourself.
 - The scanner must end each scan with **Enter** (CR). That is the usual default. If not, scan the "add Enter suffix" setting from the scanner's manual.
 - Don't enable a prefix, and keep the keyboard layout on **US**. A different layout can turn digits into symbols.
-- Quick test: SSH is not needed. Open the kiosk, tap *Check In*, scan a box. Its code should appear on screen.
+- Quick test: SSH is not needed. Open the kiosk, tap *Ammo In*, scan a box. Its code should appear on screen.
 
 Scans only count while the scan screen is showing. Scanning on the home or review screens is ignored on purpose.
 
@@ -129,22 +129,22 @@ If both a helper and a webcam are present, the helper is used.
 
 ### Mouse pointer
 
-The kiosk page hides the pointer for everything *inside* the page (`cursor: none`). That is not always enough: `cage` draws its own pointer, in the middle of the screen, until the browser has been sent a real mouse movement, and a web page cannot hide that one. The fix is an invisible cursor theme, so the compositor has nothing visible to draw:
+The kiosk page hides the pointer over its own content (`cursor: none`), but the arrow you see in the middle of the screen at boot is drawn by `cage`, not the page. `cage` draws a pointer whenever *any* input device claims to be a pointer, and the Pi 4's two HDMI ports each register a CEC device (`vc4-hdmi-0`, `vc4-hdmi-1`) that does ([cage issue #299](https://github.com/cage-kiosk/cage/issues/299)). The fix is to have libinput ignore those two devices:
 
 ```bash
-sh pi/make-blank-cursor.sh          # run as the kiosk user; needs nothing installed, creates ~/.icons/blank
+sudo cp pi/99-kiosk-ignore-pointers.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules && sudo udevadm trigger
+sudo reboot
 ```
 
-Then add these two lines to the `[Service]` section of the kiosk unit and restart it:
+The rule file is two lines and does not touch the touchscreen or the barcode scanner:
 
-```ini
-Environment=XCURSOR_THEME=blank
-Environment=XCURSOR_PATH=/home/kiosk/.icons
+```
+SUBSYSTEM=="input", ATTRS{name}=="vc4-hdmi-0", ENV{LIBINPUT_IGNORE_DEVICE}="1"
+SUBSYSTEM=="input", ATTRS{name}=="vc4-hdmi-1", ENV{LIBINPUT_IGNORE_DEVICE}="1"
 ```
 
-(`sudo systemctl daemon-reload && sudo systemctl restart quartermaster-kiosk`.) If you ever plug in a USB mouse for setup, it stays invisible too, which is the point.
-
-> **Status:** the script is untested on a Pi, and the page-level hiding is all I could check here (headless). If an arrow still shows after this, tell me which moment (boot, error page, after a touch) and what `journalctl -u quartermaster-kiosk -b | head` says.
+To check, `sudo apt install libinput-tools` and run `sudo libinput list-devices`: the `vc4-hdmi` entries should be gone, and nothing but a mouse you plugged in yourself should list `pointer` under *Capabilities*. If a cursor ever returns, look for another device with `pointer` in that list (some USB scanners and touch panels register a second "mouse" interface) and add a matching rule with its exact name.
 
 ## 6. Portrait (rotated) mounting
 

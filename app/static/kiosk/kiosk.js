@@ -21,7 +21,7 @@ const S = {
   photoPrompt: true,  // ask for a box photo when a brand-new barcode is scanned (admin setting)
   cam: null,          // { kind, at } cached camera detection
   warnedNoCam: false,
-  batch: null,        // the draft check-in/out being built (lives on the server)
+  batch: null,        // the draft ammo in/out batch being built (lives on the server)
   last: null,         // most recently scanned item, shown on the scan screen
   inv: { caliber: null, weight: null },
   screen: 'lock',
@@ -162,12 +162,12 @@ function showHome() {
       right: [clock(), h('button', { class: 'btn', 'aria-label': 'Lock', onclick: lockNow }, '🔒')],
     }),
     b && h('div', { class: 'resume' },
-      h('div', { class: 'grow' }, `Unfinished check ${b.kind}: ${plural(b.items.length, 'item')}, ${plural(boxesOf(b), 'box')}`),
+      h('div', { class: 'grow' }, `Unfinished ammo ${b.kind}: ${plural(b.items.length, 'item')}, ${plural(boxesOf(b), 'box')}`),
       h('button', { class: 'btn primary', onclick: () => showScan() }, 'Resume'),
       h('button', { class: 'btn danger', onclick: discardDraft }, 'Discard')),
     h('div', { class: 'home' },
-      h('button', { class: 'tile in', onclick: () => startBatch('in') }, h('span', { class: 'ico' }, '⬇'), 'Check In', h('small', {}, 'Add boxes')),
-      h('button', { class: 'tile out', onclick: () => startBatch('out') }, h('span', { class: 'ico' }, '⬆'), 'Check Out', h('small', {}, 'Remove boxes')),
+      h('button', { class: 'tile in', onclick: () => startBatch('in') }, h('span', { class: 'ico' }, '⬇'), 'Ammo In', h('small', {}, 'Add boxes')),
+      h('button', { class: 'tile out', onclick: () => startBatch('out') }, h('span', { class: 'ico' }, '⬆'), 'Ammo Out', h('small', {}, 'Remove boxes')),
       h('button', { class: 'tile inv', onclick: () => { S.inv = { caliber: null, weight: null }; showInventory(); } }, h('span', { class: 'ico' }, '☰'), 'Inventory', h('small', {}, 'See what you have'))));
 }
 
@@ -367,7 +367,7 @@ function paintScan() {
   let main;
   if (!it) {
     main = h('div', { class: 'scan-prompt' },
-      h('div', { class: 'big' }, kind === 'in' ? 'Scan boxes to check in' : 'Scan boxes to check out'),
+      h('div', { class: 'big' }, kind === 'in' ? 'Scan boxes going in' : 'Scan boxes going out'),
       h('div', { class: 'pulse' }, 'Ready for scanner…'));
   } else {
     const d = describe(it);
@@ -387,7 +387,7 @@ function paintScan() {
   mount(
     bar({
       kind,
-      title: kind === 'in' ? 'CHECK IN' : 'CHECK OUT',
+      title: kind === 'in' ? 'AMMO IN' : 'AMMO OUT',
       left: h('button', { class: 'btn', onclick: cancelBatch }, '✕ Cancel'),
       right: h('button', { class: 'btn', onclick: () => manualEntry() }, '⌨ Code'),
     }),
@@ -443,13 +443,13 @@ function paintReview() {
   mount(
     bar({
       kind,
-      title: kind === 'in' ? 'REVIEW CHECK IN' : 'REVIEW CHECK OUT',
+      title: kind === 'in' ? 'REVIEW AMMO IN' : 'REVIEW AMMO OUT',
       left: h('button', { class: 'btn', onclick: showScan }, '← Keep scanning'),
     }),
     h('div', { class: 'body' }, h('div', { class: 'list' }, rows)),
     h('div', { class: 'foot' },
       h('div', { class: 'grow summary' }, h('b', {}, plural(b.items.length, 'item')), ` · ${plural(boxesOf(b), 'box')}`),
-      h('button', { class: 'btn big ' + kind, onclick: finish }, `Finish ${kind === 'in' ? 'check in' : 'check out'}`)));
+      h('button', { class: 'btn big ' + kind, onclick: finish }, `Finish ammo ${kind}`)));
 }
 
 let finishing = false;
@@ -465,7 +465,7 @@ async function finish() {
     beep(990, 140);
     const done = h('div', { class: 'done', onclick: () => { done.remove(); showHome(); } },
       h('div', { class: 'tick' }, '✓'),
-      h('div', { class: 'big' }, `${r.kind === 'in' ? 'Checked in' : 'Checked out'} ${plural(r.boxes, 'box')}`),
+      h('div', { class: 'big' }, `${plural(r.boxes, 'box')} ${r.kind === 'in' ? 'added' : 'removed'}`),
       h('div', { class: 'muted' }, plural(r.items, 'item')));
     app.append(done);
     setTimeout(() => { if (done.isConnected) { done.remove(); showHome(); } }, 1600);
@@ -517,7 +517,7 @@ async function showInventory() {
             h('div', { class: 'big' }, r.rounds === null ? '—' : fmtInt(r.rounds)),
             h('small', {}, r.rounds === null ? plural(r.boxes, 'box') : `rounds · ${plural(r.boxes, 'box')}`)),
           r.drillable && h('span', { class: 'chev' }, '›')))
-        : h('div', { class: 'empty' }, 'Nothing in stock yet. Use Check In to add boxes.'))));
+        : h('div', { class: 'empty' }, 'Nothing in stock yet. Use Ammo In to add boxes.'))));
 }
 
 boot();
