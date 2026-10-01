@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 from .. import security
 from ..codes import normalize_code
 from ..db import get_db
-from ..models import Barcode, Caliber, Product, Transaction
-from ..services import product_dict, spec_text
+from ..models import Barcode, BarcodePhoto, Caliber, Product, Transaction
+from ..services import photo_codes, product_dict, spec_text
 
 router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
 
@@ -104,10 +104,12 @@ class ProductIn(BaseModel):
     notes: str = ""
 
 
-def _product_full(db: Session, p: Product) -> dict:
+def _product_full(db: Session, p: Product, photos: set[str] | None = None) -> dict:
+    photos = photo_codes(db) if photos is None else photos
     d = product_dict(p)
     d["spec"] = spec_text(p)
     d["codes"] = [b.code for b in sorted(p.barcodes, key=lambda b: b.code)]
+    d["photo_codes"] = [c for c in d["codes"] if c in photos]
     return d
 
 
@@ -117,8 +119,9 @@ def list_products(caliber_id: int | None = None, q: str | None = None, db: Sessi
     if caliber_id:
         stmt = stmt.where(Product.caliber_id == caliber_id)
     out = []
+    photos = photo_codes(db)
     for p in db.scalars(stmt):
-        d = _product_full(db, p)
+        d = _product_full(db, p, photos)
         if q:
             hay = " ".join([d["label"], d["caliber"] or "", d["bullet_type"], *d["codes"]]).lower()
             if q.lower() not in hay:
@@ -222,6 +225,9 @@ def delete_barcode(code: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Code not found")
     if db.scalar(select(func.count(Transaction.id)).where(Transaction.code == code)):
         raise HTTPException(409, "This code has history. Unassign it from the product instead.")
+    photo = db.get(BarcodePhoto, code)
+    if photo:
+        db.delete(photo)
     db.delete(bc)
     db.commit()
     return {"ok": True}

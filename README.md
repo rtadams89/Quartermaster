@@ -14,9 +14,9 @@ cp .env.example .env        # optional
 docker compose up -d --build
 ```
 
-Open `http://<docker-host>:8080/admin/` on your computer. On first visit you'll be asked to **choose a 4-digit PIN**. That PIN unlocks both the kiosk and the admin site.
+Open `http://<docker-host>:8580/admin/` on your computer. On first visit you'll be asked to **choose a 4-digit PIN**. That PIN unlocks both the kiosk and the admin site.
 
-Then point the Pi at `http://<docker-host>:8080/kiosk/` (see [docs/pi-kiosk.md](docs/pi-kiosk.md)).
+Then point the Pi at `http://<docker-host>:8580/kiosk/` (see [docs/pi-kiosk.md](docs/pi-kiosk.md)).
 
 The database is a single file in `./data/quartermaster.db`. Keep that folder on a volume you trust.
 
@@ -38,6 +38,19 @@ A code the system has never seen is **never rejected**. It is logged against the
 ### Quick inventory (kiosk)
 
 *Inventory* drills down: **caliber → bullet weight → specific product/UPC**, with rounds and boxes at every level. Unidentified boxes appear as their own row, so totals stay honest.
+
+### Box photos
+
+The first time the kiosk ever sees a barcode it offers to **photograph the box** (live preview with a USB webcam, or a still from a Pi camera module), so that when you sit down at the admin site you can see what the unknown code actually is. Skip it any time; you can add, view, replace (by uploading an image), or remove a photo for any code from the admin site: tap a thumbnail on the *Unidentified*, *Inventory* or *Products* pages. Photos are resized (longest side 1280 px), stripped of metadata, and stored inside the database, so backups include them. The prompt can be switched off under *Settings*, and is skipped automatically when no camera is found. Camera setup for the Pi is in [docs/pi-kiosk.md](docs/pi-kiosk.md).
+
+### Backup and restore
+
+*Settings → Backup & restore* has two buttons, both manual (nothing runs on a schedule):
+
+- **Download backup** saves one `.db` file holding everything: inventory history, products, calibers, barcodes, box photos, the label counter and preferences.
+- **Restore from backup…** replaces all current data with a backup's contents. It checks the file first (it must be a compatible Quartermaster backup, or nothing is touched), and the change is applied as a single transaction. Before replacing anything it saves a copy of the current data in `data/backups/` (the latest five are kept) in case you restore the wrong file.
+
+Backups **do not contain your PIN**: a 4-digit PIN's hash can be brute-forced instantly, so a backup file must never carry it. Restoring keeps the current PIN and leaves you signed in. A backup still holds your whole inventory, so treat the file as sensitive.
 
 ### Labels for ammo with no UPC
 
@@ -68,7 +81,7 @@ All optional; see `.env.example`.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `QM_PORT` | `8080` | Host port |
+| `QM_PORT` | `8580` | Host port |
 | `QM_IDLE_MINUTES` | `15` | Idle time before the PIN is required again |
 | `QM_LOCKOUT_THRESHOLD` | `5` | Failures before an IP is locked |
 | `QM_LOCKOUT_BASE_SECONDS` | `60` | First lock duration (doubles per extra failure) |
@@ -80,6 +93,7 @@ All optional; see `.env.example`.
 ## Design notes
 
 - **Ledger, not a counter.** Every check-in/out/correction is an immutable row in `transactions`; on-hand is the sum per code. History, audit, and retroactive identification all fall out of that. Mistakes are fixed with a correcting entry, not by editing history.
+- **Photos live in the database** (a separate table, so listings never load image bytes). That keeps backup and restore a single file.
 - **Boxes are the unit.** Quantities are whole boxes; rounds = boxes × the product's rounds-per-box. Partially used boxes aren't tracked.
 - **Plain stack:** FastAPI + SQLAlchemy + SQLite on the server; the two UIs are dependency-free ES modules with no build step and no CDN, so they work on a LAN with no internet. There are no schema migrations yet; tables are created on first start. Add Alembic if the schema starts changing.
 - **Single worker** by design: SQLite and one user.
@@ -90,7 +104,7 @@ All optional; see `.env.example`.
 python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 pytest                                            # API tests
-QM_DB_PATH=./data/dev.db uvicorn app.main:app --reload --port 8080
+QM_DB_PATH=./data/dev.db uvicorn app.main:app --reload --port 8580
 ```
 
 Layout:
@@ -98,8 +112,9 @@ Layout:
 ```
 app/
   main.py  config.py  db.py  models.py  security.py  services.py  codes.py  seed.py  cli.py
-  routers/   auth.py  batches.py  catalog.py  inventory.py  labels.py
-  static/    shared/ (api, dom, PIN pad)   kiosk/   admin/
-tests/       auth/lockout/idle tests, inventory/batch/drill-down tests
+  routers/   auth.py  batches.py  catalog.py  inventory.py  labels.py  photos.py  settings.py  backup.py
+  static/    shared/ (api, dom, PIN pad)   kiosk/ (incl. camera.js)   admin/
+pi/          camera_helper.py + systemd unit (only for Pi CSI camera modules)
+tests/       auth/lockout/idle, inventory/batch/drill-down, photos, backup/restore
 docs/        pi-kiosk.md
 ```

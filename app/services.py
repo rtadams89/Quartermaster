@@ -3,9 +3,14 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .db import iso
-from .models import Barcode, Caliber, Product, Transaction
+from .models import Barcode, BarcodePhoto, Caliber, Product, Transaction
 
 UNIDENTIFIED = "unidentified"
+
+
+def photo_codes(db: Session) -> set[str]:
+    """Codes that have a box photo."""
+    return set(db.scalars(select(BarcodePhoto.code)))
 
 
 def product_dict(p: Product | None) -> dict | None:
@@ -74,6 +79,7 @@ def inventory_by_product(db: Session) -> tuple[list[dict], list[dict]]:
     """
     stock = on_hand_by_code(db)
     act = activity_by_code(db)
+    photos = photo_codes(db)
     products = {p.id: p for p in db.scalars(select(Product))}
     entries: dict[int, dict] = {}
     for pid, p in products.items():
@@ -81,6 +87,7 @@ def inventory_by_product(db: Session) -> tuple[list[dict], list[dict]]:
             **product_dict(p),
             "spec": spec_text(p),
             "codes": [],
+            "photo_code": None,
             "boxes": 0,
             "rounds": 0,
             "last_activity": None,
@@ -97,11 +104,14 @@ def inventory_by_product(db: Session) -> tuple[list[dict], list[dict]]:
                     "transactions": a["count"],
                     "last_activity": a["last"],
                     "first_seen_at": iso(bc.first_seen_at),
+                    "has_photo": bc.code in photos,
                 }
             )
             continue
         e = entries[bc.product_id]
-        e["codes"].append({"code": bc.code, "boxes": boxes})
+        e["codes"].append({"code": bc.code, "boxes": boxes, "has_photo": bc.code in photos})
+        if bc.code in photos and e["photo_code"] is None:
+            e["photo_code"] = bc.code
         e["boxes"] += boxes
         e["rounds"] += boxes * products[bc.product_id].rounds_per_box
         if a["last"] and (e["last_activity"] is None or a["last"] > e["last_activity"]):

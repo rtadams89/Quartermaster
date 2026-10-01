@@ -3,3 +3,4 @@ uvicorn[standard]>=0.29,<1
 sqlalchemy>=2.0,<3
 python-barcode>=0.15,<1
 segno>=1.6,<2
+Pillow>=10.3,<13

@@ -7,7 +7,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import __version__
 from .db import Base, SessionLocal, engine
-from .routers import auth, batches, catalog, inventory, labels
+from .routers import auth, backup, batches, catalog, inventory, labels, photos, settings
 from .seed import seed
 
 STATIC = Path(__file__).parent / "static"
@@ -34,7 +34,8 @@ class NoStore(BaseHTTPMiddleware):
 
 app.add_middleware(NoStore)
 
-for r in (auth.router, batches.router, catalog.router, inventory.router, labels.router):
+for r in (auth.router, batches.router, catalog.router, photos.router, inventory.router, labels.router,
+          settings.router, backup.router):
     app.include_router(r)
 
 app.mount("/shared", StaticFiles(directory=STATIC / "shared"), name="shared")

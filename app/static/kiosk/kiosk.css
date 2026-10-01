@@ -44,13 +44,15 @@ button:disabled { opacity: .35; cursor: default; }
 .scan-prompt .big { font-size: 34px; font-weight: 700; }
 .scan-prompt .pulse { margin-top: 10px; color: var(--muted); font-size: 18px; animation: pulse 1.8s infinite; }
 @keyframes pulse { 50% { opacity: .35; } }
-.last { width: 100%; max-width: 720px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 14px 18px; display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; align-items: center; }
+.last { width: 100%; max-width: 740px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 14px 18px; display: flex; align-items: center; gap: 16px; }
+.last .mid { flex: 1; min-width: 0; display: grid; gap: 4px; }
 .last .name { font-size: 26px; font-weight: 700; line-height: 1.15; }
 .last .name.unknown { color: var(--warn); }
-.last .sub { color: var(--muted); font-size: 16px; grid-column: 1; }
-.last .note { grid-column: 1 / -1; font-size: 15px; }
+.last .sub { color: var(--muted); font-size: 16px; }
+.last .note { font-size: 15px; }
 .last .note.warn { color: var(--warn); }
-.last .qty { grid-row: 1 / span 2; grid-column: 2; }
+.thumb { width: 52px; height: 52px; border-radius: 8px; object-fit: cover; flex: none; background: var(--bg); border: 1px solid var(--line); }
+.thumb.lg { width: 96px; height: 96px; border-radius: 12px; }
 .stepper { display: flex; align-items: center; gap: 6px; }
 .stepper button { width: 52px; height: 52px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); font-size: 28px; font-weight: 600; line-height: 1; }
 .stepper button:active { filter: brightness(1.3); }
@@ -103,3 +105,17 @@ button:disabled { opacity: .35; cursor: default; }
 .done { position: absolute; inset: 0; background: var(--bg); z-index: 60; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
 .done .tick { font-size: 90px; color: var(--in); line-height: 1; }
 .done .big { font-size: 30px; font-weight: 700; }
+
+/* --------------------------------------------------------- box photo step */
+.overlay.cam { background: var(--bg); }
+.cam-panel { width: 100%; height: 100%; padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }
+.cam-title { font-size: 22px; text-align: center; }
+.cam-title b { font-family: ui-monospace, Consolas, monospace; color: var(--warn); }
+.cam-sub { text-align: center; color: var(--muted); font-size: 15px; }
+.cam-stage { flex: 1; min-height: 0; background: #000; border-radius: 12px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.cam-video, .cam-shot { width: 100%; height: 100%; object-fit: contain; }
+.cam-placeholder { text-align: center; color: var(--muted); font-size: 19px; padding: 20px; }
+.cam-placeholder .ico { font-size: 64px; }
+.cam-msg { min-height: 22px; text-align: center; color: var(--warn); font-size: 16px; }
+.cam-actions { display: flex; gap: 12px; justify-content: center; }
+.cam-actions .btn { flex: 1; max-width: 260px; }

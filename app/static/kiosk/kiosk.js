@@ -1,10 +1,14 @@
-import { api, get, post, patch, ApiError, watchSession } from '/shared/api.js';
+import { get, post, patch, sendBlob, watchSession } from '/shared/api.js';
 import { h, clear, fmtInt, toast } from '/shared/dom.js';
 import { renderLogin } from '/shared/login.js';
+import { detectCamera, createCamera } from '/kiosk/camera.js';
 
 const app = document.getElementById('app');
 
 const S = {
+  photoPrompt: true,  // ask for a box photo when a brand-new barcode is scanned (admin setting)
+  cam: null,          // { kind, at } cached camera detection
+  warnedNoCam: false,
   batch: null,        // the draft check-in/out being built (lives on the server)
   last: null,         // most recently scanned item, shown on the scan screen
   inv: { caliber: null, weight: null },
@@ -128,6 +132,7 @@ async function boot() {
     onLock: () => { if (S.screen !== 'lock') showLock(`Locked after ${status.idle_minutes} minutes of inactivity`); },
   });
   S.batch = await get('/api/batches/current').catch(() => null);
+  S.photoPrompt = await get('/api/settings').then((s) => s.photo_prompt).catch(() => true);
   showHome();
 }
 
@@ -217,6 +222,14 @@ async function doScan(code) {
     if (S.screen === 'scan') paintScan();
     flash(r.known ? 'ok' : 'warn');
     beep(r.known ? 880 : 520);
+    // First time this barcode has ever been seen: offer to photograph the box.
+    // (Awaited, so any further scans queue up behind it.)
+    if (r.new_code && S.photoPrompt && S.screen === 'scan') {
+      if (await takeBoxPhoto(r.item.code)) {
+        for (const it of S.batch.items) if (it.code === r.item.code) it.has_photo = true;
+      }
+      if (S.screen === 'scan') paintScan();
+    }
   } catch (e) {
     flash('err');
     beep(200, 220);
@@ -228,6 +241,99 @@ function showScan() {
   S.screen = 'scan';
   buf = '';
   paintScan();
+}
+
+// ------------------------------------------------------------- box photo
+const thumbUrl = (code) => `/api/barcodes/${encodeURIComponent(code)}/photo?thumb=true`;
+const thumbEl = (it, cls = 'thumb') => (it.has_photo ? h('img', { class: cls, src: thumbUrl(it.code), alt: '' }) : null);
+
+async function cameraKind() {
+  // Re-check now and then, so plugging in the camera or starting the helper later just works.
+  if (!S.cam || (!S.cam.kind && Date.now() - S.cam.at > 30_000)) S.cam = { kind: await detectCamera(), at: Date.now() };
+  return S.cam.kind;
+}
+
+/** Full-screen "photograph this box" step. Resolves true if a photo was saved. */
+async function takeBoxPhoto(code) {
+  const kind = await cameraKind();
+  if (!kind) {
+    if (!S.warnedNoCam) {
+      S.warnedNoCam = true;
+      toast('No camera found, so box photos are skipped', 'error');
+    }
+    return false;
+  }
+  return new Promise((resolve) => {
+    const cam = createCamera(kind);
+    let shot = null, shotUrl = null, busy = false, ready = false;
+    const stage = h('div', { class: 'cam-stage' });
+    const msg = h('div', { class: 'cam-msg' });
+    const actions = h('div', { class: 'cam-actions' });
+    const root = h('div', { class: 'overlay cam' }, h('div', { class: 'cam-panel' },
+      h('div', { class: 'cam-title' }, 'New barcode ', h('b', {}, code)),
+      h('div', { class: 'cam-sub' }, 'Take a photo of the box so you can identify it later.'),
+      stage, msg, actions));
+    app.append(root);
+
+    const end = (saved) => {
+      cam.stop();
+      if (shotUrl) URL.revokeObjectURL(shotUrl);
+      root.remove();
+      resolve(saved);
+    };
+    const btn = (label, cls, fn, disabled) => h('button', { class: 'btn big ' + cls, disabled: disabled || busy, onclick: fn }, label);
+    const skip = () => end(false);
+
+    let takeBtn = null;
+    const live = () => {
+      shot = null;
+      clear(stage, cam.el);
+      cam.el.play?.()?.catch?.(() => {}); // a <video> that left the page may have paused
+      takeBtn = btn('📷  Take photo', 'primary', take, !ready);
+      clear(actions, btn('Skip', '', skip), takeBtn);
+    };
+    const review = () => {
+      if (shotUrl) URL.revokeObjectURL(shotUrl);
+      shotUrl = URL.createObjectURL(shot);
+      clear(stage, h('img', { class: 'cam-shot', src: shotUrl, alt: 'Photo of the box' }));
+      clear(actions, btn('Skip', '', skip), btn('Retake', '', live), btn('✓  Use photo', 'in', use));
+    };
+    const take = async () => {
+      busy = true; msg.textContent = 'Capturing…'; live_buttons_disabled();
+      try {
+        shot = await cam.snapshot();
+        msg.textContent = '';
+        busy = false;
+        review();
+      } catch (e) {
+        busy = false;
+        msg.textContent = e.message;
+        live();
+      }
+    };
+    const use = async () => {
+      busy = true; msg.textContent = 'Saving…'; live_buttons_disabled();
+      try {
+        await sendBlob('PUT', `/api/barcodes/${encodeURIComponent(code)}/photo`, shot);
+        toast('Photo saved', 'ok');
+        end(true);
+      } catch (e) {
+        busy = false;
+        msg.textContent = e.message;
+        review();
+      }
+    };
+    const live_buttons_disabled = () => actions.querySelectorAll('button').forEach((b) => (b.disabled = true));
+
+    live();
+    msg.textContent = 'Starting camera…';
+    cam.start().then(
+      () => { ready = true; msg.textContent = ''; if (takeBtn && !shot && !busy) takeBtn.disabled = false; },
+      (e) => {
+        msg.textContent = `Camera unavailable: ${e.message || e.name}`;
+        clear(actions, btn('Skip', 'primary', skip));
+      });
+  });
 }
 
 async function setQty(item, qty) {
@@ -253,14 +359,16 @@ function paintScan() {
     const d = describe(it);
     const over = kind === 'out' && it.quantity > it.on_hand;
     main = h('div', { class: 'last' },
-      h('div', { class: 'name' + (d.known ? '' : ' unknown') }, d.name),
-      h('div', { class: 'qty stepper' },
+      thumbEl(it, 'thumb lg'),
+      h('div', { class: 'mid' },
+        h('div', { class: 'name' + (d.known ? '' : ' unknown') }, d.name),
+        h('div', { class: 'sub' }, d.known ? d.sub : it.code),
+        !d.known && h('div', { class: 'note warn' }, 'Unknown barcode. It will be logged so you can describe it later.'),
+        over && h('div', { class: 'note warn' }, `Only ${it.on_hand} on hand`)),
+      h('div', { class: 'stepper' },
         h('button', { 'aria-label': 'Fewer', onclick: () => setQty(it, it.quantity - 1) }, '−'),
         h('button', { class: 'n', onclick: () => editQty(it) }, String(it.quantity)),
-        h('button', { 'aria-label': 'More', onclick: () => setQty(it, it.quantity + 1) }, '+')),
-      h('div', { class: 'sub' }, d.known ? d.sub : it.code),
-      !d.known && h('div', { class: 'note warn' }, 'Unknown barcode. It will be logged so you can describe it later.'),
-      over && h('div', { class: 'note warn' }, `Only ${it.on_hand} on hand`));
+        h('button', { 'aria-label': 'More', onclick: () => setQty(it, it.quantity + 1) }, '+')));
   }
   mount(
     bar({
@@ -307,6 +415,7 @@ function paintReview() {
     const d = describe(it);
     const over = kind === 'out' && it.quantity > it.on_hand;
     return h('div', { class: 'row' },
+      thumbEl(it, 'thumb'),
       h('div', { class: 'info' },
         h('div', { class: 'title' + (d.known ? '' : ' unknown') }, d.known ? d.name : `Unknown item · ${it.code}`),
         h('div', { class: 'sub' + (over ? ' warn' : '') },

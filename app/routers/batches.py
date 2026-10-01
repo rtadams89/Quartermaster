@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from .. import security
 from ..codes import normalize_code
 from ..db import get_db, iso, utcnow
-from ..models import Barcode, Batch, BatchItem, Transaction
+from ..models import Barcode, BarcodePhoto, Batch, BatchItem, Transaction
 from ..services import on_hand, product_dict, spec_text
 
 router = APIRouter(prefix="/api/batches", dependencies=[Depends(security.require_auth)])
@@ -39,6 +39,7 @@ def _item_dict(db: Session, item: BatchItem) -> dict:
         "quantity": item.quantity,
         "product": prod,
         "on_hand": on_hand(db, item.code),
+        "has_photo": db.get(BarcodePhoto, item.code) is not None,
     }
 
 
@@ -94,7 +95,8 @@ def scan(batch_id: int, body: ScanIn, db: Session = Depends(get_db)):
         code = normalize_code(body.code)
     except ValueError:
         raise HTTPException(400, "That doesn't look like a valid barcode")
-    if not db.get(Barcode, code):
+    new_code = db.get(Barcode, code) is None  # first time this code has ever been seen
+    if new_code:
         db.add(Barcode(code=code))
         db.flush()
     item = next((i for i in b.items if i.code == code), None)
@@ -104,7 +106,7 @@ def scan(batch_id: int, body: ScanIn, db: Session = Depends(get_db)):
         item = BatchItem(batch_id=b.id, code=code, quantity=body.quantity)
         b.items.append(item)
     db.commit()
-    return {"item": _item_dict(db, item), "known": _is_known(db, code)}
+    return {"item": _item_dict(db, item), "known": _is_known(db, code), "new_code": new_code}
 
 
 def _is_known(db: Session, code: str) -> bool:

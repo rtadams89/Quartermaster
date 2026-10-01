@@ -5,7 +5,7 @@ services:
     container_name: quartermaster
     restart: unless-stopped
     ports:
-      - "${QM_PORT:-8080}:8080"
+      - "${QM_PORT:-8580}:8580"
     environment:
       TZ: ${TZ:-America/Phoenix}
       QM_IDLE_MINUTES: ${QM_IDLE_MINUTES:-15}

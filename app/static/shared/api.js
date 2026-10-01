@@ -8,15 +8,10 @@ export class ApiError extends Error {
   }
 }
 
-export async function api(method, path, body) {
-  const opts = { method, credentials: 'same-origin', headers: {} };
-  if (body !== undefined) {
-    opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(body);
-  }
+async function request(path, opts) {
   let res;
   try {
-    res = await fetch(path, opts);
+    res = await fetch(path, { credentials: 'same-origin', ...opts });
   } catch {
     throw new ApiError(0, 'Cannot reach the server');
   }
@@ -35,6 +30,20 @@ export async function api(method, path, body) {
     window.dispatchEvent(new CustomEvent('qm:locked'));
   }
   throw err;
+}
+
+export function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body !== undefined) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  return request(path, opts);
+}
+
+/** Send a File/Blob as the raw request body (photos, backup files). */
+export function sendBlob(method, path, blob) {
+  return request(path, { method, headers: { 'Content-Type': blob.type || 'application/octet-stream' }, body: blob });
 }
 
 export const get = (p) => api('GET', p);

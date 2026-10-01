@@ -3,7 +3,7 @@
 The Pi runs no Quartermaster code. It is a full-screen browser pointed at the server:
 
 ```
-http://<server>:8080/kiosk/
+http://<server>:8580/kiosk/
 ```
 
 The UI is laid out for the official 7" 800x480 touchscreen and everything is finger-sized.
@@ -49,7 +49,7 @@ ExecStart=/usr/bin/cage -s -- /usr/bin/chromium \
   --disable-session-crashed-bubble --disable-pinch \
   --overscroll-history-navigation=0 --password-store=basic \
   --check-for-update-interval=31536000 \
-  http://SERVER:8080/kiosk/
+  http://SERVER:8580/kiosk/
 Restart=always
 RestartSec=3
 
@@ -68,7 +68,7 @@ sudo reboot
 
 If the screen stays black, check `journalctl -u quartermaster-kiosk -b`. Common causes: wrong user name, wrong browser binary path, or the server URL being unreachable (in which case the kiosk shows a "Cannot reach the Quartermaster server" page with a Retry button).
 
-**Alternative:** if you would rather use Raspberry Pi OS *with desktop*, skip all of the above, set Chromium to launch with `--kiosk http://SERVER:8080/kiosk/` from the desktop autostart, and turn off screen blanking in `raspi-config`.
+**Alternative:** if you would rather use Raspberry Pi OS *with desktop*, skip all of the above, set Chromium to launch with `--kiosk http://SERVER:8580/kiosk/` from the desktop autostart, and turn off screen blanking in `raspi-config`.
 
 ## 3. The USB barcode scanner
 
@@ -81,12 +81,52 @@ Plug it in and it should just work: it presents itself as a USB keyboard, "types
 
 Scans only count while the scan screen is showing. Scanning on the home or review screens is ignored on purpose.
 
-## 4. Screen and touch
+## 4. Box photos (camera)
+
+The first time the kiosk sees a barcode it has never seen before, it offers to photograph the box. What you need on the Pi depends on the camera.
+
+If no camera is found, the kiosk skips the step (and says so once). You can also turn the prompt off under *Settings* on the admin site.
+
+### USB webcam: live preview, nothing to install
+
+Chromium opens USB webcams itself. These flags are needed on the Chromium line in the service file above, because browsers only allow camera access on HTTPS or `localhost`, and the kiosk page is plain HTTP on your LAN:
+
+```
+  --use-fake-ui-for-media-stream \
+  --unsafely-treat-insecure-origin-as-secure=http://SERVER:8580 \
+  --user-data-dir=/home/kiosk/.config/qm-kiosk \
+```
+
+The first grants camera permission automatically (there is no one to click a prompt on a kiosk); the second marks only your Quartermaster server as trusted for this browser. Make sure the kiosk user is in the `video` group (`sudo usermod -aG video kiosk`).
+
+### Raspberry Pi camera module (ribbon cable): use the helper
+
+Chromium cannot open CSI camera modules, so a tiny helper takes the picture instead. It listens on `127.0.0.1` only, and the kiosk page calls it automatically when it is running. There is no live preview in this mode: hold the box up, tap *Take photo*, and retake if it isn't good.
+
+1. Check the camera works first: `rpicam-still -t 1000 -o test.jpg` (it ships with Raspberry Pi OS; on a minimal install `sudo apt install rpicam-apps-lite`).
+2. Install the helper:
+
+   ```bash
+   sudo mkdir -p /opt/quartermaster
+   sudo cp pi/camera_helper.py /opt/quartermaster/
+   sudo cp pi/quartermaster-camera.service /etc/systemd/system/
+   sudo nano /etc/systemd/system/quartermaster-camera.service   # set User= and SERVER in QM_CAMERA_ORIGIN
+   sudo systemctl daemon-reload && sudo systemctl enable --now quartermaster-camera
+   curl http://127.0.0.1:8581/health                            # should print {"ok": true, "camera": true}
+   ```
+
+   `QM_CAMERA_ORIGIN` must be exactly the address the kiosk loads (for example `http://192.168.1.50:8580`); it stops any other website in that browser from taking pictures.
+
+If both a helper and a webcam are present, the helper is used.
+
+> **Status:** the kiosk's camera screen was tested here with a simulated webcam, and the helper with a stand-in for `rpicam-still`. Neither has run on real camera hardware yet, so expect to adjust on first try.
+
+## 5. Screen and touch
 
 - **Screen never blanks:** the service above keeps the compositor running; if the display still sleeps, add `consoleblank=0` to the end of the single line in `/boot/firmware/cmdline.txt`.
 - **Wrong rotation:** most 7" panels are right-side-up out of the box. If yours isn't, rotate with `wlr-randr` in the service's `ExecStart` (before launching Chromium) or set the rotation in `/boot/firmware/config.txt` for your panel type.
 - **Touch offset:** panels that connect over DSI report correct coordinates automatically. USB touch panels occasionally need a libinput calibration matrix; search for your panel's model plus "libinput calibration".
 
-## 5. Locking
+## 6. Locking
 
 The kiosk locks itself after 15 minutes without a touch or scan (configurable with `QM_IDLE_MINUTES` on the server) and asks for the PIN again. Anything you had scanned but not finished stays queued on the server, so after unlocking you'll see a "Resume" banner.

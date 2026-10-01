@@ -6,6 +6,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -80,6 +81,17 @@ class Barcode(Base):
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     product: Mapped[Product | None] = relationship(back_populates="barcodes")
+
+
+class BarcodePhoto(Base):
+    """A picture of the box for one code. Kept in its own table so listings never load the bytes."""
+
+    __tablename__ = "barcode_photos"
+    code: Mapped[str] = mapped_column(ForeignKey("barcodes.code"), primary_key=True)
+    image: Mapped[bytes] = mapped_column(LargeBinary)  # JPEG, longest side <= 1280 px
+    thumb: Mapped[bytes] = mapped_column(LargeBinary)  # JPEG, longest side <= 240 px
+    etag: Mapped[str] = mapped_column(String(40))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class Batch(Base):

@@ -1,4 +1,4 @@
-import { get, post, put, patch, del, ApiError, watchSession } from '/shared/api.js';
+import { get, post, put, patch, del, sendBlob, watchSession } from '/shared/api.js';
 import { h, clear, fmtInt, fmtWhen, toast } from '/shared/dom.js';
 import { renderLogin } from '/shared/login.js';
 
@@ -83,6 +83,50 @@ function productFields(calibers, p = {}) {
   return { el, value };
 }
 
+// ------------------------------------------------------------- box photos
+const photoUrl = (code, thumbOnly) => `/api/barcodes/${encodeURIComponent(code)}/photo${thumbOnly ? '?thumb=true' : ''}`;
+
+/** A small clickable thumbnail (or camera placeholder) that opens the photo dialog for a code. */
+function thumb(code, has, onChange) {
+  if (!code) return h('span');
+  return h('button', { class: 'thumb-btn', type: 'button', title: has ? 'View or replace the photo' : 'Add a photo', onclick: () => photoDialog(code, has, onChange) },
+    has ? h('img', { src: photoUrl(code, true), alt: 'Box photo', loading: 'lazy' }) : h('span', { class: 'ph' }, '📷'));
+}
+
+/** View, replace, or remove the photo of one box. onChange(hasPhotoNow) fires after a change. */
+function photoDialog(code, has, onChange) {
+  const holder = h('div', { class: 'photo-view' });
+  const file = h('input', { type: 'file', accept: 'image/*' });
+  let objectUrl = null;
+  const show = (src) => clear(holder, src ? h('img', { src, alt: 'Box photo' }) : h('div', { class: 'empty' }, 'No photo yet. Choose an image to add one.'));
+  show(has ? photoUrl(code) : null);
+  file.addEventListener('change', () => {
+    const f = file.files[0];
+    if (!f) return;
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    objectUrl = URL.createObjectURL(f);
+    show(objectUrl);
+  });
+  const removeBtn = has ? h('button', { type: 'button', class: 'btn danger', onclick: () => confirmBox('Remove photo?', 'The photo of this box will be deleted.', 'Remove', async () => {
+    await del(photoUrl(code));
+    toast('Photo removed', 'ok');
+    d.close();
+    onChange?.(false);
+  }) }, 'Remove photo') : null;
+  const d = dialog({
+    title: `Box photo · ${code}`, wide: true, ok: 'Save photo',
+    body: h('div', {}, holder, h('div', { class: 'toolbar', style: { marginTop: '14px' } }, file, removeBtn),
+      h('p', { class: 'sub', style: { margin: 0 } }, 'Pick a new image to replace the current photo. It is resized and stored with your inventory data.')),
+    onOk: async () => {
+      if (!file.files[0]) throw new Error('Choose an image file first');
+      await sendBlob('PUT', photoUrl(code), file.files[0]);
+      toast('Photo saved', 'ok');
+      onChange?.(true);
+    },
+  });
+  return d;
+}
+
 async function refreshBadge() {
   try {
     const u = await get('/api/inventory/unidentified');
@@ -140,15 +184,17 @@ async function inventory() {
     const d = await get('/api/inventory/items?' + qs);
     const rows = [
       ...d.products.map((p) => h('tr', {},
+        td(thumb(p.photo_code || p.codes[0]?.code, !!p.photo_code, load)),
         td(p.caliber), td([h('b', {}, p.label), h('span', { class: 'code' }, p.spec)]), td(codesOf(p.codes)),
         boxesCell(p.boxes), td(fmtInt(p.rounds), 'num'), td(fmtWhen(p.last_activity)),
         td(p.codes.length ? h('button', { class: 'btn sm', onclick: () => adjustDialog(p, load) }, 'Adjust') : '', 'actions'))),
       ...d.unidentified.map((u) => h('tr', {},
+        td(thumb(u.code, u.has_photo, load)),
         td(h('em', { class: 'muted' }, '—')), td(h('em', {}, 'Unidentified')), td(codesOf([u.code])),
         boxesCell(u.boxes), td('—', 'num'), td(fmtWhen(u.last_activity)),
-        td(h('button', { class: 'btn sm primary', onclick: () => identifyDialog(u.code, load) }, 'Identify'), 'actions'))),
+        td(h('button', { class: 'btn sm primary', onclick: () => identifyDialog(u.code, load, u.has_photo) }, 'Identify'), 'actions'))),
     ];
-    clear(holder, rows.length ? table(['Caliber', 'Product', 'Code(s)', ['Boxes', 'num'], ['Rounds', 'num'], 'Last activity', ''], rows) : empty('Nothing matches.'),
+    clear(holder, rows.length ? table(['', 'Caliber', 'Product', 'Code(s)', ['Boxes', 'num'], ['Rounds', 'num'], 'Last activity', ''], rows) : empty('Nothing matches.'),
       h('p', { class: 'sub', style: { marginTop: '10px' } }, `${fmtInt(d.total_boxes)} boxes · ${fmtInt(d.total_rounds)} identified rounds`));
   };
   let t;
@@ -183,7 +229,7 @@ function adjustDialog(p, done) {
 }
 
 // ------------------------------------------------------------- unidentified
-async function identifyDialog(code, done) {
+async function identifyDialog(code, done, hasPhoto = false) {
   const [calibers, products] = await Promise.all([get('/api/calibers'), get('/api/products')]);
   let mode = products.length ? 'existing' : 'new';
   const pick = h('select', {}, products.map((p) => h('option', { value: p.id }, `${p.caliber} — ${p.label} (${specOf(p)})`)));
@@ -200,7 +246,9 @@ async function identifyDialog(code, done) {
   paint();
   dialog({
     title: 'Identify code', wide: true, ok: 'Save',
-    body: h('div', {}, h('p', { class: 'sub', style: { margin: '0 0 12px' } }, ['Barcode ', h('b', {}, code), '. Every check-in and check-out already logged for it will pick up these details.']), seg, wrap),
+    body: h('div', {},
+      hasPhoto && h('img', { class: 'id-photo', src: photoUrl(code), alt: 'Photo of the box' }),
+      h('p', { class: 'sub', style: { margin: '0 0 12px' } }, ['Barcode ', h('b', {}, code), '. Every check-in and check-out already logged for it will pick up these details.']), seg, wrap),
     onOk: async () => {
       let pid;
       if (mode === 'existing') pid = Number(pick.value);
@@ -217,9 +265,9 @@ async function unidentified() {
   const rows = await get('/api/inventory/unidentified');
   clear(main, h('h1', {}, 'Unidentified codes'),
     h('p', { class: 'sub' }, 'Barcodes scanned at the kiosk that have no product details yet. Their boxes are already counted; identify them to get rounds and calibers.'),
-    rows.length ? table(['Code', ['Boxes on hand', 'num'], ['Entries', 'num'], 'First seen', 'Last activity', ''], rows.map((u) =>
-      h('tr', {}, td(h('b', { class: 'code', style: { display: 'inline', color: 'inherit' } }, u.code)), boxesCell(u.boxes), td(u.transactions, 'num'), td(fmtWhen(u.first_seen_at)), td(fmtWhen(u.last_activity)),
-        td([h('button', { class: 'btn sm primary', onclick: () => identifyDialog(u.code, unidentified) }, 'Identify'), ' ',
+    rows.length ? table(['Photo', 'Code', ['Boxes on hand', 'num'], ['Entries', 'num'], 'First seen', 'Last activity', ''], rows.map((u) =>
+      h('tr', {}, td(thumb(u.code, u.has_photo, unidentified)), td(h('b', { class: 'code', style: { display: 'inline', color: 'inherit' } }, u.code)), boxesCell(u.boxes), td(u.transactions, 'num'), td(fmtWhen(u.first_seen_at)), td(fmtWhen(u.last_activity)),
+        td([h('button', { class: 'btn sm primary', onclick: () => identifyDialog(u.code, unidentified, u.has_photo) }, 'Identify'), ' ',
           !u.transactions && h('button', { class: 'btn sm danger', onclick: () => confirmBox('Remove code?', `Remove ${u.code}? It has no history.`, 'Remove', async () => { await del(`/api/barcodes/${encodeURIComponent(u.code)}`); unidentified(); refreshBadge(); }) }, 'Remove')], 'actions'))))
       : empty('Nothing to identify. Every scanned code has a product.'));
 }
@@ -235,8 +283,8 @@ async function products() {
     if (calSel.value) qs.set('caliber_id', calSel.value);
     if (q.value.trim()) qs.set('q', q.value.trim());
     const list = await get('/api/products?' + qs);
-    clear(holder, list.length ? table(['Caliber', 'Product', 'Details', 'Codes', ''], list.map((p) =>
-      h('tr', {}, td(p.caliber), td(h('b', {}, p.label)), td(specOf(p) + (p.cost_per_box != null ? ` · $${p.cost_per_box}/box` : '')), td(p.codes.length ? codesOf(p.codes) : h('em', { class: 'muted' }, 'none')),
+    clear(holder, list.length ? table(['', 'Caliber', 'Product', 'Details', 'Codes', ''], list.map((p) =>
+      h('tr', {}, td(thumb(p.photo_codes[0] || p.codes[0], p.photo_codes.length > 0, load)), td(p.caliber), td(h('b', {}, p.label)), td(specOf(p) + (p.cost_per_box != null ? ` · $${p.cost_per_box}/box` : '')), td(p.codes.length ? codesOf(p.codes) : h('em', { class: 'muted' }, 'none')),
         td([h('button', { class: 'btn sm', onclick: () => productDialog(calibers, p, load) }, 'Edit'), ' ',
           h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete product?', `Delete ${p.label}? Its codes keep their history and go back to "unidentified".`, 'Delete', async () => { await del(`/api/products/${p.id}`); load(); refreshBadge(); }) }, 'Delete')], 'actions'))))
       : empty('No products match.'));
@@ -251,9 +299,11 @@ async function products() {
 function productDialog(calibers, p, done) {
   const f = productFields(calibers, p || {});
   const codes = p ? [...p.codes] : [];
+  const withPhoto = new Set(p ? p.photo_codes : []);
   const list = h('div', { class: 'codes-list' });
   const addIn = h('input', { placeholder: 'Scan or type a barcode', size: 24 });
-  const paintCodes = () => clear(list, codes.length ? codes.map((c) => h('span', { class: 'tag' }, c,
+  const paintCodes = () => clear(list, codes.length ? codes.map((c) => h('span', { class: 'tag code-tag' },
+    thumb(c, withPhoto.has(c), (has) => { has ? withPhoto.add(c) : withPhoto.delete(c); paintCodes(); done?.(); }), c,
     h('button', { type: 'button', title: 'Remove', onclick: async () => {
       try { await put(`/api/barcodes/${encodeURIComponent(c)}`, { product_id: null }); codes.splice(codes.indexOf(c), 1); paintCodes(); } catch (e) { toast(e.message, 'error'); }
     } }, '×'))) : h('em', { class: 'muted' }, 'No barcodes yet'));
@@ -377,11 +427,31 @@ async function labels() {
 }
 
 // ----------------------------------------------------------------- settings
-async function settings() {
+async function settings(restored) {
   const pin = (ph) => h('input', { type: 'password', inputmode: 'numeric', pattern: '\\d{4}', maxlength: 4, placeholder: ph, autocomplete: 'off', style: { width: '110px' } });
   const cur = pin('Current'), nw = pin('New'), cf = pin('Confirm');
-  const locks = await get('/api/security/lockouts');
+  const [locks, prefs] = await Promise.all([get('/api/security/lockouts'), get('/api/settings')]);
+  const photoToggle = h('input', { type: 'checkbox', checked: prefs.photo_prompt, onchange: async (e) => {
+    try { await put('/api/settings', { photo_prompt: e.target.checked }); toast('Saved', 'ok'); } catch (er) { toast(er.message, 'error'); e.target.checked = !e.target.checked; }
+  } });
+  const restoreFile = h('input', { type: 'file', accept: '.db,application/octet-stream', style: { display: 'none' }, onchange: () => {
+    const f = restoreFile.files[0];
+    restoreFile.value = '';
+    if (f) restoreDialog(f);
+  } });
   clear(main, h('h1', {}, 'Settings'),
+    restored && h('div', { class: 'banner ok' },
+      h('b', {}, 'Restore complete. '),
+      `Loaded ${fmtInt(restored.restored.products)} products, ${fmtInt(restored.restored.barcodes)} barcodes, ${fmtInt(restored.restored.transactions)} history entries and ${fmtInt(restored.restored.barcode_photos)} photos. `,
+      `The previous data was saved on the server as ${restored.safety_copy}.`),
+    h('h2', {}, 'Box photos'),
+    h('label', { class: 'chk', style: { fontSize: '15px', color: 'var(--text)' } }, photoToggle,
+      'Ask for a photo of the box at the kiosk when a brand-new barcode is scanned (needs a camera on the Pi)'),
+    h('h2', {}, 'Backup & restore'),
+    h('p', { class: 'sub' }, 'A backup holds everything: inventory history, products, calibers, box photos and the label counter. It does not include your PIN. Restoring replaces all current data with the backup; your PIN and sign-in are not touched.'),
+    h('div', { class: 'toolbar' },
+      h('a', { class: 'btn primary', href: '/api/backup' }, '⬇ Download backup'),
+      h('button', { class: 'btn', type: 'button', onclick: () => restoreFile.click() }, '⬆ Restore from backup…'), restoreFile),
     h('h2', {}, 'Change PIN'),
     h('p', { class: 'sub' }, 'One 4-digit PIN unlocks both the kiosk and this site. Both lock after a period of inactivity.'),
     h('form', { class: 'toolbar', onsubmit: async (e) => {
@@ -400,6 +470,22 @@ async function settings() {
       : empty('No failed attempts recorded.'),
     h('h2', {}, 'Data'),
     h('div', { class: 'toolbar' }, h('a', { class: 'btn', href: '/api/export/inventory.csv' }, 'Inventory CSV'), h('a', { class: 'btn', href: '/api/export/transactions.csv' }, 'Full history CSV')));
+}
+
+function restoreDialog(file) {
+  const kb = file.size >= 1048576 ? `${(file.size / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(file.size / 1024))} KB`;
+  dialog({
+    title: 'Restore from backup?', ok: 'Replace everything with this backup', danger: true,
+    body: h('div', {},
+      h('p', {}, ['Restore ', h('b', {}, file.name), ` (${kb})?`]),
+      h('p', { class: 'sub', style: { margin: 0 } }, 'All current inventory, history, products, calibers and photos will be replaced by what is in the backup. A copy of the current data is saved on the server first. Your PIN is not changed.')),
+    onOk: async () => {
+      const r = await sendBlob('POST', '/api/restore', file);
+      toast('Backup restored', 'ok');
+      refreshBadge();
+      settings(r);
+    },
+  });
 }
 
 // ------------------------------------------------------------------- router

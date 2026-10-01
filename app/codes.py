@@ -9,7 +9,8 @@ QM000123 labels, odd symbologies) is only trimmed and upper-cased.
 import re
 
 MAX_LEN = 64
-_PRINTABLE = re.compile(r"^[\x21-\x7e]+$")  # visible ASCII, no spaces
+# Visible ASCII, no spaces. '/' is excluded because codes appear in URL paths.
+_PRINTABLE = re.compile(r"^[\x21-\x2e\x30-\x7e]+$")
 
 
 def normalize_code(raw: str) -> str:
