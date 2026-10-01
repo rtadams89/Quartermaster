@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -43,10 +43,17 @@ app.mount("/kiosk", StaticFiles(directory=STATIC / "kiosk", html=True), name="ki
 app.mount("/admin", StaticFiles(directory=STATIC / "admin", html=True), name="admin")
 
 
+# Browsers ask for icons at the site root regardless of which page they are on.
+for _name, _type in (("favicon.svg", "image/svg+xml"), ("favicon.ico", "image/x-icon"), ("apple-touch-icon.png", "image/png")):
+    def _icon(_name=_name, _type=_type):
+        return FileResponse(STATIC / "shared" / _name, media_type=_type)
+    app.add_api_route("/" + _name, _icon, methods=["GET"], include_in_schema=False)
+
+
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def index():
     return """<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>Quartermaster</title>
+<title>Quartermaster</title><link rel=icon href=/favicon.svg type=image/svg+xml>
 <body style="font:16px system-ui;background:#10151c;color:#e8edf3;display:grid;place-items:center;height:100vh;margin:0">
 <div style="text-align:center"><h1>Quartermaster</h1>
 <p><a style="color:#6cb6ff" href="/kiosk/">Kiosk</a> &nbsp;·&nbsp; <a style="color:#6cb6ff" href="/admin/">Admin</a></p></div>"""

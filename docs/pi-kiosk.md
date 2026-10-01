@@ -132,8 +132,7 @@ If both a helper and a webcam are present, the helper is used.
 The kiosk page hides the pointer for everything *inside* the page (`cursor: none`). That is not always enough: `cage` draws its own pointer, in the middle of the screen, until the browser has been sent a real mouse movement, and a web page cannot hide that one. The fix is an invisible cursor theme, so the compositor has nothing visible to draw:
 
 ```bash
-sudo apt install xcursorgen imagemagick
-sh pi/make-blank-cursor.sh          # run as the kiosk user; creates ~/.icons/blank
+sh pi/make-blank-cursor.sh          # run as the kiosk user; needs nothing installed, creates ~/.icons/blank
 ```
 
 Then add these two lines to the `[Service]` section of the kiosk unit and restart it:

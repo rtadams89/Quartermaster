@@ -4,6 +4,12 @@ The version lives in one place, `app/__init__.py` (`__version__`). It is shown s
 screen and in the footer of the admin sidebar, and reported by `/api/health` and `/api/auth/status`.
 Every change bumps it (patch for fixes and docs, minor for features) and gets a line here.
 
+## 0.5.1
+- `pi/make-blank-cursor.sh` no longer needs xcursorgen (not available on Pi OS); it writes the cursor file with python3.
+
+## 0.5.0
+- Favicon (SVG, ICO and touch icon) on the kiosk, admin and landing pages.
+
 ## 0.4.1
 - Kiosk: invisible cursor theme (`pi/make-blank-cursor.sh`) for the pointer cage draws itself, which the page cannot hide.
 
