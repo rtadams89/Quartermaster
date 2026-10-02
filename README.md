@@ -39,7 +39,7 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 
 **Ammo In / Ammo Out.** Tap one, then scan boxes. Each scan adds one box to the list; scan the same box again to add another, or tap the number to type a quantity. Tap *Review & Finish* to check the list, then *Finish* to save it. Nothing is recorded until you finish.
 
-**Unknown barcodes.** A barcode the system hasn't seen is still recorded, as "Unknown item". When it is new, the kiosk offers to take a photo of the box (if you have a camera). Later, open **Unidentified** in the admin site and name it, and everything already scanned picks up the details.
+**Unknown barcodes.** A barcode the system hasn't seen is still recorded, as "Unknown item". When it is new, the kiosk offers to take a photo of the box (if you have a camera). Later, open **Unidentified** in the admin site and name it, and everything already scanned picks up the details. The server looks the barcode up online (only the number is sent) and offers to fill in the form for you; set `QM_UPC_LOOKUP=false` in `.env` to turn that off.
 
 **Inventory.** On the kiosk, tap *Inventory* and drill down by caliber, then bullet weight, then product. In the admin site, *Inventory → + Add stock* adds boxes without scanning, and *Adjust* corrects a count.
 

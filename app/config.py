@@ -38,3 +38,7 @@ TRUST_PROXY = _bool("QM_TRUST_PROXY", False)
 
 # Send the session cookie with the Secure flag (set true if you serve HTTPS).
 COOKIE_SECURE = _bool("QM_COOKIE_SECURE", False)
+
+# Look up unidentified barcodes on UPCitemdb (free, no key) to pre-fill the product form.
+# Only the barcode number is sent. Set to false to keep the server fully offline.
+UPC_LOOKUP = _bool("QM_UPC_LOOKUP", True)

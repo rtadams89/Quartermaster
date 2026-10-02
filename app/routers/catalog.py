@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import security
+from .. import config, lookup, security
 from ..codes import normalize_code
 from ..db import get_db
 from ..models import Barcode, BarcodePhoto, Caliber, Product, Transaction
@@ -215,6 +215,24 @@ def add_barcode(pid: int, body: CodeIn, db: Session = Depends(get_db)):
     bc.product_id = pid
     db.commit()
     return {"ok": True, "code": code}
+
+
+@router.get("/lookup/{code}")
+def lookup_code(code: str, db: Session = Depends(get_db)):
+    """Ask UPCitemdb what a retail barcode is, with a guess at the product details."""
+    code = _norm(code)
+    if not config.UPC_LOOKUP:
+        return {"enabled": False, "found": False}
+    if not lookup.is_lookupable(code):
+        return {"enabled": True, "found": False, "reason": "not a retail barcode"}
+    try:
+        row = lookup.lookup(db, code)
+    except lookup.LookupFailed as e:
+        raise HTTPException(503, str(e))
+    if not row.found:
+        return {"enabled": True, "found": False}
+    return {"enabled": True, "found": True, "title": row.title, "brand": row.brand,
+            "image": row.image_url, "suggestion": lookup.guess(db, row)}
 
 
 @router.delete("/barcodes/{code}")

@@ -16,5 +16,6 @@ services:
       # the connection (TRUST_PROXY) and/or serves HTTPS (COOKIE_SECURE).
       QM_TRUST_PROXY: ${QM_TRUST_PROXY:-false}
       QM_COOKIE_SECURE: ${QM_COOKIE_SECURE:-false}
+      QM_UPC_LOOKUP: ${QM_UPC_LOOKUP:-true}
     volumes:
       - ./data:/data

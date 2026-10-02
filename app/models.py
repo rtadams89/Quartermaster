@@ -94,6 +94,19 @@ class BarcodePhoto(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class UpcLookup(Base):
+    """Cached answer from the online UPC lookup, so each code is only ever asked about once."""
+
+    __tablename__ = "upc_lookups"
+    code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    found: Mapped[bool] = mapped_column(Boolean, default=False)
+    title: Mapped[str] = mapped_column(String(300), default="")
+    brand: Mapped[str] = mapped_column(String(120), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    image_url: Mapped[str] = mapped_column(String(500), default="")
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class Batch(Base):
     """One ammo in / ammo out session. Items are queued here until finished."""
 

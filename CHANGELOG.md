@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 0.11.0
+- Admin: Identify code now asks UPCitemdb (free, no key) what the barcode is and offers to pre-fill the new-product form (title, brand, caliber, rounds per box, weight, bullet type). Nothing is saved until you press Save. Answers are cached; only the barcode number is sent. Turn off with `QM_UPC_LOOKUP=false`.
+
 ## 0.10.0
 - Admin: Inventory → "+ Add stock" adds boxes of a product (with a note) from the admin site, recorded as ammo in.
 

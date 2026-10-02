@@ -80,7 +80,16 @@ function productFields(calibers, p = {}) {
       rounds_per_box: Number(rpb.value), cost_per_box: cost.value === '' ? null : Number(cost.value), notes: notes.value,
     };
   };
-  return { el, value };
+  /** Pre-fill from an online lookup. Only fields the lookup was sure about are touched. */
+  const fill = (s) => {
+    if (s.caliber_id && [...cal.options].some((o) => o.value === String(s.caliber_id))) cal.value = String(s.caliber_id);
+    if (s.rounds_per_box) rpb.value = s.rounds_per_box;
+    if (s.brand) brand.value = s.brand;
+    if (s.name) name.value = s.name;
+    if (s.bullet_weight_gr) weight.value = s.bullet_weight_gr;
+    if (s.bullet_type) type.value = s.bullet_type;
+  };
+  return { el, value, fill };
 }
 
 // ------------------------------------------------------------- box photos
@@ -277,10 +286,24 @@ async function identifyDialog(code, done, hasPhoto = false) {
     clear(wrap, mode === 'existing' ? h('div', { class: 'form' }, existingBox) : newForm.el);
   };
   paint();
+  // Ask the online UPC database what this code is; the answer only ever pre-fills the new-product form.
+  const hint = h('div', { class: 'lookup-hint', hidden: true });
+  get(`/api/lookup/${encodeURIComponent(code)}`).then((r) => {
+    if (!r.enabled) return;
+    hint.hidden = false;
+    if (!r.found) { clear(hint, h('span', { class: 'muted' }, 'Not found in the online UPC database.')); return; }
+    const s = r.suggestion || {};
+    const got = [s.caliber_id && 'caliber', s.rounds_per_box && 'rounds per box', s.bullet_weight_gr && 'weight', s.bullet_type && 'bullet type'].filter(Boolean);
+    clear(hint,
+      r.image && h('img', { src: r.image, alt: '', referrerpolicy: 'no-referrer' }),
+      h('div', {}, h('b', {}, 'Online lookup: '), r.title,
+        h('div', { class: 'muted' }, got.length ? `Guessed ${got.join(', ')}. Check everything before saving.` : 'Could not guess caliber or rounds per box; fill those in.')),
+      h('button', { type: 'button', class: 'btn sm', onclick: () => { newForm.fill(s); mode = 'new'; paint(); } }, 'Use these details'));
+  }).catch((e) => { hint.hidden = false; clear(hint, h('span', { class: 'muted' }, 'Online lookup: ' + e.message)); });
   dialog({
     title: 'Identify code', wide: true, ok: 'Save',
     body: h('div', {},
-      hasPhoto && h('img', { class: 'id-photo', src: photoUrl(code), alt: 'Photo of the box' }),
+      hasPhoto && h('img', { class: 'id-photo', src: photoUrl(code), alt: 'Photo of the box' }), hint,
       h('p', { class: 'sub', style: { margin: '0 0 12px' } }, ['Barcode ', h('b', {}, code), '. Every ammo in and ammo out already logged for it will pick up these details.']), seg, wrap),
     onOk: async () => {
       let pid;
