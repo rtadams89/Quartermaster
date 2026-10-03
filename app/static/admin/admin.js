@@ -620,38 +620,55 @@ async function history() {
 }
 
 // ------------------------------------------------------------------- labels
+// The print job is kept while you move around the admin site, so you can leave and come back to it.
+const labelJob = { items: [], cols: 3, type: 'code128' };
+
 async function labels() {
   const prods = await get('/api/products');
   const pick = searchPicker(prods.map((p) => ({ id: p.id, name: `${p.caliber} — ${p.label} (${specOf(p)})` })), null, {
     placeholder: 'Product: type to search, or leave empty to identify later', none: 'No matching product', empty: 'No products yet.',
     bad: (t) => `"${t}" is not one of your products. Pick one from the list, or clear the box.`, missing: '', optional: true,
   });
-  const count = h('input', { type: 'number', min: 1, max: 100, value: 10, style: { width: '80px' } });
-  const type = h('select', {}, h('option', { value: 'code128' }, 'Code 128 (bar)'), h('option', { value: 'qr' }, 'QR code'));
-  const sheet = h('div', { class: 'sheet' });
+  const count = h('input', { type: 'number', min: 1, max: 100, value: 10, style: { width: '80px' }, 'aria-label': 'Number of labels' });
+  const type = h('select', { 'aria-label': 'Label style', onchange: () => { labelJob.type = type.value; paint(); } },
+    h('option', { value: 'code128' }, 'Code 128 (bar)'), h('option', { value: 'qr' }, 'QR code'));
+  type.value = labelJob.type;
+  const cols = h('select', { 'aria-label': 'Columns', onchange: () => { labelJob.cols = Number(cols.value); paint(); } },
+    [1, 2, 3, 4, 5, 6].map((n) => h('option', { value: n }, n === 1 ? '1 column' : `${n} columns`)));
+  cols.value = String(labelJob.cols);
   const reprint = h('input', { placeholder: 'e.g. QM000012', size: 14 });
-  const show = (codes, text) => {
-    const t = type.value;
-    clear(sheet, codes.map((c) => h('div', { class: 'label ' + t },
-      h('img', { src: `/api/labels/render?type=${t}&code=${encodeURIComponent(c)}`, alt: c }), h('div', { class: 'c' }, c), text && h('div', { class: 'p' }, text))));
+  const sheet = h('div', { class: 'sheet' });
+  const status = h('span', { class: 'muted' });
+  const paint = () => {
+    sheet.style.gridTemplateColumns = `repeat(${labelJob.cols}, minmax(0, 1fr))`;
+    status.textContent = labelJob.items.length ? `${labelJob.items.length} label(s) on the sheet` : 'The sheet is empty. Add labels above.';
+    clear(sheet, labelJob.items.map((it, i) => h('div', { class: 'label ' + labelJob.type },
+      h('button', { class: 'x no-print', type: 'button', title: 'Remove this label from the sheet', 'aria-label': `Remove label ${it.code}`,
+        onclick: () => { labelJob.items.splice(i, 1); paint(); } }, '×'),
+      h('img', { src: `/api/labels/render?type=${labelJob.type}&code=${encodeURIComponent(it.code)}`, alt: it.code }),
+      h('div', { class: 'c' }, it.code), it.text && h('div', { class: 'p' }, it.text))));
   };
-  const printBtn = h('button', { class: 'btn', onclick: () => window.print() }, 'Print');
+  const add = (codes, text) => { for (const code of codes) labelJob.items.push({ code, text }); paint(); };
   clear(main, h('h1', {}, 'Labels'),
-    h('p', { class: 'sub' }, 'For ammo with no UPC (or repacked boxes). A label is a code you can scan like any other barcode. A product keeps one label code: choosing it again reprints the same code. With no product chosen, each label gets its own new code to identify later. Any 2D-capable scanner reads both styles.'),
-    h('div', { class: 'toolbar no-print' }, h('div', { style: { flex: '1 1 320px', minWidth: '260px' } }, pick.el), h('span', {}, 'Labels'), count, type,
+    h('p', { class: 'sub' }, 'For ammo with no UPC (or repacked boxes). Build a sheet from as many different labels as you like, choose how many columns, remove any you do not want, then print. A label is a code you can scan like any other barcode. A product keeps one label code: adding it again reprints the same code. With no product chosen, each label gets its own new code to identify later. Any 2D-capable scanner reads both styles.'),
+    h('div', { class: 'toolbar no-print' }, h('div', { style: { flex: '1 1 460px', minWidth: '280px' } }, pick.el), h('span', {}, 'Labels'), count,
       h('button', { class: 'btn primary', onclick: async () => {
         try {
           const n = Number(count.value);
           const pid = pick.value();
           const r = await post('/api/labels/allocate', { count: n, product_id: pid });
           const p = prods.find((x) => x.id === pid);
-          show(r.codes, p ? `${p.label}\n${p.caliber} ${specOf(p)}` : '');
-          toast(!pid ? `Created ${r.codes.length} new code(s)` : r.reused ? `Reusing ${r.codes[0]}, already this product's label` : `Created ${r.codes[0]} for this product`, 'ok');
+          add(r.codes, p ? `${p.label}\n${p.caliber} ${specOf(p)}` : '');
+          toast(!pid ? `Added ${r.codes.length} new code(s)` : r.reused ? `Added ${n} of ${r.codes[0]}, already this product's label` : `Created ${r.codes[0]} for this product and added ${n}`, 'ok');
         } catch (e) { toast(e.message, 'error'); }
-      } }, 'Create labels'), printBtn),
-    h('div', { class: 'toolbar no-print' }, h('span', { class: 'muted' }, 'Reprint an existing code:'), reprint,
-      h('button', { class: 'btn', onclick: () => { if (reprint.value.trim()) show([reprint.value.trim().toUpperCase()], ''); } }, 'Show')),
+      } }, 'Add to sheet')),
+    h('div', { class: 'toolbar no-print' }, h('span', { class: 'muted' }, 'Or add an existing code:'), reprint,
+      h('button', { class: 'btn', onclick: () => { if (reprint.value.trim()) { add([reprint.value.trim().toUpperCase()], ''); reprint.value = ''; } } }, 'Add')),
+    h('div', { class: 'toolbar no-print' }, type, cols, status, h('span', { class: 'grow' }),
+      h('button', { class: 'btn', onclick: () => { labelJob.items.length = 0; paint(); } }, 'Clear sheet'),
+      h('button', { class: 'btn primary', onclick: () => window.print() }, 'Print')),
     sheet);
+  paint();
 }
 
 // ----------------------------------------------------------------- settings

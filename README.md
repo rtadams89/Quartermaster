@@ -47,7 +47,7 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 
 **Product list in a spreadsheet.** *Products → Export CSV* downloads every product with its barcodes. Edit it (or write your own with at least the columns `caliber` and `rounds_per_box`; costs are US dollars, with or without the $), then *Import CSV*. You see what will be added or changed before anything happens, and a file with any problem rows is refused whole.
 
-**Ammo without a barcode.** In the admin site, **Labels** prints your own barcode or QR labels to stick on those boxes. Pick the product and how many labels to print; every label for a product carries the same code, so each box scans as that product.
+**Ammo without a barcode.** In the admin site, **Labels** prints your own barcode or QR labels to stick on those boxes. Add as many different products as you like to one sheet (every label for a product carries the same code, so each box scans as that product), pick the number of columns, remove any label you don't want, and print.
 
 **Backup and restore.** *Settings* has a button to download a backup of everything (except the PIN) and one to restore from it. Backups are manual.
 

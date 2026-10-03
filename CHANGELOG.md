@@ -2,6 +2,10 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 0.21.0
+- Labels: build one print sheet from many different labels. Each "Add to sheet" adds that product's labels (or new unassigned codes, or an existing code) to the sheet, and the sheet keeps filling until you clear it, even if you visit other pages and come back.
+- Labels: choose 1 to 6 columns for the sheet, and remove any single label with the × on it before printing. Clear sheet starts over. The label style (bar or QR) applies to the whole sheet.
+
 ## 0.20.0
 - Labels: the product box is now a type-ahead search (same as Caliber and Manufacturer). Leave it empty to make labels for codes you will identify later.
 - Labels: a product keeps one label code. Choosing a product that already has a QM label reprints that same code instead of making a new one; a product with no label yet gets one new code. The number is now how many labels to print. With no product chosen, each label still gets its own new code.

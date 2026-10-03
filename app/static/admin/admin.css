@@ -71,11 +71,13 @@ td .code { font-family: ui-monospace, Consolas, monospace; font-size: 13px; colo
 .codes-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .codes-list .tag button { border: 0; background: none; color: var(--danger); cursor: pointer; padding: 0 0 0 6px; }
 
-.sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(2.3in, 1fr)); gap: 10px; margin-top: 16px; }
-.label { background: #fff; color: #000; border: 1px dashed #999; border-radius: 4px; padding: 6px; display: flex; flex-direction: column; align-items: center; gap: 2px; break-inside: avoid; height: 1.35in; justify-content: center; text-align: center; }
+.sheet { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+.label { position: relative; background: #fff; color: #000; border: 1px dashed #999; border-radius: 4px; padding: 6px; display: flex; flex-direction: column; align-items: center; gap: 2px; break-inside: avoid; height: 1.35in; justify-content: center; text-align: center; }
 .label img { max-width: 100%; max-height: .62in; }
 .label.qr img { max-height: .78in; }
 .label .c { font-family: ui-monospace, Consolas, monospace; font-size: 12px; font-weight: 700; }
+.label .x { position: absolute; top: 2px; right: 3px; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: #e5e7eb; color: #b91c1c; font-size: 16px; line-height: 1; cursor: pointer; }
+.label .x:hover { background: #b91c1c; color: #fff; }
 .label .p { font-size: 11px; line-height: 1.15; white-space: pre-line; }
 
 @media (max-width: 800px) {
