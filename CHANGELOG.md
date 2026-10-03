@@ -2,6 +2,13 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 0.24.0
+- Phone layout for the admin site. On a mobile browser (or when chosen from the menu) it shows a menu button instead of the side bar, one card per table row, larger buttons and full-screen dialogs. Every page and action is still there. "Use desktop layout" / "Use mobile layout" in the menu overrides the automatic choice in that browser.
+- Dashboard: the Boxes box is gone. New *Out of stock* box lists calibers you keep but have none of (a caliber with a product or an alert level and nothing on hand); click it to open Inventory.
+- Dashboard: the *Needs details* box now counts unidentified codes and products missing a cost, manufacturer, bullet type or bullet weight, and opens the new *Needs details* page (it replaces the Unidentified page). That page lists the unidentified codes with Identify, and each incomplete product with what it is missing and an Edit button.
+- Inventory (Browse): calibers with nothing on hand are listed with an OUT tag, next to the LOW tag.
+- Settings: *Clear history…* erases the history log but keeps what is on hand (each code's count becomes a single opening-balance entry). Needs CLEAR typed to confirm.
+
 ## 0.23.0
 - Every price is now shown to the cent, including cost per round (it used to show tenths of a cent, like $0.285; that is now $0.29).
 - Admin dashboard, By caliber: the bars at the end of each row are gone. Each caliber now shows the value of what you have in stock (boxes times cost per box), and a Total row at the bottom adds up boxes, rounds and value. Value only counts products with a cost entered; a note says how many in stock have none.

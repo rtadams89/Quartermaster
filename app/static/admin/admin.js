@@ -7,7 +7,7 @@ let session = null;
 let main;
 
 const NAV = [
-  ['dashboard', 'Dashboard'], ['inventory', 'Inventory'], ['unidentified', 'Unidentified'], ['products', 'Products'],
+  ['dashboard', 'Dashboard'], ['inventory', 'Inventory'], ['details', 'Needs details'], ['products', 'Products'],
   ['calibers', 'Calibers'], ['history', 'History'], ['labels', 'Labels'], ['settings', 'Settings'],
 ];
 
@@ -267,31 +267,33 @@ function photoDialog(code, has, onChange) {
 
 async function refreshBadge() {
   try {
-    const u = await get('/api/inventory/unidentified');
-    const link = document.querySelector('nav a[href="#/unidentified"]');
+    const d = await get('/api/needs-details');
+    const link = document.querySelector('nav a[href="#/details"]');
     if (!link) return;
     link.querySelector('.badge')?.remove();
-    const open = u.filter((x) => x.boxes !== 0 || x.transactions).length;
-    if (open) link.append(h('span', { class: 'badge' }, open));
+    if (d.count) link.append(h('span', { class: 'badge' }, d.count));
   } catch { /* ignore */ }
 }
 
 // ---------------------------------------------------------------- dashboard
 async function dashboard() {
-  const [top, unid, prods, recent, low] = await Promise.all([
-    get('/api/inventory/drill'), get('/api/inventory/unidentified'), get('/api/products'), get('/api/transactions?limit=8'), get('/api/low-stock'),
+  const [top, need, prods, recent, low, gone] = await Promise.all([
+    get('/api/inventory/drill'), get('/api/needs-details'), get('/api/products'), get('/api/transactions?limit=8'), get('/api/low-stock'), get('/api/out-of-stock'),
   ]);
   const cal = top.rows.filter((r) => r.key !== 'unidentified');
-  const unBoxes = unid.reduce((n, u) => n + u.boxes, 0);
+  const nameList = (names) => names.length <= 3 ? names.join(', ') : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`;
   clear(main,
     h('h1', {}, 'Dashboard'),
     h('div', { class: 'cards' },
       card('Rounds on hand', fmtInt(top.total_rounds)),
-      card('Boxes (identified)', fmtInt(cal.reduce((n, r) => n + r.boxes, 0))),
       card('Products', fmtInt(prods.length)),
       h('div', { class: 'card' + (low.count ? ' warn' : '') }, h('div', { class: 'k' }, 'Running low'), h('div', { class: 'v' }, fmtInt(low.count)),
         h('div', { class: 'sub', style: { margin: '4px 0 0' } }, low.count ? 'Below the level you set' : 'Nothing below its level')),
-      h('div', { class: 'card' + (unid.length ? ' warn' : '') }, h('a', { href: '#/unidentified' }, h('div', { class: 'k' }, 'Needs details'), h('div', { class: 'v' }, fmtInt(unid.length)), h('div', { class: 'sub', style: { margin: '4px 0 0' } }, unid.length ? `${fmtInt(unBoxes)} boxes under unknown codes` : 'All codes identified')))),
+      h('div', { class: 'card' + (gone.length ? ' warn' : '') }, h('a', { href: '#/inventory', onclick: () => { Object.assign(invNav, { view: 'browse', caliber: null, weight: null, manufacturer: null }); } },
+        h('div', { class: 'k' }, 'Out of stock'), h('div', { class: 'v' }, fmtInt(gone.length)),
+        h('div', { class: 'sub', style: { margin: '4px 0 0' } }, gone.length ? nameList(gone.map((c) => c.name)) : 'No caliber is empty'))),
+      h('div', { class: 'card' + (need.count ? ' warn' : '') }, h('a', { href: '#/details' }, h('div', { class: 'k' }, 'Needs details'), h('div', { class: 'v' }, fmtInt(need.count)),
+        h('div', { class: 'sub', style: { margin: '4px 0 0' } }, need.count ? [need.unidentified.length && `${fmtInt(need.unidentified.length)} unidentified code${need.unidentified.length === 1 ? '' : 's'}`, need.products.length && `${fmtInt(need.products.length)} product${need.products.length === 1 ? '' : 's'} missing details`].filter(Boolean).join(' · ') : 'Everything is filled in')))),
     low.count ? [h('h2', {}, 'Running low'), table(['Item', ['On hand (rounds)', 'num'], ['Alert below', 'num']], [
       ...low.calibers.map((c) => h('tr', {}, td([h('b', {}, c.name), ' ', h('span', { class: 'muted' }, 'caliber')]), td(fmtInt(c.rounds), 'num'), td(fmtInt(c.min_rounds), 'num'))),
       ...low.products.map((p) => h('tr', {}, td([h('b', {}, p.label), ' ', h('span', { class: 'muted' }, p.caliber || '')]), td(fmtInt(p.rounds), 'num'), td(fmtInt(p.min_rounds), 'num'))),
@@ -375,7 +377,7 @@ async function inventory() {
 /** Drill down like the kiosk: caliber, then bullet weight, then manufacturer, then the product itself. */
 async function inventoryBrowse(holder) {
   const load = async () => {
-    const qs = new URLSearchParams({ by_manufacturer: 'true' });
+    const qs = new URLSearchParams({ by_manufacturer: 'true', include_empty: 'true' });
     if (invNav.caliber !== null) qs.set('caliber', invNav.caliber);
     if (invNav.weight !== null) qs.set('weight', invNav.weight);
     if (invNav.manufacturer !== null) qs.set('manufacturer', invNav.manufacturer);
@@ -403,7 +405,7 @@ async function inventoryBrowse(holder) {
       const what = { caliber: 'Caliber', weight: 'Bullet weight', manufacturer: 'Manufacturer' }[d.level];
       body = table([what, ['Boxes', 'num'], ['Rounds', 'num'], ['Value', 'num'], ['Cost per round', 'num'], ''], d.rows.map((r) => {
         const row = h('tr', r.drillable ? { class: 'drill-row', tabindex: 0, onclick: () => open(r), onkeydown: (e) => { if (e.key === 'Enter') open(r); } } : {},
-          td([h('b', {}, r.label), r.low && h('span', { class: 'low-tag' }, 'LOW'), r.sublabel && h('span', { class: 'code' }, r.sublabel)]),
+          td([h('b', {}, r.label), r.out ? h('span', { class: 'low-tag out-tag' }, 'OUT') : r.low && h('span', { class: 'low-tag' }, 'LOW'), r.sublabel && h('span', { class: 'code' }, r.sublabel)]),
           boxesCell(r.boxes), td(r.rounds === null ? '—' : fmtInt(r.rounds), 'num'), (r.rounds === null ? td('—', 'num') : valueCell(r)),
           td(fmtPriceRange(r.price) || '—', 'num'), td(r.drillable ? '›' : '', 'chev'));
         return row;
@@ -495,7 +497,7 @@ function adjustDialog(p, done) {
   });
 }
 
-// ------------------------------------------------------------- unidentified
+// ---------------------------------------------------------------- identify
 async function identifyDialog(code, done, hasPhoto = false) {
   const [calibers, products] = await Promise.all([get('/api/calibers'), get('/api/products')]);
   let mode = products.length ? 'existing' : 'new';
@@ -546,18 +548,29 @@ async function identifyDialog(code, done, hasPhoto = false) {
   });
 }
 
-async function unidentified() {
-  const rows = await get('/api/inventory/unidentified');
-  clear(main, h('h1', {}, 'Unidentified codes'),
-    h('p', { class: 'sub' }, 'Barcodes scanned at the kiosk that have no product details yet. Their boxes are already counted; identify them to get rounds and calibers.'),
-    rows.length ? table(['Photo', 'Code', ['Boxes on hand', 'num'], ['Entries', 'num'], 'First seen', 'Last activity', ''], rows.map((u) =>
-      h('tr', {}, td(thumb(u.code, u.has_photo, unidentified)), td(h('b', { class: 'code', style: { display: 'inline', color: 'inherit' } }, u.code)), boxesCell(u.boxes), td(u.transactions, 'num'), td(fmtWhen(u.first_seen_at)), td(fmtWhen(u.last_activity)),
-        td([h('button', { class: 'btn sm primary', onclick: () => identifyDialog(u.code, unidentified, u.has_photo) }, 'Identify'), ' ',
-          !u.transactions && h('button', { class: 'btn sm danger', onclick: () => confirmBox('Remove code?', `Remove ${u.code}? It has no history.`, 'Remove', async () => { await del(`/api/barcodes/${encodeURIComponent(u.code)}`); unidentified(); refreshBadge(); }) }, 'Remove')], 'actions'))))
-      : empty('Nothing to identify. Every scanned code has a product.'));
+/** Scanned codes with no product, and products missing a cost, manufacturer, bullet type or weight. */
+async function needsDetails() {
+  const [d, calibers] = await Promise.all([get('/api/needs-details'), get('/api/calibers')]);
+  const reload = () => { needsDetails(); refreshBadge(); };
+  clear(main, h('h1', {}, 'Needs details'),
+    h('p', { class: 'sub' }, 'Barcodes scanned at the kiosk with no product yet, and products still missing a cost, manufacturer, bullet type or bullet weight. Boxes under unidentified codes are already counted; identify them to get rounds and calibers.'),
+    d.count ? null : empty('Nothing needs attention. Every code has a product and every product is complete.'),
+    d.unidentified.length ? [
+      h('h2', {}, `Unidentified codes (${fmtInt(d.unidentified.length)})`),
+      table(['Photo', 'Code', ['Boxes on hand', 'num'], ['Entries', 'num'], 'First seen', 'Last activity', ''], d.unidentified.map((u) =>
+        h('tr', {}, td(thumb(u.code, u.has_photo, reload)), td(h('b', { class: 'code', style: { display: 'inline', color: 'inherit' } }, u.code)), boxesCell(u.boxes), td(u.transactions, 'num'), td(fmtWhen(u.first_seen_at)), td(fmtWhen(u.last_activity)),
+          td([h('button', { class: 'btn sm primary', onclick: () => identifyDialog(u.code, reload, u.has_photo) }, 'Identify'), ' ',
+            !u.transactions && h('button', { class: 'btn sm danger', onclick: () => confirmBox('Remove code?', `Remove ${u.code}? It has no history.`, 'Remove', async () => { await del(`/api/barcodes/${encodeURIComponent(u.code)}`); reload(); }) }, 'Remove')], 'actions')))),
+    ] : null,
+    d.products.length ? [
+      h('h2', {}, `Products missing details (${fmtInt(d.products.length)})`),
+      table(['Product', 'Missing', ['Boxes', 'num'], ''], d.products.map((p) =>
+        h('tr', {}, td([h('b', {}, p.label), h('span', { class: 'code' }, `${p.caliber} · ${p.spec}`)]),
+          td(p.missing.map((m) => h('span', { class: 'tag miss' }, m))), boxesCell(p.boxes),
+          td(h('button', { class: 'btn sm primary', onclick: () => productDialog(calibers, p, reload) }, 'Edit'), 'actions')))),
+    ] : null);
 }
 
-// ----------------------------------------------------------------- products
 async function products() {
   const calibers = await get('/api/calibers');
   const calSel = h('select', {}, h('option', { value: '' }, 'All calibers'), calibers.map((c) => h('option', { value: c.id }, c.name)));
@@ -642,7 +655,7 @@ function productDialog(calibers, p, done) {
     body: h('div', {}, f.el,
       p ? h('div', { style: { marginTop: '16px' } }, h('div', { class: 'sub', style: { margin: '0 0 6px' } }, 'Barcodes for this product'), list,
         h('div', { class: 'toolbar', style: { marginTop: '10px' } }, addIn, h('button', { type: 'button', class: 'btn sm', onclick: addCode }, 'Add code')))
-        : h('p', { class: 'sub', style: { margin: '14px 0 0' } }, 'After saving you can attach barcodes here, or use the Unidentified page to attach scanned ones.')),
+        : h('p', { class: 'sub', style: { margin: '14px 0 0' } }, 'After saving you can attach barcodes here, or use the Needs details page to attach scanned ones.')),
     onOk: async () => {
       if (p) await put(`/api/products/${p.id}`, f.value());
       else await post('/api/products', f.value());
@@ -809,9 +822,31 @@ async function settings(restored) {
       : empty('No failed attempts recorded.'),
     h('h2', {}, 'Data'),
     h('div', { class: 'toolbar' }, h('a', { class: 'btn', href: '/api/export/inventory.csv' }, 'Inventory CSV'), h('a', { class: 'btn', href: '/api/export/transactions.csv' }, 'Full history CSV')),
+    h('h2', {}, 'History'),
+    h('p', { class: 'sub' }, 'Erases the history log (every in, out and correction entry) but keeps what is on hand: each code\'s current count is kept as a single "opening balance" entry. Products, barcodes, photos and alert levels are not touched. This cannot be undone, so download a backup first if you might want the log.'),
+    h('div', { class: 'toolbar' }, h('button', { class: 'btn danger', type: 'button', onclick: clearHistoryDialog }, 'Clear history…')),
     h('h2', {}, 'Reset'),
     h('p', { class: 'sub' }, 'Returns Quartermaster to a fresh install: all history, products, barcodes, photos, calibers and preferences are erased, and so is the PIN, so you will choose a new one. No copy is kept, so download a backup first if you might want anything back.'),
     h('div', { class: 'toolbar' }, h('button', { class: 'btn danger', type: 'button', onclick: resetDialog }, 'Reset all data…')));
+}
+
+function clearHistoryDialog() {
+  const word = h('input', { type: 'text', placeholder: 'CLEAR', autocomplete: 'off', style: { width: '110px' } });
+  dialog({
+    title: 'Clear the history?', ok: 'Clear history', danger: true,
+    body: h('div', {},
+      h('p', {}, 'Every entry in the history is erased. Your inventory stays exactly as it is: each code keeps its current box count as one "opening balance" entry.'),
+      h('p', { class: 'sub', style: { margin: '0 0 12px' } }, ['No copy of the log is kept. ', h('a', { href: '/api/export/transactions.csv' }, 'Export the history CSV'), ' or ', h('a', { href: '/api/backup' }, 'download a backup'), ' first if you might want it.']),
+      h('div', { class: 'toolbar' }, word),
+      h('p', { class: 'sub', style: { margin: 0 } }, 'Type CLEAR to confirm.')),
+    onOk: async () => {
+      if (word.value.trim() !== 'CLEAR') throw new Error('Type CLEAR to confirm');
+      const r = await post('/api/history/clear', { confirm: 'CLEAR' });
+      toast(`Cleared ${fmtInt(r.removed)} history entr${r.removed === 1 ? 'y' : 'ies'}`, 'ok');
+      refreshBadge();
+      settings();
+    },
+  });
 }
 
 function resetDialog() {
@@ -851,12 +886,14 @@ function restoreDialog(file) {
 }
 
 // ------------------------------------------------------------------- router
-const pages = { dashboard, inventory, unidentified, products, calibers, history, labels, settings };
+const pages = { dashboard, inventory, details: needsDetails, products, calibers, history, labels, settings };
 
 async function route() {
   const name = (location.hash.replace(/^#\//, '') || 'dashboard').split('?')[0];
   const page = pages[name] || dashboard;
   document.querySelectorAll('nav a[data-page]').forEach((a) => a.classList.toggle('active', a.dataset.page === name));
+  const pageName = document.querySelector('.topbar .page');
+  if (pageName) pageName.textContent = NAV.find(([k]) => k === name)?.[1] || 'Dashboard';
   try {
     await page();
   } catch (e) {
@@ -865,16 +902,50 @@ async function route() {
 }
 
 let version = '';
+const isMobile = () => document.documentElement.classList.contains('mobile');
+
+/** Switch between the phone and desktop layouts. The choice is remembered in this browser. */
+function toggleLayout() {
+  try { localStorage.setItem('qm-layout', isMobile() ? 'desktop' : 'mobile'); } catch { /* not remembered */ }
+  location.reload();
+}
+
+/** Phone layout shows each table row as a card, so every cell needs its column name and a wrapper for its content. */
+function labelCells(root) {
+  for (const t of root.querySelectorAll('table')) {
+    const heads = [...t.querySelectorAll('thead th')].map((x) => x.textContent.trim());
+    for (const tr of t.querySelectorAll('tbody tr')) {
+      [...tr.children].forEach((cell, i) => {
+        if (cell.tagName !== 'TD' || cell.dataset.label !== undefined || cell.colSpan > 1) return;
+        cell.dataset.label = heads[i] || '';
+        if (cell.firstElementChild?.classList.contains('cv') && cell.children.length === 1) return;
+        const wrap = h('div', { class: 'cv' });
+        wrap.append(...cell.childNodes);
+        cell.append(wrap);
+      });
+    }
+  }
+}
 
 function shell() {
   main = h('main');
-  clear(app, h('div', { class: 'shell' },
-    h('nav', {}, h('div', { class: 'brand' }, 'Quartermaster'),
-      NAV.map(([k, label]) => h('a', { href: '#/' + k, 'data-page': k }, label)),
-      h('div', { class: 'spacer' }),
-      h('a', { href: '#', onclick: async (e) => { e.preventDefault(); try { await post('/api/auth/logout'); } catch { /* */ } lock(); } }, 'Lock'),
-      h('footer', { class: 'ver' }, 'Quartermaster' + (version ? ' v' + version : ''))),
-    main));
+  const menu = h('nav', {}, h('div', { class: 'brand' }, 'Quartermaster'),
+    NAV.map(([k, label]) => h('a', { href: '#/' + k, 'data-page': k }, label)),
+    h('div', { class: 'spacer' }),
+    h('a', { href: '#', onclick: (e) => { e.preventDefault(); toggleLayout(); } }, isMobile() ? 'Use desktop layout' : 'Use mobile layout'),
+    h('a', { href: '#', onclick: async (e) => { e.preventDefault(); try { await post('/api/auth/logout'); } catch { /* */ } lock(); } }, 'Lock'),
+    h('footer', { class: 'ver' }, 'Quartermaster' + (version ? ' v' + version : '')));
+  menu.addEventListener('click', (e) => { if (e.target.closest('a')) menu.classList.remove('open'); });
+  const topbar = h('header', { class: 'topbar' },
+    h('button', { class: 'menu', type: 'button', 'aria-label': 'Menu', onclick: () => menu.classList.toggle('open') }, '☰'),
+    h('span', { class: 'brand' }, 'Quartermaster'), h('span', { class: 'page' }));
+  clear(app, h('div', { class: 'shell' }, topbar, menu, main));
+  let queued = false;
+  new MutationObserver(() => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; labelCells(main); });
+  }).observe(main, { childList: true, subtree: true });
   route();
   refreshBadge();
 }

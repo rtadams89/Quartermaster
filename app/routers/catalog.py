@@ -9,7 +9,8 @@ from ..codes import normalize_code
 from ..db import get_db
 from ..models import Barcode, BarcodePhoto, Caliber, Product, Transaction, UpcLookup
 from .photos import process_image, store_photo
-from ..services import brand_spellings, canonical_brand, minimums, photo_codes, product_dict, set_minimum, spec_text
+from ..services import (brand_spellings, canonical_brand, inventory_by_product, minimums, missing_details, photo_codes,
+                        product_dict, set_minimum, spec_text)
 
 router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
 
@@ -136,6 +137,27 @@ def list_brands(db: Session = Depends(get_db)):
             k = b.strip().lower()
             uses[k] = uses.get(k, 0) + 1
     return [spell[k] for k in sorted(uses, key=lambda k: (-uses[k], spell[k].lower()))]
+
+
+@router.get("/needs-details")
+def needs_details(db: Session = Depends(get_db)):
+    """Everything that still needs filling in: scanned codes with no product, and products missing a
+    cost, manufacturer, bullet type or bullet weight."""
+    items, unidentified = inventory_by_product(db)
+    boxes = {i["id"]: i["boxes"] for i in items}
+    photos = photo_codes(db)
+    mins = minimums(db)
+    products = []
+    for p in db.scalars(select(Product)):
+        missing = missing_details(p)
+        if missing:
+            d = _product_full(db, p, photos, mins)
+            d["missing"] = missing
+            d["boxes"] = boxes.get(p.id, 0)
+            products.append(d)
+    products.sort(key=lambda d: ((d["caliber"] or "").lower(), d["label"].lower()))
+    unidentified.sort(key=lambda u: u["last_activity"] or u["first_seen_at"], reverse=True)
+    return {"unidentified": unidentified, "products": products, "count": len(unidentified) + len(products)}
 
 
 @router.get("/products")

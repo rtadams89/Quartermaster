@@ -87,17 +87,70 @@ tr.total td { font-weight: 700; background: var(--panel-2); border-top: 2px soli
 .label .x:hover { background: #b91c1c; color: #fff; }
 .label .p { font-size: 11px; line-height: 1.15; white-space: pre-line; }
 
-@media (max-width: 800px) {
-  .shell { grid-template-columns: 1fr; }
-  nav { position: static; height: auto; flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); }
-  nav .brand, nav .spacer { display: none; }
-  nav footer.ver { border-top: 0; margin: 0 0 0 auto; padding: 9px 12px; }
-  main { padding: 16px 14px 50px; }
-  .form { grid-template-columns: 1fr; }
-  table { display: block; overflow-x: auto; }
-}
+/* ---------------------------------------------------------------- mobile
+   Applied when the browser is a phone (see the script in index.html), or when chosen from the menu. */
+.topbar { display: none; }
+html.mobile body { -webkit-text-size-adjust: 100%; }
+html.mobile .shell { display: block; }
+html.mobile .topbar { display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 40; height: 54px; padding: 0 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
+html.mobile .topbar .menu { width: 44px; height: 40px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); font-size: 22px; line-height: 1; cursor: pointer; }
+html.mobile .topbar .brand { font-weight: 800; letter-spacing: .14em; text-transform: uppercase; font-size: 13px; }
+html.mobile .topbar .page { margin-left: auto; color: var(--muted); font-size: 15px; }
+html.mobile nav { display: none; position: fixed; inset: 54px 0 0 0; height: auto; z-index: 39; overflow: auto; border: 0; padding: 10px 14px 24px; }
+html.mobile nav.open { display: flex; }
+html.mobile nav .brand { display: none; }
+html.mobile nav a { padding: 15px 14px; font-size: 18px; }
+html.mobile nav .badge { margin-top: 2px; }
+html.mobile nav footer.ver { border-top: 1px solid var(--line); margin-top: 8px; }
+html.mobile main { padding: 14px 12px 60px; max-width: none; }
+html.mobile h1 { font-size: 22px; margin-bottom: 14px; }
+html.mobile .sub { margin-top: -6px; }
+
+html.mobile input, html.mobile select, html.mobile textarea { font-size: 16px; padding: 10px 12px; }   /* 16px stops iOS zooming into fields */
+html.mobile .btn { height: 44px; padding: 0 16px; font-size: 15px; }
+html.mobile .btn.sm { height: 38px; padding: 0 14px; font-size: 14px; }
+html.mobile .toolbar { gap: 8px; }
+html.mobile .toolbar .grow { display: none; }
+html.mobile .toolbar input, html.mobile .toolbar select { flex: 1 1 150px; width: auto; }
+html.mobile .toolbar .btn { flex: 0 0 auto; }
+html.mobile .seg button { padding: 10px 16px; font-size: 15px; }
+html.mobile .cards { grid-template-columns: 1fr 1fr; gap: 10px; }
+html.mobile .card { padding: 12px; }
+html.mobile .card .v { font-size: 26px; }
+html.mobile .crumbs { font-size: 16px; line-height: 1.9; }
+
+/* tables become one card per row; each cell carries its column name (added by admin.js) */
+html.mobile table { display: block; background: none; border: 0; border-radius: 0; overflow: visible; }
+html.mobile thead { display: none; }
+html.mobile tbody { display: block; }
+html.mobile tr { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; padding: 4px 12px; }
+html.mobile tr:last-child td { border-bottom: 1px solid var(--line); }
+html.mobile td { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--line); text-align: right; }
+html.mobile td:last-child, html.mobile tr td:last-child { border-bottom: 0; }
+html.mobile td::before { content: attr(data-label); flex: none; max-width: 40%; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; text-align: left; padding-top: 2px; }
+html.mobile td[data-label=""]::before, html.mobile td:not([data-label])::before { display: none; }
+html.mobile td .cv { min-width: 0; text-align: right; overflow-wrap: anywhere; }
+html.mobile td .cv .code { text-align: right; }
+html.mobile td.actions { justify-content: flex-end; flex-wrap: wrap; }
+html.mobile td:first-child:has(.thumb-btn) { width: auto; padding-right: 0; }
+html.mobile td.chev { justify-content: flex-end; font-size: 22px; width: auto; }
+html.mobile tr.drill-row { padding: 10px 12px; }
+html.mobile tr.total { border-width: 2px; }
+html.mobile tr.total td { background: none; border-top: 0; }
+
+html.mobile .modal-bg { padding: 0; align-items: stretch; }
+html.mobile .modal { max-width: none !important; min-height: 100%; border-radius: 0; border: 0; padding: 16px 14px 24px; }
+html.mobile .modal .actions { position: sticky; bottom: 0; background: var(--panel); padding: 10px 0 2px; }
+html.mobile .form { grid-template-columns: 1fr; }
+html.mobile .lookup-hint { flex-wrap: wrap; }
+html.mobile .banner { font-size: 15px; }
+html.mobile #qm-toast { bottom: 14px; }
+html.mobile .combo-list { max-height: 40vh; }
+html.mobile .combo-list .opt { padding: 13px 12px; }
+html.mobile .sheet { gap: 6px; }
+
 @media print {
-  nav, .toolbar, h1, .sub, #qm-toast, .no-print { display: none !important; }
+  nav, .topbar, .toolbar, h1, .sub, #qm-toast, .no-print { display: none !important; }
   .shell { display: block; } main { padding: 0; max-width: none; }
   html, body { background: #fff; }
   .sheet { margin: 0; gap: 6px; }
@@ -123,6 +176,8 @@ td:first-child:has(.thumb-btn) { width: 60px; padding-right: 0; }
 .lookup-hint > div { flex: 1; min-width: 0; }
 .lookup-hint .muted { display: block; font-size: 13px; }
 
+.tag.miss { margin-right: 4px; color: var(--warn); border-color: var(--warn); }
+.low-tag.out-tag { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
 .low-tag { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .04em; background: color-mix(in srgb, var(--warn, #c77700) 18%, transparent); color: var(--warn, #c77700); vertical-align: middle; }
 .import-errors { margin: 0; padding-left: 20px; max-height: 220px; overflow: auto; font-size: 14px; }
 

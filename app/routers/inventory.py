@@ -5,14 +5,15 @@ import io
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from .. import security
 from ..codes import normalize_code
 from ..db import get_db, iso
-from ..models import Barcode, Transaction
-from ..services import drill, inventory_by_product, locate, low_stock, price_range, stock_money
+from ..models import Barcode, Batch, BatchItem, Transaction
+from ..services import (drill, inventory_by_product, locate, low_stock, on_hand_by_code, out_of_stock_calibers,
+                        price_range, stock_money)
 
 router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
 
@@ -23,9 +24,16 @@ def inventory_drill(
     weight: str | None = None,
     manufacturer: str | None = None,
     by_manufacturer: bool = False,
+    include_empty: bool = False,
     db: Session = Depends(get_db),
 ):
-    return drill(db, caliber, weight, manufacturer, by_manufacturer)
+    return drill(db, caliber, weight, manufacturer, by_manufacturer, include_empty)
+
+
+@router.get("/out-of-stock")
+def out_of_stock(db: Session = Depends(get_db)):
+    """Calibers you keep but have none of right now."""
+    return [{"id": c.id, "name": c.name} for c in out_of_stock_calibers(db)]
 
 
 @router.get("/low-stock")
@@ -162,6 +170,32 @@ def add_stock(body: StockIn, db: Session = Depends(get_db)):
     db.add(t)
     db.commit()
     return _tx_dict(t, bc)
+
+
+class ClearHistoryIn(BaseModel):
+    confirm: str
+
+
+@router.post("/history/clear")
+def clear_history(body: ClearHistoryIn, db: Session = Depends(get_db)):
+    """Erase the history log but keep what is on hand. Stock is the sum of the history, so each code's
+    total is rewritten as one 'opening balance' entry (codes at zero get none). Products, barcodes,
+    photos, alert levels and any scan session still in progress are left alone."""
+    if body.confirm != "CLEAR":
+        raise HTTPException(400, "Type CLEAR to confirm")
+    stock = on_hand_by_code(db)
+    removed = db.scalar(select(func.count(Transaction.id))) or 0
+    db.execute(delete(Transaction))
+    done = select(Batch.id).where(Batch.status != "draft")
+    db.execute(delete(BatchItem).where(BatchItem.batch_id.in_(done)))
+    db.execute(delete(Batch).where(Batch.status != "draft"))
+    kept = 0
+    for code, boxes in sorted(stock.items()):
+        if boxes:
+            db.add(Transaction(code=code, boxes=boxes, kind="adjust", note="Opening balance (history cleared)"))
+            kept += 1
+    db.commit()
+    return {"removed": removed, "kept": kept}
 
 
 # -------------------------------------------------------------------- export

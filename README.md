@@ -39,15 +39,23 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 
 **Ammo In / Ammo Out.** Tap one, then scan boxes. Each scan adds one box to the list; scan the same box again to add another, or tap the number to type a quantity. Tap *Review & Finish* to check the list, then *Finish* to save it. Nothing is recorded until you finish.
 
-**Unknown barcodes.** A barcode the system hasn't seen is still recorded, as "Unknown item". When it is new, the kiosk offers to take a photo of the box (if you have a camera). Later, open **Unidentified** in the admin site and name it, and everything already scanned picks up the details. The server looks the barcode up online (only the number is sent) and offers to fill in the form for you (and keeps the listing's photo if the box has none yet); set `QM_UPC_LOOKUP=false` in `.env` to turn that off.
+**Unknown barcodes.** A barcode the system hasn't seen is still recorded, as "Unknown item". When it is new, the kiosk offers to take a photo of the box (if you have a camera). Later, open **Needs details** in the admin site and name it, and everything already scanned picks up the details. The server looks the barcode up online (only the number is sent) and offers to fill in the form for you (and keeps the listing's photo if the box has none yet); set `QM_UPC_LOOKUP=false` in `.env` to turn that off.
 
 **Inventory.** On the kiosk, tap *Inventory* and drill down by caliber, then bullet weight, then product, or scan a box to jump straight to it and see how many are in stock. In the admin site, *Inventory* opens the same drill-down (caliber, then bullet weight, then manufacturer, then the product) with clickable breadcrumbs to jump back; *All items* shows every product in one searchable table. *+ Add stock* adds boxes without scanning, and *Adjust* corrects a count.
+
+**Needs details.** The admin dashboard's *Needs details* box counts barcodes that have no product yet plus products still missing a cost, manufacturer, bullet type or bullet weight (shotshells don't need a weight). Click it, or *Needs details* in the menu, to see them all and fix each one in place.
+
+**Out of stock.** The dashboard's *Out of stock* box lists the calibers you keep (they have a product, or an alert level) but have none of right now. In the admin *Inventory* browse view those calibers carry an OUT tag, like the LOW tag.
+
+**On your phone.** The admin site switches to a phone layout by itself on a mobile browser: a menu button at the top, and every table shown as one card per row, with all the same pages and buttons. *Use desktop layout* in the menu switches back (and *Use mobile layout* does the reverse); the choice is remembered in that browser.
 
 **Low stock.** In the admin site, *Calibers* has an "Alert below (rounds)" box for each caliber, and each product has the same setting. Leave the box blank for no alert. When rounds on hand drop under it, the item shows on the admin dashboard, the kiosk Inventory screen marks it LOW, and the kiosk home screen says how many are running low.
 
 **Cost per round.** Enter the cost per box on a product. Products and Inventory then show the cost per round, and the summaries (dashboard, inventory totals, kiosk calibers and bullet weights) show the low-to-high range for what you have in stock. All prices are shown to the cent. The admin dashboard and inventory also show the value of what you have (boxes times cost per box, for products that have a cost entered), with a totals row at the bottom of *By caliber*.
 
 **Product list in a spreadsheet.** *Products → Export CSV* downloads every product with its barcodes. Edit it (or write your own with at least the columns `caliber` and `rounds_per_box`; costs are US dollars, with or without the $), then *Import CSV*. You see what will be added or changed before anything happens, and a file with any problem rows is refused whole.
+
+**Clearing the history.** *Settings → History → Clear history…* erases the log of ins, outs and corrections but keeps your counts: each barcode's current number of boxes stays as one "opening balance" entry. Products, barcodes, photos and alert levels are untouched. It can't be undone, so export the history CSV or download a backup first if you want the log.
 
 **Ammo without a barcode.** In the admin site, **Labels** prints your own barcode or QR labels to stick on those boxes. Add as many different products as you like to one sheet (every label for a product carries the same code, so each box scans as that product), pick the number of columns, remove any label you don't want, and print.
 

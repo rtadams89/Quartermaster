@@ -1,4 +1,6 @@
 """Inventory maths shared by the routers."""
+import re
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -74,6 +76,38 @@ def price_range(items: list[dict]) -> dict | None:
     """Lowest and highest cost per round among items that are in stock and have a cost, else None."""
     costs = [i["cost_per_round"] for i in items if i["boxes"] > 0 and i.get("cost_per_round") is not None]
     return {"low": min(costs), "high": max(costs)} if costs else None
+
+
+def is_shotshell(caliber_name: str | None) -> bool:
+    """12ga, 20 gauge, .410 and so on: shot and slugs are described by weight in ounces, not bullet grains."""
+    return bool(re.search(r"\d\s*ga\b|gauge|\b410\b", caliber_name or "", re.I))
+
+
+def missing_details(p: Product) -> list[str]:
+    """Plain-language list of the details a product still lacks (empty when it is complete)."""
+    missing = []
+    if p.cost_per_box is None:
+        missing.append("cost")
+    if not (p.brand or "").strip():
+        missing.append("manufacturer")
+    if not (p.bullet_type or "").strip():
+        missing.append("bullet type")
+    if not p.bullet_weight_gr and not is_shotshell(p.caliber.name if p.caliber else ""):
+        missing.append("bullet weight")
+    return missing
+
+
+def out_of_stock_calibers(db: Session, items: list[dict] | None = None) -> list[Caliber]:
+    """Active calibers with nothing on hand that you do keep (they have a product, or an alert level).
+    A caliber that was never used does not count as out of stock."""
+    if items is None:
+        items, _ = inventory_by_product(db)
+    stocked = {i["caliber_id"] for i in items if i["boxes"] > 0}
+    kept = set(db.scalars(select(Product.caliber_id))) | {rid for (kind, rid) in minimums(db) if kind == "caliber"}
+    return [
+        c for c in db.scalars(select(Caliber).where(Caliber.active.is_(True)).order_by(Caliber.sort_order, Caliber.name))
+        if c.id not in stocked and c.id in kept
+    ]
 
 
 def stock_money(items: list[dict]) -> dict:
@@ -200,7 +234,7 @@ def low_stock(db: Session) -> dict:
 
 
 def drill(db: Session, caliber: str | None, weight: str | None, manufacturer: str | None = None,
-          by_manufacturer: bool = False) -> dict:
+          by_manufacturer: bool = False, include_empty: bool = False) -> dict:
     """Drill-down: caliber -> bullet weight -> product (the kiosk), or with by_manufacturer
     caliber -> bullet weight -> manufacturer -> product (the admin site)."""
     items, unidentified = inventory_by_product(db)
@@ -209,13 +243,15 @@ def drill(db: Session, caliber: str | None, weight: str | None, manufacturer: st
 
     calibers = list(db.scalars(select(Caliber).order_by(Caliber.sort_order, Caliber.name)))
     mins = minimums(db)
+    # include_empty (admin site): also list the calibers you keep but have run out of
+    gone = {c.id for c in out_of_stock_calibers(db)} if include_empty else set()
 
     if caliber is None:
         rows = []
         for c in calibers:
             mine = [i for i in items if i["caliber_id"] == c.id]
             floor = mins.get(("caliber", c.id))
-            if mine or floor:  # a caliber with an alert level stays listed even when it runs out
+            if mine or floor or c.id in gone:  # a caliber with an alert level stays listed even when it runs out
                 rounds = sum(i["rounds"] for i in mine)
                 rows.append(
                     {
@@ -224,6 +260,7 @@ def drill(db: Session, caliber: str | None, weight: str | None, manufacturer: st
                         "boxes": sum(i["boxes"] for i in mine),
                         "rounds": rounds,
                         "drillable": bool(mine),
+                        "out": not any(i["boxes"] > 0 for i in mine),
                         "low": bool(floor) and rounds < floor,
                         "price": price_range(mine),
                         **stock_money(mine),
