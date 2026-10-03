@@ -2,6 +2,11 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 0.16.0
+- Low-stock alerts: set an "Alert below (rounds)" level on a caliber (Calibers page) or a product (product form). Items under their level show on the admin dashboard and Inventory page, and on the kiosk (a LOW tag on Inventory, and a count on the home screen). A caliber with a level stays listed on the kiosk even when it has run out.
+- Products: Export CSV and Import CSV. Import shows what will be added, updated or left alone before doing it, creates missing calibers, and refuses the whole file if any row has a problem. Importing a barcode that was scanned but never described identifies it.
+- Backups made before this version cannot be restored (they lack the new alert-levels table).
+
 ## 0.15.0
 - Kiosk: on the Inventory screen, scanning a box jumps straight to that item (caliber, weight, then the item highlighted) and shows how many are in stock. Boxes with none in stock or not in the system get a short message.
 

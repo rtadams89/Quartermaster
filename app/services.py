@@ -3,7 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .db import iso
-from .models import Barcode, BarcodePhoto, Caliber, Product, Transaction
+from .models import Barcode, BarcodePhoto, Caliber, Product, StockMinimum, Transaction
 
 UNIDENTIFIED = "unidentified"
 
@@ -11,6 +11,22 @@ UNIDENTIFIED = "unidentified"
 def photo_codes(db: Session) -> set[str]:
     """Codes that have a box photo."""
     return set(db.scalars(select(BarcodePhoto.code)))
+
+
+def minimums(db: Session) -> dict[tuple[str, int], int]:
+    return {(m.kind, m.ref_id): m.min_rounds for m in db.scalars(select(StockMinimum))}
+
+
+def set_minimum(db: Session, kind: str, ref_id: int, value: int | None) -> None:
+    """Set (or, with None/0, clear) a low-stock level. The caller commits."""
+    row = db.get(StockMinimum, (kind, ref_id))
+    if not value:
+        if row:
+            db.delete(row)
+    elif row:
+        row.min_rounds = value
+    else:
+        db.add(StockMinimum(kind=kind, ref_id=ref_id, min_rounds=value))
 
 
 def product_dict(p: Product | None) -> dict | None:
@@ -80,6 +96,7 @@ def inventory_by_product(db: Session) -> tuple[list[dict], list[dict]]:
     stock = on_hand_by_code(db)
     act = activity_by_code(db)
     photos = photo_codes(db)
+    mins = minimums(db)
     products = {p.id: p for p in db.scalars(select(Product))}
     entries: dict[int, dict] = {}
     for pid, p in products.items():
@@ -91,6 +108,8 @@ def inventory_by_product(db: Session) -> tuple[list[dict], list[dict]]:
             "boxes": 0,
             "rounds": 0,
             "last_activity": None,
+            "min_rounds": mins.get(("product", pid)),
+            "low": False,
         }
     unidentified: list[dict] = []
     for bc in all_barcodes(db):
@@ -116,7 +135,29 @@ def inventory_by_product(db: Session) -> tuple[list[dict], list[dict]]:
         e["rounds"] += boxes * products[bc.product_id].rounds_per_box
         if a["last"] and (e["last_activity"] is None or a["last"] > e["last_activity"]):
             e["last_activity"] = a["last"]
+    for e in entries.values():
+        e["low"] = bool(e["min_rounds"]) and e["rounds"] < e["min_rounds"]
     return list(entries.values()), unidentified
+
+
+def low_stock(db: Session) -> dict:
+    """Calibers and products whose rounds on hand are below the level set for them."""
+    items, _ = inventory_by_product(db)
+    mins = minimums(db)
+    by_caliber: dict[int, int] = {}
+    for i in items:
+        by_caliber[i["caliber_id"]] = by_caliber.get(i["caliber_id"], 0) + i["rounds"]
+    calibers = [
+        {"id": c.id, "name": c.name, "rounds": by_caliber.get(c.id, 0), "min_rounds": mins[("caliber", c.id)]}
+        for c in db.scalars(select(Caliber).order_by(Caliber.sort_order, Caliber.name))
+        if ("caliber", c.id) in mins and by_caliber.get(c.id, 0) < mins[("caliber", c.id)]
+    ]
+    products = [
+        {"id": i["id"], "label": i["label"], "caliber": i["caliber"], "rounds": i["rounds"], "min_rounds": i["min_rounds"]}
+        for i in sorted(items, key=lambda i: ((i["caliber"] or "").lower(), i["label"].lower()))
+        if i["low"]
+    ]
+    return {"calibers": calibers, "products": products, "count": len(calibers) + len(products)}
 
 
 def drill(db: Session, caliber: str | None, weight: str | None) -> dict:
@@ -126,19 +167,23 @@ def drill(db: Session, caliber: str | None, weight: str | None) -> dict:
     unid = [u for u in unidentified if u["boxes"] != 0]
 
     calibers = list(db.scalars(select(Caliber).order_by(Caliber.sort_order, Caliber.name)))
+    mins = minimums(db)
 
     if caliber is None:
         rows = []
         for c in calibers:
             mine = [i for i in items if i["caliber_id"] == c.id]
-            if mine:
+            floor = mins.get(("caliber", c.id))
+            if mine or floor:  # a caliber with an alert level stays listed even when it runs out
+                rounds = sum(i["rounds"] for i in mine)
                 rows.append(
                     {
                         "key": str(c.id),
                         "label": c.name,
                         "boxes": sum(i["boxes"] for i in mine),
-                        "rounds": sum(i["rounds"] for i in mine),
-                        "drillable": True,
+                        "rounds": rounds,
+                        "drillable": bool(mine),
+                        "low": bool(floor) and rounds < floor,
                     }
                 )
         if unid:
@@ -200,6 +245,7 @@ def drill(db: Session, caliber: str | None, weight: str | None) -> dict:
             "boxes": i["boxes"],
             "rounds": i["rounds"],
             "drillable": False,
+            "low": i["low"],
         }
         for i in sorted(mine, key=lambda i: i["label"].lower())
     ]

@@ -70,6 +70,15 @@ class Product(Base):
     barcodes: Mapped[list["Barcode"]] = relationship(back_populates="product")
 
 
+class StockMinimum(Base):
+    """Low-stock level, in rounds, for one caliber or one product. No row means no alert."""
+
+    __tablename__ = "stock_minimums"
+    kind: Mapped[str] = mapped_column(String(8), primary_key=True)  # 'caliber' | 'product'
+    ref_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    min_rounds: Mapped[int] = mapped_column(Integer)
+
+
 class Barcode(Base):
     """A scannable code. product_id is NULL until the code has been identified."""
 

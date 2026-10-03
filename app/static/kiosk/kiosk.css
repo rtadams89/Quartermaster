@@ -105,6 +105,7 @@ html.rot-180 #stage { transform: rotate(180deg); }
 .inv-row .r .big { font-size: 24px; font-weight: 750; }
 .inv-row .r small { color: var(--muted); font-size: 13px; }
 .inv-row.hit { border-color: var(--in); box-shadow: 0 0 0 2px var(--in) inset; background: color-mix(in srgb, var(--in) 14%, var(--panel)); }
+.inv-row .low-tag { margin-left: 10px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: .05em; vertical-align: middle; background: var(--warn); color: #000; }
 .inv-row .chev { color: var(--muted); font-size: 26px; }
 
 /* ---------------------------------------------------------------- modal */
@@ -167,3 +168,5 @@ html.portrait .totals .extra { margin-left: 0; text-align: left; width: 100%; }
 html.portrait .dialog { min-width: 0; width: calc(100% - 24px); }
 html.portrait .cam-actions { gap: 8px; }
 html.portrait .cam-actions .btn { padding: 0 8px; font-size: 18px; }
+
+.tile small.warn { color: var(--warn); font-weight: 700; }

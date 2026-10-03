@@ -43,6 +43,10 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 
 **Inventory.** On the kiosk, tap *Inventory* and drill down by caliber, then bullet weight, then product, or scan a box to jump straight to it and see how many are in stock. In the admin site, *Inventory → + Add stock* adds boxes without scanning, and *Adjust* corrects a count.
 
+**Low stock.** In the admin site, *Calibers* has an "Alert below (rounds)" box for each caliber, and each product has the same setting. When rounds on hand drop under it, the item shows on the admin dashboard, the kiosk Inventory screen marks it LOW, and the kiosk home screen says how many are running low.
+
+**Product list in a spreadsheet.** *Products → Export CSV* downloads every product with its barcodes. Edit it (or write your own with at least the columns `caliber` and `rounds_per_box`), then *Import CSV*. You see what will be added or changed before anything happens, and a file with any problem rows is refused whole.
+
 **Ammo without a barcode.** In the admin site, **Labels** prints your own barcode or QR labels to stick on those boxes.
 
 **Backup and restore.** *Settings* has a button to download a backup of everything (except the PIN) and one to restore from it. Backups are manual.

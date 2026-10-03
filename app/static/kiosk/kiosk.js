@@ -191,6 +191,7 @@ async function boot() {
 // --------------------------------------------------------------------- home
 function showHome() {
   S.screen = 'home';
+  const invSub = h('small', {}, 'See what you have');
   S.last = null;
   const b = S.batch && S.batch.items.length ? S.batch : null;
   mount(
@@ -206,7 +207,10 @@ function showHome() {
     h('div', { class: 'home' },
       h('button', { class: 'tile in', onclick: () => startBatch('in') }, h('span', { class: 'ico' }, '⬇'), 'Ammo In', h('small', {}, 'Add boxes')),
       h('button', { class: 'tile out', onclick: () => startBatch('out') }, h('span', { class: 'ico' }, '⬆'), 'Ammo Out', h('small', {}, 'Remove boxes')),
-      h('button', { class: 'tile inv', onclick: () => { S.inv = { caliber: null, weight: null, hit: null }; showInventory(); } }, h('span', { class: 'ico' }, '☰'), 'Inventory', h('small', {}, 'See what you have'))));
+      h('button', { class: 'tile inv', onclick: () => { S.inv = { caliber: null, weight: null, hit: null }; showInventory(); } }, h('span', { class: 'ico' }, '☰'), 'Inventory', invSub)));
+  get('/api/low-stock').then((l) => {
+    if (l.count && S.screen === 'home') { invSub.textContent = `${l.count} running low`; invSub.classList.add('warn'); }
+  }).catch(() => {});
 }
 
 async function lockNow() {
@@ -567,7 +571,7 @@ async function showInventory() {
     h('div', { class: 'body' }, h('div', { class: 'list' },
       d.rows.length ? d.rows.map((r) =>
         h('button', { class: 'inv-row' + (r.key === S.inv.hit && !r.drillable ? ' hit' : ''), disabled: !r.drillable, onclick: () => open(r) },
-          h('div', { class: 'info' }, h('div', { class: 'title' }, r.label), r.sublabel && h('div', { class: 'sub' }, r.sublabel)),
+          h('div', { class: 'info' }, h('div', { class: 'title' }, r.label, r.low && h('span', { class: 'low-tag' }, 'LOW')), r.sublabel && h('div', { class: 'sub' }, r.sublabel)),
           h('div', { class: 'r' },
             h('div', { class: 'big' }, r.rounds === null ? '—' : fmtInt(r.rounds)),
             h('small', {}, r.rounds === null ? plural(r.boxes, 'box') : `rounds · ${plural(r.boxes, 'box')}`)),

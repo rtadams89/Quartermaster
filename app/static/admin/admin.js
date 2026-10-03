@@ -63,12 +63,13 @@ function productFields(calibers, p = {}) {
   const type = h('input', { value: p.bullet_type ?? '', list: 'bullet-types', placeholder: 'FMJ, JHP…', maxlength: 40 });
   const rpb = h('input', { type: 'number', min: 1, step: 1, required: true, value: p.rounds_per_box ?? '', placeholder: 'e.g. 50' });
   const cost = h('input', { type: 'number', min: 0, step: 'any', value: p.cost_per_box ?? '', placeholder: 'optional' });
+  const minr = h('input', { type: 'number', min: 0, step: 1, value: p.min_rounds ?? '', placeholder: 'optional' });
   const notes = h('textarea', { rows: 2 }, p.notes ?? '');
   const el = h('div', { class: 'form' },
     labeled('Caliber', cal), labeled('Rounds per box', rpb),
     labeled('Brand', brand), labeled('Product / line', name),
     labeled('Bullet weight (gr)', weight), labeled('Bullet type', type),
-    labeled('Cost per box', cost), h('span'),
+    labeled('Cost per box', cost), labeled('Alert when below (rounds)', minr),
     labeled('Notes', notes, 'full'),
     h('datalist', { id: 'bullet-types' }, ['FMJ', 'TMJ', 'JHP', 'HP', 'SP', 'LRN', 'LSWC', 'BTHP', 'SMK', 'Birdshot', 'Buckshot', 'Slug'].map((t) => h('option', { value: t }))));
   const value = () => {
@@ -78,6 +79,7 @@ function productFields(calibers, p = {}) {
       caliber_id: Number(cal.value), brand: brand.value.trim(), name: name.value.trim(),
       bullet_weight_gr: weight.value === '' ? null : Number(weight.value), bullet_type: type.value.trim(),
       rounds_per_box: Number(rpb.value), cost_per_box: cost.value === '' ? null : Number(cost.value), notes: notes.value,
+      min_rounds: minr.value === '' ? null : Number(minr.value),
     };
   };
   /** Pre-fill from an online lookup. Only fields the lookup was sure about are touched. */
@@ -149,8 +151,8 @@ async function refreshBadge() {
 
 // ---------------------------------------------------------------- dashboard
 async function dashboard() {
-  const [top, unid, prods, recent] = await Promise.all([
-    get('/api/inventory/drill'), get('/api/inventory/unidentified'), get('/api/products'), get('/api/transactions?limit=8'),
+  const [top, unid, prods, recent, low] = await Promise.all([
+    get('/api/inventory/drill'), get('/api/inventory/unidentified'), get('/api/products'), get('/api/transactions?limit=8'), get('/api/low-stock'),
   ]);
   const cal = top.rows.filter((r) => r.key !== 'unidentified');
   const max = Math.max(1, ...cal.map((r) => r.rounds));
@@ -161,7 +163,13 @@ async function dashboard() {
       card('Rounds on hand', fmtInt(top.total_rounds)),
       card('Boxes (identified)', fmtInt(cal.reduce((n, r) => n + r.boxes, 0))),
       card('Products', fmtInt(prods.length)),
+      h('div', { class: 'card' + (low.count ? ' warn' : '') }, h('div', { class: 'k' }, 'Running low'), h('div', { class: 'v' }, fmtInt(low.count)),
+        h('div', { class: 'sub', style: { margin: '4px 0 0' } }, low.count ? 'Below the level you set' : 'Nothing below its level')),
       h('div', { class: 'card' + (unid.length ? ' warn' : '') }, h('a', { href: '#/unidentified' }, h('div', { class: 'k' }, 'Needs details'), h('div', { class: 'v' }, fmtInt(unid.length)), h('div', { class: 'sub', style: { margin: '4px 0 0' } }, unid.length ? `${fmtInt(unBoxes)} boxes under unknown codes` : 'All codes identified')))),
+    low.count ? [h('h2', {}, 'Running low'), table(['Item', ['On hand (rounds)', 'num'], ['Alert below', 'num']], [
+      ...low.calibers.map((c) => h('tr', {}, td([h('b', {}, c.name), ' ', h('span', { class: 'muted' }, 'caliber')]), td(fmtInt(c.rounds), 'num'), td(fmtInt(c.min_rounds), 'num'))),
+      ...low.products.map((p) => h('tr', {}, td([h('b', {}, p.label), ' ', h('span', { class: 'muted' }, p.caliber || '')]), td(fmtInt(p.rounds), 'num'), td(fmtInt(p.min_rounds), 'num'))),
+    ])] : null,
     h('h2', {}, 'By caliber'),
     cal.length ? table(['Caliber', ['Boxes', 'num'], ['Rounds', 'num'], ''], cal.map((r) =>
       h('tr', {}, td(r.label), boxesCell(r.boxes), td(fmtInt(r.rounds), 'num'), td(h('div', { class: 'bar-cell' }, h('div', { class: 'bar', style: { width: `${Math.round((r.rounds / max) * 100)}%` } })), ''))))
@@ -194,7 +202,7 @@ async function inventory() {
     const rows = [
       ...d.products.map((p) => h('tr', {},
         td(thumb(p.photo_code || p.codes[0]?.code, !!p.photo_code, load)),
-        td(p.caliber), td([h('b', {}, p.label), h('span', { class: 'code' }, p.spec)]), td(codesOf(p.codes)),
+        td(p.caliber), td([h('b', {}, p.label), p.low && h('span', { class: 'low-tag' }, 'LOW'), h('span', { class: 'code' }, p.spec)]), td(codesOf(p.codes)),
         boxesCell(p.boxes), td(fmtInt(p.rounds), 'num'), td(fmtWhen(p.last_activity)),
         td(p.codes.length ? h('button', { class: 'btn sm', onclick: () => adjustDialog(p, load) }, 'Adjust') : '', 'actions'))),
       ...d.unidentified.map((u) => h('tr', {},
@@ -352,8 +360,42 @@ async function products() {
   let t;
   q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 200); });
   calSel.addEventListener('change', load);
-  clear(main, h('h1', {}, 'Products'), h('div', { class: 'toolbar' }, calSel, q, h('span', { class: 'grow' }), h('button', { class: 'btn primary', onclick: () => productDialog(calibers, null, load) }, '+ New product')), holder);
+  clear(main, h('h1', {}, 'Products'), h('div', { class: 'toolbar' }, calSel, q, h('span', { class: 'grow' }),
+    h('a', { class: 'btn', href: '/api/export/products.csv' }, 'Export CSV'),
+    h('button', { class: 'btn', onclick: () => importProducts(load) }, 'Import CSV'),
+    h('button', { class: 'btn primary', onclick: () => productDialog(calibers, null, load) }, '+ New product')), holder);
   await load();
+}
+
+/** Pick a CSV, show what importing it would do, and apply it only when the file has no problems. */
+function importProducts(done) {
+  const file = h('input', { type: 'file', accept: '.csv,text/csv,text/plain', style: { display: 'none' } });
+  file.addEventListener('change', async () => {
+    const f = file.files[0];
+    file.remove();
+    if (!f) return;
+    let r;
+    try { r = await sendBlob('POST', '/api/import/products?apply=false', f); } catch (e) { toast(e.message, 'error'); return; }
+    const lines = [
+      h('p', {}, h('b', {}, `${fmtInt(r.create)} new`), ` · ${fmtInt(r.update)} updated · ${fmtInt(r.unchanged)} unchanged`),
+      r.new_calibers.length ? h('p', { class: 'sub' }, `New calibers will be added: ${r.new_calibers.join(', ')}`) : null,
+      r.ignored_columns.length ? h('p', { class: 'sub' }, `Columns not used: ${r.ignored_columns.join(', ')}`) : null,
+      r.error_count ? h('div', {}, h('p', { class: 'err', style: { margin: '8px 0 4px' } }, `${fmtInt(r.error_count)} row(s) have problems. Fix them in the file and choose it again; nothing is imported until the whole file is clean.`),
+        h('ul', { class: 'import-errors' }, r.errors.map((e) => h('li', {}, `Row ${e.row}: ${e.error}`)),
+          r.error_count > r.errors.length ? h('li', {}, `…and ${r.error_count - r.errors.length} more`) : null)) : null,
+    ];
+    dialog({
+      title: `Import ${f.name}`, body: h('div', {}, lines), ok: 'Import',
+      onOk: async () => {
+        if (r.error_count) throw new Error('Fix the rows listed above first');
+        await sendBlob('POST', '/api/import/products?apply=true', f);
+        toast(`Imported: ${r.create} new, ${r.update} updated`, 'ok');
+        done();
+      },
+    });
+  });
+  document.body.append(file);
+  file.click();
 }
 
 function productDialog(calibers, p, done) {
@@ -409,13 +451,15 @@ async function calibers() {
   };
   nameIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
   clear(main, h('h1', {}, 'Calibers'),
-    h('p', { class: 'sub' }, 'This list feeds the caliber picker and the kiosk drill-down, in this order. Inactive calibers stay on existing products but can\'t be picked for new ones.'),
+    h('p', { class: 'sub' }, 'This list feeds the caliber picker and the kiosk drill-down, in this order. Inactive calibers stay on existing products but can\'t be picked for new ones. "Alert below" flags a caliber as low when its rounds on hand drop under that number.'),
     h('div', { class: 'toolbar' }, nameIn, h('button', { class: 'btn primary', onclick: add }, 'Add')),
-    table(['Order', 'Caliber', ['Products', 'num'], 'Active', ''], list.map((c, i) =>
+    table(['Order', 'Caliber', ['Products', 'num'], 'Active', 'Alert below (rounds)', ''], list.map((c, i) =>
       h('tr', {}, td([h('button', { class: 'btn sm', disabled: i === 0, onclick: () => move(i, -1), 'aria-label': 'Move up' }, '↑'), ' ',
         h('button', { class: 'btn sm', disabled: i === list.length - 1, onclick: () => move(i, 1), 'aria-label': 'Move down' }, '↓')]),
         td(h('b', {}, c.name)), td(c.products, 'num'),
         td(h('input', { type: 'checkbox', checked: c.active, onchange: async (e) => { try { await patch(`/api/calibers/${c.id}`, { active: e.target.checked }); } catch (er) { toast(er.message, 'error'); e.target.checked = !e.target.checked; } } })),
+        td(h('input', { type: 'number', min: 0, step: 1, value: c.min_rounds ?? '', placeholder: 'none', style: { width: '110px' }, 'aria-label': `Alert below, rounds, for ${c.name}`,
+          onchange: async (e) => { try { await patch(`/api/calibers/${c.id}`, { min_rounds: e.target.value === '' ? null : Number(e.target.value) }); toast('Saved', 'ok'); } catch (er) { toast(er.message, 'error'); } } })),
         td([h('button', { class: 'btn sm', onclick: () => renameCaliber(c) }, 'Rename'), ' ',
           h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete caliber?', c.products ? `${c.name} is used by ${c.products} product(s) and can't be deleted. Mark it inactive instead.` : `Delete ${c.name}?`, 'Delete', async () => { await del(`/api/calibers/${c.id}`); calibers(); }) }, 'Delete')], 'actions')))));
 }

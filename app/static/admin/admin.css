@@ -113,3 +113,6 @@ td:first-child:has(.thumb-btn) { width: 60px; padding-right: 0; }
 .lookup-hint img { width: 56px; height: 56px; object-fit: contain; background: #fff; border-radius: 6px; flex: none; }
 .lookup-hint > div { flex: 1; min-width: 0; }
 .lookup-hint .muted { display: block; font-size: 13px; }
+
+.low-tag { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .04em; background: color-mix(in srgb, var(--warn, #c77700) 18%, transparent); color: var(--warn, #c77700); vertical-align: middle; }
+.import-errors { margin: 0; padding-left: 20px; max-height: 220px; overflow: auto; font-size: 14px; }

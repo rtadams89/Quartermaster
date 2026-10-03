@@ -12,7 +12,7 @@ from .. import security
 from ..codes import normalize_code
 from ..db import get_db, iso
 from ..models import Barcode, Transaction
-from ..services import drill, inventory_by_product, locate
+from ..services import drill, inventory_by_product, locate, low_stock
 
 router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
 
@@ -20,6 +20,11 @@ router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
 @router.get("/inventory/drill")
 def inventory_drill(caliber: str | None = None, weight: str | None = None, db: Session = Depends(get_db)):
     return drill(db, caliber, weight)
+
+
+@router.get("/low-stock")
+def low_stock_report(db: Session = Depends(get_db)):
+    return low_stock(db)
 
 
 @router.get("/inventory/code/{code}")
