@@ -135,15 +135,19 @@ def finish(batch_id: int, db: Session = Depends(get_db)):
         raise HTTPException(400, "Nothing to record")
     now = utcnow()
     sign = 1 if b.kind == "in" else -1
-    total = 0
+    boxes = rounds = 0  # products counted by the single round (1 per box) are reported as rounds
     for i in b.items:
         db.add(
             Transaction(ts=now, code=i.code, boxes=sign * i.quantity, kind=b.kind, batch_id=b.id)
         )
-        total += i.quantity
+        bc = db.get(Barcode, i.code)
+        if bc and bc.product and bc.product.rounds_per_box == 1:
+            rounds += i.quantity
+        else:
+            boxes += i.quantity
     b.status, b.finished_at = "finished", now
     db.commit()
-    return {"ok": True, "kind": b.kind, "items": len(b.items), "boxes": total}
+    return {"ok": True, "kind": b.kind, "items": len(b.items), "boxes": boxes, "rounds": rounds}
 
 
 @router.post("/{batch_id}/cancel")

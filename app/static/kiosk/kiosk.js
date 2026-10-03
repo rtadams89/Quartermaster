@@ -105,7 +105,14 @@ function mount(...children) {
   clear(app, ...children);
 }
 
-const boxesOf = (b) => b.items.reduce((n, i) => n + i.quantity, 0);
+// Products with 1 round per box are counted by the individual round, so they show rounds instead of boxes.
+const isSingle = (it) => it.product?.rounds_per_box === 1;
+/** "3 boxes", "25 rounds" or "3 boxes · 25 rounds" for everything in a batch. */
+const qtyText = (b) => {
+  const boxes = b.items.filter((i) => !isSingle(i)).reduce((n, i) => n + i.quantity, 0);
+  const rounds = b.items.filter(isSingle).reduce((n, i) => n + i.quantity, 0);
+  return [boxes > 0 && plural(boxes, 'box'), rounds > 0 && plural(rounds, 'round')].filter(Boolean).join(' · ') || plural(0, 'box');
+};
 const plural = (n, w) => `${fmtInt(n)} ${n === 1 ? w : w + (w.endsWith('x') ? 'es' : 's')}`;
 
 function describe(item) {
@@ -201,7 +208,7 @@ function showHome() {
       right: [clock(), h('button', { class: 'btn', 'aria-label': 'Lock', onclick: lockNow }, '🔒')],
     }),
     b && h('div', { class: 'resume' },
-      h('div', { class: 'grow' }, `Unfinished ammo ${b.kind}: ${plural(b.items.length, 'item')}, ${plural(boxesOf(b), 'box')}`),
+      h('div', { class: 'grow' }, `Unfinished ammo ${b.kind}: ${plural(b.items.length, 'item')}, ${qtyText(b)}`),
       h('button', { class: 'btn primary', onclick: () => showScan() }, 'Resume'),
       h('button', { class: 'btn danger', onclick: discardDraft }, 'Discard')),
     h('div', { class: 'home' },
@@ -419,7 +426,7 @@ async function setQty(item, qty) {
 
 function paintScan() {
   const kind = S.batch.kind;
-  const n = S.batch.items.length, boxes = boxesOf(S.batch);
+  const n = S.batch.items.length;
   const it = S.last && S.batch.items.find((x) => x.id === S.last.id);
   let main;
   if (!it) {
@@ -435,7 +442,7 @@ function paintScan() {
         h('div', { class: 'name' + (d.known ? '' : ' unknown') }, d.name),
         h('div', { class: 'sub' }, d.known ? d.sub : it.code),
         !d.known && h('div', { class: 'note warn' }, 'Unknown barcode. It will be logged so you can describe it later.'),
-        over && h('div', { class: 'note warn' }, `Only ${it.on_hand} on hand`)),
+        over && h('div', { class: 'note warn' }, `Only ${it.on_hand} ${isSingle(it) ? 'rounds ' : ''}on hand`)),
       h('div', { class: 'stepper' },
         h('button', { 'aria-label': 'Fewer', onclick: () => setQty(it, it.quantity - 1) }, '−'),
         h('button', { class: 'n', onclick: () => editQty(it) }, String(it.quantity)),
@@ -450,7 +457,7 @@ function paintScan() {
     }),
     h('div', { class: 'body' }, h('div', { class: 'scan' }, main)),
     h('div', { class: 'foot' },
-      h('div', { class: 'grow summary' }, n ? [h('b', {}, plural(n, 'item')), ` · ${plural(boxes, 'box')}`] : h('span', { class: 'muted' }, 'Nothing scanned yet')),
+      h('div', { class: 'grow summary' }, n ? [h('b', {}, plural(n, 'item')), ` · ${qtyText(S.batch)}`] : h('span', { class: 'muted' }, 'Nothing scanned yet')),
       h('button', { class: 'btn big ' + kind, disabled: !n, onclick: showReview }, 'Review & Finish →')));
 }
 
@@ -469,7 +476,7 @@ function manualEntry() {
 }
 
 function editQty(item) {
-  keypad({ title: 'How many boxes?', value: item.quantity, maxLen: 5, onOk: (v) => setQty(item, Number(v)) });
+  keypad({ title: isSingle(item) ? 'How many rounds?' : 'How many boxes?', value: item.quantity, maxLen: 5, onOk: (v) => setQty(item, Number(v)) });
 }
 
 // ------------------------------------------------------------------- review
@@ -490,7 +497,7 @@ function paintReview() {
       h('div', { class: 'info' },
         h('div', { class: 'title' + (d.known ? '' : ' unknown') }, d.known ? d.name : `Unknown item · ${it.code}`),
         h('div', { class: 'sub' + (over ? ' warn' : '') },
-          over ? `Only ${it.on_hand} on hand` : d.known ? d.sub : 'Will be logged; identify it later on the admin site')),
+          over ? `Only ${it.on_hand} ${isSingle(it) ? 'rounds ' : ''}on hand` : d.known ? d.sub : 'Will be logged; identify it later on the admin site')),
       h('div', { class: 'stepper sm' },
         h('button', { 'aria-label': 'Fewer', onclick: () => setQty(it, it.quantity - 1) }, '−'),
         h('button', { class: 'n', onclick: () => editQty(it) }, String(it.quantity)),
@@ -505,7 +512,7 @@ function paintReview() {
     }),
     h('div', { class: 'body' }, h('div', { class: 'list' }, rows)),
     h('div', { class: 'foot' },
-      h('div', { class: 'grow summary' }, h('b', {}, plural(b.items.length, 'item')), ` · ${plural(boxesOf(b), 'box')}`),
+      h('div', { class: 'grow summary' }, h('b', {}, plural(b.items.length, 'item')), ` · ${qtyText(b)}`),
       h('button', { class: 'btn big ' + kind, onclick: finish }, `Finish ammo ${kind}`)));
 }
 
@@ -522,7 +529,7 @@ async function finish() {
     beep(990, 140);
     const done = h('div', { class: 'done', onclick: () => { done.remove(); showHome(); } },
       h('div', { class: 'tick' }, '✓'),
-      h('div', { class: 'big' }, `${plural(r.boxes, 'box')} ${r.kind === 'in' ? 'added' : 'removed'}`),
+      h('div', { class: 'big' }, `${[r.boxes > 0 && plural(r.boxes, 'box'), r.rounds > 0 && plural(r.rounds, 'round')].filter(Boolean).join(' · ')} ${r.kind === 'in' ? 'added' : 'removed'}`),
       h('div', { class: 'muted' }, plural(r.items, 'item')));
     app.append(done);
     setTimeout(() => { if (done.isConnected) { done.remove(); showHome(); } }, 1600);
@@ -565,7 +572,7 @@ async function showInventory() {
   mount(
     bar({ title: 'INVENTORY', left: h('button', { class: 'btn', onclick: back }, '← Back') }),
     h('div', { class: 'totals' },
-      h('span', { class: 'rounds' }, fmtInt(d.total_rounds)), h('span', { class: 'unit' }, `rounds · ${plural(d.total_boxes - unknownBoxes, 'box')}`),
+      h('span', { class: 'rounds' }, fmtInt(d.total_rounds)), h('span', { class: 'unit' }, d.total_boxes - unknownBoxes === 0 && d.total_rounds > 0 ? 'rounds' : `rounds · ${plural(d.total_boxes - unknownBoxes, 'box')}`),
       unknownBoxes ? h('span', { class: 'extra' }, `+ ${plural(unknownBoxes, 'box')} unidentified`) : null),
     h('div', { class: 'crumbs' }, d.breadcrumb.length ? crumbs : 'Tap a caliber to drill in, or scan a box to find it'),
     h('div', { class: 'body' }, h('div', { class: 'list' },
@@ -574,7 +581,7 @@ async function showInventory() {
           h('div', { class: 'info' }, h('div', { class: 'title' }, r.label, r.low && h('span', { class: 'low-tag' }, 'LOW')), (r.sublabel || r.price) && h('div', { class: 'sub' }, [r.sublabel, r.price && `${fmtPriceRange(r.price)}/rd`].filter(Boolean).join(' · '))),
           h('div', { class: 'r' },
             h('div', { class: 'big' }, r.rounds === null ? '—' : fmtInt(r.rounds)),
-            h('small', {}, r.rounds === null ? plural(r.boxes, 'box') : `rounds · ${plural(r.boxes, 'box')}`)),
+            h('small', {}, r.rounds === null ? plural(r.boxes, 'box') : r.single || (r.boxes === 0 && r.rounds > 0) ? 'rounds' : `rounds · ${plural(r.boxes, 'box')}`)),
           r.drillable && h('span', { class: 'chev' }, '›')))
         : h('div', { class: 'empty' }, 'Nothing in stock yet. Use Ammo In to add boxes.'))));
   app.querySelector('.inv-row.hit')?.scrollIntoView({ block: 'center' });

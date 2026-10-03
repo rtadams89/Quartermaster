@@ -12,7 +12,7 @@ from .. import security
 from ..codes import normalize_code
 from ..db import get_db, iso
 from ..models import Barcode, Batch, BatchItem, Transaction
-from ..services import (drill, inventory_by_product, locate, low_stock, on_hand_by_code, out_of_stock_calibers,
+from ..services import (box_count, drill, inventory_by_product, locate, low_stock, on_hand_by_code, out_of_stock_calibers,
                         price_range, stock_money)
 
 router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
@@ -76,7 +76,7 @@ def inventory_items(
     return {
         "products": products,
         "unidentified": unidentified,
-        "total_boxes": sum(p["boxes"] for p in products) + sum(u["boxes"] for u in unidentified),
+        "total_boxes": box_count(products) + sum(u["boxes"] for u in unidentified),
         "total_rounds": sum(p["rounds"] for p in products),
         "price": price_range(products),
         "total_value": stock_money(products)["value"],
@@ -102,6 +102,7 @@ def _tx_dict(t: Transaction, bc: Barcode | None) -> dict:
         "batch_id": t.batch_id,
         "note": t.note,
         "product": (" ".join(x for x in (prod.brand, prod.name) if x) or "(unnamed)") if prod else None,
+        "single": prod.rounds_per_box == 1 if prod else False,
         "caliber": prod.caliber.name if prod else None,
     }
 
@@ -216,7 +217,7 @@ def export_inventory(db: Session = Depends(get_db)):
     products, unid = inventory_by_product(db)
     rows = [
         [
-            p["caliber"], p["brand"], p["name"], p["bullet_weight_gr"] or "", p["bullet_type"],
+            p["caliber"], p["brand"], p["name"], "N/A" if p["weight_na"] else p["bullet_weight_gr"] or "", p["bullet_type"],
             p["rounds_per_box"], " ".join(c["code"] for c in p["codes"]), p["boxes"], p["rounds"],
         ]
         for p in products

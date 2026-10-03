@@ -55,6 +55,8 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 
 **Product list in a spreadsheet.** *Products → Export CSV* downloads every product with its barcodes. Edit it (or write your own with at least the columns `caliber` and `rounds_per_box`; costs are US dollars, with or without the $), then *Import CSV*. You see what will be added or changed before anything happens, and a file with any problem rows is refused whole.
 
+**Bullet weight N/A and ammo counted by the round.** For ammo with no traditional bullet weight (shot, slugs, flares), tick *N/A* beside the weight on the product form. For ammo you count loose, set *Rounds per box* to 1: it is then shown and counted in rounds everywhere (the kiosk asks "How many rounds?") and is left out of box totals.
+
 **Clearing the history.** *Settings → History → Clear history…* erases the log of ins, outs and corrections but keeps your counts: each barcode's current number of boxes stays as one "opening balance" entry. Products, barcodes, photos and alert levels are untouched. It can't be undone, so export the history CSV or download a backup first if you want the log.
 
 **Ammo without a barcode.** In the admin site, **Labels** prints your own barcode or QR labels to stick on those boxes. Add as many different products as you like to one sheet (every label for a product carries the same code, so each box scans as that product), pick the number of columns, remove any label you don't want, and print.

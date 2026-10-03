@@ -2,6 +2,10 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 0.25.0
+- Bullet weight can now be **N/A** (tick the box on the product form) for things with no traditional bullet weight, such as shot, slugs or flares. Browse shows them under "N/A", the product CSV import/export uses "N/A", and N/A products are not flagged in *Needs details*.
+- Products with **1 round per box** are treated as counted by the round. Everywhere they appear (inventory, Browse, history, dashboard, adjust and add-stock dialogs, kiosk scan and inventory screens) the count is shown in rounds instead of boxes, and the "boxes" totals no longer include them.
+
 ## 0.24.0
 - Phone layout for the admin site. On a mobile browser (or when chosen from the menu) it shows a menu button instead of the side bar, one card per table row, larger buttons and full-screen dialogs. Every page and action is still there. "Use desktop layout" / "Use mobile layout" in the menu overrides the automatic choice in that browser.
 - Dashboard: the Boxes box is gone. New *Out of stock* box lists calibers you keep but have none of (a caliber with a product or an alert level and nothing on hand); click it to open Inventory.

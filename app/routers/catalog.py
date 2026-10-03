@@ -108,7 +108,7 @@ class ProductIn(BaseModel):
     caliber_id: int
     brand: str = Field(default="", max_length=80)
     name: str = Field(default="", max_length=120)
-    bullet_weight_gr: float | None = Field(default=None, gt=0, le=5000)
+    bullet_weight_gr: float | None = Field(default=None, ge=0, le=5000)  # 0 = N/A (no traditional bullet weight)
     bullet_type: str = Field(default="", max_length=40)
     rounds_per_box: int = Field(gt=0, le=10000)
     cost_per_box: float | None = Field(default=None, ge=0)

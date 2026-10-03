@@ -27,11 +27,12 @@ def export_products(db: Session = Depends(get_db)):
     rows = []
     for p in db.scalars(select(Product)):
         rows.append([
-            p.caliber.name, p.brand, p.name, fmt_weight(p.bullet_weight_gr) if p.bullet_weight_gr else "",
+            p.caliber.name, p.brand, p.name,
+            "N/A" if p.bullet_weight_gr == 0 else fmt_weight(p.bullet_weight_gr) if p.bullet_weight_gr else "",
             p.bullet_type, p.rounds_per_box, "" if p.cost_per_box is None else f"{p.cost_per_box:.2f}",
             mins.get(("product", p.id), ""), " ".join(sorted(b.code for b in p.barcodes)), p.notes,
         ])
-    rows.sort(key=lambda r: (r[0].lower(), float(r[3] or 0), str(r[1]).lower(), str(r[2]).lower()))
+    rows.sort(key=lambda r: (r[0].lower(), 0 if r[3] == "N/A" else float(r[3] or 0), str(r[1]).lower(), str(r[2]).lower()))
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(COLUMNS)
@@ -71,7 +72,8 @@ def _parse_row(raw: dict, present: set[str]) -> dict:
         out["notes"] = g["notes"]
     out["rounds_per_box"] = _num(g["rounds_per_box"], int, 1, 10000, "rounds_per_box")
     if "weight_gr" in present:
-        out["bullet_weight_gr"] = _num(g["weight_gr"], float, 0.01, 5000, "weight_gr") if g["weight_gr"] else None
+        w = g["weight_gr"]
+        out["bullet_weight_gr"] = 0.0 if w.upper() in ("N/A", "NA") else _num(w, float, 0.01, 5000, "weight_gr") if w else None
     if "cost_per_box" in present:
         cost = g["cost_per_box"].replace("$", "").replace(",", "").strip()  # "$1,234.50" is fine
         out["cost_per_box"] = round(_num(cost, float, 0, 1e9, "cost_per_box (US dollars)"), 2) if cost else None
@@ -153,7 +155,7 @@ async def import_products(request: Request, apply: bool = False, db: Session = D
                     if (cal and p.caliber_id == cal.id and _same(p.brand, data.get("brand", p.brand))
                             and _same(p.name, data.get("name", p.name))
                             and _same(p.bullet_type, data.get("bullet_type", p.bullet_type))
-                            and (p.bullet_weight_gr or None) == data.get("bullet_weight_gr", p.bullet_weight_gr or None)
+                            and p.bullet_weight_gr == data.get("bullet_weight_gr", p.bullet_weight_gr)
                             and p.rounds_per_box == data["rounds_per_box"]):
                         match = p
                         break

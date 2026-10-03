@@ -64,8 +64,10 @@ def product_dict(p: Product | None) -> dict | None:
         "name": p.name,
         "label": " ".join(x for x in (p.brand, p.name) if x) or "(unnamed)",
         "bullet_weight_gr": p.bullet_weight_gr,
+        "weight_na": p.bullet_weight_gr == 0,  # 0 grains is how "N/A" (no traditional bullet weight) is stored
         "bullet_type": p.bullet_type,
         "rounds_per_box": p.rounds_per_box,
+        "single": p.rounds_per_box == 1,  # counted by the individual round, not by the box
         "cost_per_box": p.cost_per_box,
         "cost_per_round": round(p.cost_per_box / p.rounds_per_box, 4) if p.cost_per_box is not None else None,
         "notes": p.notes,
@@ -92,7 +94,7 @@ def missing_details(p: Product) -> list[str]:
         missing.append("manufacturer")
     if not (p.bullet_type or "").strip():
         missing.append("bullet type")
-    if not p.bullet_weight_gr and not is_shotshell(p.caliber.name if p.caliber else ""):
+    if p.bullet_weight_gr is None and not is_shotshell(p.caliber.name if p.caliber else ""):  # 0 = N/A, which is an answer
         missing.append("bullet weight")
     return missing
 
@@ -120,6 +122,12 @@ def stock_money(items: list[dict]) -> dict:
     }
 
 
+def box_count(items: list[dict]) -> int:
+    """Boxes among these items. Products counted by the single round (1 round per box) have no boxes
+    to count; their rounds still show in the rounds totals."""
+    return sum(i["boxes"] for i in items if i["rounds_per_box"] != 1)
+
+
 def spec_text(p: Product) -> str:
     """e.g. '115 gr FMJ · 50 rd/box'"""
     bits = []
@@ -128,7 +136,7 @@ def spec_text(p: Product) -> str:
     if p.bullet_type:
         bits.append(p.bullet_type)
     spec = " ".join(bits)
-    box = f"{p.rounds_per_box} rd/box"
+    box = "by the round" if p.rounds_per_box == 1 else f"{p.rounds_per_box} rd/box"
     return f"{spec} · {box}" if spec else box
 
 
@@ -257,7 +265,7 @@ def drill(db: Session, caliber: str | None, weight: str | None, manufacturer: st
                     {
                         "key": str(c.id),
                         "label": c.name,
-                        "boxes": sum(i["boxes"] for i in mine),
+                        "boxes": box_count(mine),
                         "rounds": rounds,
                         "drillable": bool(mine),
                         "out": not any(i["boxes"] > 0 for i in mine),
@@ -307,13 +315,13 @@ def drill(db: Session, caliber: str | None, weight: str | None, manufacturer: st
         for i in mine:
             groups.setdefault(_wkey(i["bullet_weight_gr"]), []).append(i)
         rows = []
-        for key in sorted(groups, key=lambda k: (k == "none", float(k) if k != "none" else 0)):
+        for key in sorted(groups, key=lambda k: ({"na": 1, "none": 2}.get(k, 0), float(k) if k not in ("na", "none") else 0)):
             g = groups[key]
             rows.append(
                 {
                     "key": key,
-                    "label": "No weight listed" if key == "none" else f"{key} gr",
-                    "boxes": sum(i["boxes"] for i in g),
+                    "label": _wlabel(key),
+                    "boxes": box_count(g),
                     "rounds": sum(i["rounds"] for i in g),
                     "drillable": True,
                     "price": price_range(g),
@@ -323,7 +331,7 @@ def drill(db: Session, caliber: str | None, weight: str | None, manufacturer: st
         return _drill_result("weight", crumbs, rows)
 
     mine = [i for i in mine if _wkey(i["bullet_weight_gr"]) == weight]
-    crumbs.append("No weight listed" if weight == "none" else f"{weight} gr")
+    crumbs.append(_wlabel(weight))
 
     if by_manufacturer:
         if manufacturer is None:
@@ -334,7 +342,7 @@ def drill(db: Session, caliber: str | None, weight: str | None, manufacturer: st
                 {
                     "key": key,
                     "label": "No manufacturer" if key == NO_BRAND else key,
-                    "boxes": sum(i["boxes"] for i in g),
+                    "boxes": box_count(g),
                     "rounds": sum(i["rounds"] for i in g),
                     "drillable": True,
                     "price": price_range(g),
@@ -354,6 +362,7 @@ def drill(db: Session, caliber: str | None, weight: str | None, manufacturer: st
             "boxes": i["boxes"],
             "rounds": i["rounds"],
             "drillable": False,
+            "single": i["rounds_per_box"] == 1,
             "low": i["low"],
             "price": price_range([i]),
             **stock_money([i]),
@@ -373,7 +382,7 @@ def locate(db: Session, code: str) -> dict:
             return {
                 "found": True, "code": code, "identified": True, "label": i["label"], "spec": i["spec"],
                 "caliber": str(i["caliber_id"]), "weight": _wkey(i["bullet_weight_gr"]), "row": str(i["id"]),
-                "boxes": i["boxes"], "rounds": i["rounds"], "code_boxes": mine["boxes"],
+                "boxes": i["boxes"], "rounds": i["rounds"], "code_boxes": mine["boxes"], "single": i["rounds_per_box"] == 1,
             }
     for u in unidentified:
         if u["code"] == code:
@@ -390,14 +399,19 @@ def _mkey(brand: str | None) -> str:
 
 
 def _wkey(w: float | None) -> str:
-    return "none" if not w else fmt_weight(w)
+    """Drill-down key for a bullet weight: the grains, "na" (no traditional weight) or "none" (not entered)."""
+    return "none" if w is None else "na" if w == 0 else fmt_weight(w)
+
+
+def _wlabel(key: str) -> str:
+    return "No weight listed" if key == "none" else "N/A" if key == "na" else f"{key} gr"
 
 
 def _drill_result(level: str, crumbs: list[str], rows: list[dict]) -> dict:
     return {
         "level": level,
         "breadcrumb": crumbs,
-        "total_boxes": sum(r["boxes"] for r in rows),
+        "total_boxes": sum(r["boxes"] for r in rows if not r.get("single")),
         "total_rounds": sum(r["rounds"] or 0 for r in rows),
         "has_unknown_rounds": any(r["rounds"] is None for r in rows),
         "total_value": round(sum(r.get("value") or 0 for r in rows), 2),

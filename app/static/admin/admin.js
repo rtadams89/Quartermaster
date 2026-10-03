@@ -17,7 +17,15 @@ const td = (c, cls) => h('td', { class: cls || '' }, c);
 const table = (heads, rows) => h('table', {}, h('thead', {}, h('tr', {}, heads.map((x) => (Array.isArray(x) ? th(x[0], x[1]) : th(x))))), h('tbody', {}, rows));
 const empty = (msg) => h('div', { class: 'empty' }, msg);
 const boxesCell = (n) => td(h('span', { class: n < 0 ? 'neg' : '' }, fmtInt(n)), 'num');
-const specOf = (p) => [p.bullet_weight_gr ? `${p.bullet_weight_gr} gr` : '', p.bullet_type, `${p.rounds_per_box}/box`].filter(Boolean).join(' · ');
+const specOf = (p) => [p.bullet_weight_gr ? `${p.bullet_weight_gr} gr` : '', p.bullet_type, p.rounds_per_box === 1 ? 'by the round' : `${p.rounds_per_box}/box`].filter(Boolean).join(' · ');
+// Products with 1 round per box are counted by the individual round, so they show rounds instead of boxes.
+const isSingle = (p) => p.rounds_per_box === 1;
+/** Boxes cell for a product row that has a Rounds column beside it: a by-the-round product has no boxes. */
+const boxesFor = (p) => (isSingle(p) ? td('—', 'num') : boxesCell(p.boxes));
+/** Boxes cell for a summary row (caliber, weight, manufacturer): loose rounds are in Rounds, not here. */
+const boxesSum = (r) => (r.boxes === 0 && r.rounds > 0 ? td('—', 'num') : boxesCell(r.boxes));
+/** A count with its unit when no Rounds column sits beside it. */
+const qtyCell = (n, single) => td(h('span', { class: n < 0 ? 'neg' : '' }, fmtInt(n) + (single ? ' rounds' : '')), 'num');
 const codesOf = (cs) => cs.map((c) => h('span', { class: 'code' }, c.code ?? c));
 
 function dialog({ title, body, ok = 'Save', danger = false, onOk, wide = false }) {
@@ -185,16 +193,22 @@ function productFields(calibers, p = {}) {
   const brand = brandBox.input;
   get('/api/brands').then((list) => brandBox.setOptions(list), () => {}); // suggestions are a nicety; the box works without
   const name = h('input', { value: p.name ?? '', placeholder: 'e.g. American Eagle', maxlength: 120 });
-  const weight = h('input', { type: 'number', step: 'any', min: 0, value: p.bullet_weight_gr ?? '', placeholder: 'grains' });
+  const weight = h('input', { type: 'number', step: 'any', min: 0, value: p.weight_na ? '' : p.bullet_weight_gr ?? '', placeholder: 'grains' });
+  const weightNa = h('input', { type: 'checkbox', checked: !!p.weight_na });
+  const syncNa = () => { weight.disabled = weightNa.checked; if (weightNa.checked) weight.value = ''; };
+  weightNa.addEventListener('change', syncNa);
+  syncNa();
   const type = h('input', { value: p.bullet_type ?? '', list: 'bullet-types', placeholder: 'FMJ, JHP…', maxlength: 40 });
   const rpb = h('input', { type: 'number', min: 1, step: 1, required: true, value: p.rounds_per_box ?? '', placeholder: 'e.g. 50' });
   const cost = moneyInput(p.cost_per_box);
   const minr = h('input', { type: 'number', min: 0, step: 1, value: p.min_rounds ?? '', placeholder: 'blank = no alert' });
   const notes = h('textarea', { rows: 2 }, p.notes ?? '');
   const el = h('div', { class: 'form' },
-    labeled('Caliber', cal.el, '', 'Start typing to search; pick one from the list.'), labeled('Rounds per box', rpb),
+    labeled('Caliber', cal.el, '', 'Start typing to search; pick one from the list.'),
+    labeled('Rounds per box', rpb, '', 'Use 1 for ammo you count by the individual round; it then shows round counts instead of boxes.'),
     labeled('Manufacturer', brandBox.el), labeled('Product / line', name),
     labeled('Bullet weight (gr)', weight), labeled('Bullet type', type),
+    h('label', { class: 'chk full' }, weightNa, 'N/A: no traditional bullet weight (shot, slugs, flares…)'),
     labeled('Cost per box (US dollars)', cost.el, '', 'Optional. The $ is optional when typing; it is shown as $0.00.'),
     labeled('Alert when below (rounds)', minr, '', 'Optional. Leave blank for no alert. Otherwise this product is flagged as low when its rounds on hand drop under this number.'),
     labeled('Notes', notes, 'full'),
@@ -204,7 +218,7 @@ function productFields(calibers, p = {}) {
     if (!rpb.value || Number(rpb.value) < 1) throw new Error('Rounds per box is required');
     return {
       caliber_id: caliberId, brand: brand.value.trim(), name: name.value.trim(),
-      bullet_weight_gr: weight.value === '' ? null : Number(weight.value), bullet_type: type.value.trim(),
+      bullet_weight_gr: weightNa.checked ? 0 : weight.value === '' ? null : Number(weight.value), bullet_type: type.value.trim(),
       rounds_per_box: Number(rpb.value), cost_per_box: cost.value(), notes: notes.value,
       min_rounds: minr.value === '' ? null : Number(minr.value),
     };
@@ -215,7 +229,7 @@ function productFields(calibers, p = {}) {
     if (s.rounds_per_box) rpb.value = s.rounds_per_box;
     if (s.brand) brand.value = s.brand;
     if (s.name) name.value = s.name;
-    if (s.bullet_weight_gr) weight.value = s.bullet_weight_gr;
+    if (s.bullet_weight_gr) { weightNa.checked = false; syncNa(); weight.value = s.bullet_weight_gr; }
     if (s.bullet_type) type.value = s.bullet_type;
   };
   return { el, value, fill };
@@ -301,7 +315,7 @@ async function dashboard() {
     h('h2', {}, 'By caliber'),
     cal.length ? [
       table(['Caliber', ['Boxes', 'num'], ['Rounds', 'num'], ['Value', 'num'], ['Cost per round', 'num']], [
-        ...cal.map((r) => h('tr', {}, td(r.label), boxesCell(r.boxes), td(fmtInt(r.rounds), 'num'), valueCell(r), td(fmtPriceRange(r.price) || '—', 'num'))),
+        ...cal.map((r) => h('tr', {}, td(r.label), boxesSum(r), td(fmtInt(r.rounds), 'num'), valueCell(r), td(fmtPriceRange(r.price) || '—', 'num'))),
         h('tr', { class: 'total' }, td('Total'), boxesCell(cal.reduce((n, r) => n + r.boxes, 0)), td(fmtInt(cal.reduce((n, r) => n + r.rounds, 0)), 'num'),
           td(fmtMoney(cal.reduce((n, r) => n + r.value, 0)), 'num'), td(fmtPriceRange(rangeOf(cal)) || '—', 'num')),
       ]),
@@ -323,7 +337,7 @@ function txTable(rows) {
   return table(['When', 'Type', 'Item', ['Boxes', 'num'], 'Note'], rows.map((t) =>
     h('tr', {}, td(fmtWhen(t.ts)), td(h('span', { class: 'tag ' + t.kind }, t.kind)),
       td([t.product ? `${t.product}${t.caliber ? ' (' + t.caliber + ')' : ''}` : h('em', { class: 'muted' }, 'Unidentified'), h('span', { class: 'code' }, t.code)]),
-      td(h('span', { class: t.boxes < 0 ? 'neg' : '' }, (t.boxes > 0 ? '+' : '') + t.boxes), 'num'), td(t.note))));
+      td(h('span', { class: t.boxes < 0 ? 'neg' : '' }, (t.boxes > 0 ? '+' : '') + t.boxes + (t.single ? ' rounds' : '')), 'num'), td(t.note))));
 }
 
 // ---------------------------------------------------------------- inventory
@@ -334,7 +348,7 @@ function productRow(p, load) {
   return h('tr', {},
     td(thumb(p.photo_code || p.codes[0]?.code, !!p.photo_code, load)),
     td(p.caliber), td([h('b', {}, p.label), p.low && h('span', { class: 'low-tag' }, 'LOW'), h('span', { class: 'code' }, p.spec)]), td(codesOf(p.codes)),
-    boxesCell(p.boxes), td(fmtInt(p.rounds), 'num'), td(fmtMoney(valueOf(p)) || '—', 'num'), td(fmtPerRound(p.cost_per_round) || '—', 'num'), td(fmtWhen(p.last_activity)),
+    boxesFor(p), td(fmtInt(p.rounds), 'num'), td(fmtMoney(valueOf(p)) || '—', 'num'), td(fmtPerRound(p.cost_per_round) || '—', 'num'), td(fmtWhen(p.last_activity)),
     td(p.codes.length ? h('button', { class: 'btn sm', onclick: () => adjustDialog(p, load) }, 'Adjust') : '', 'actions'));
 }
 
@@ -349,7 +363,7 @@ function unidentifiedRow(u, load) {
 /** "412 boxes · 9,800 rounds · $1,234.50 · $0.25–$0.40 per round" */
 function inventoryFooter(boxes, rounds, value, price, unpriced, note) {
   return h('p', { class: 'sub', style: { marginTop: '10px' } },
-    [`${fmtInt(boxes)} boxes`, `${fmtInt(rounds)} ${note || 'rounds'}`, `${fmtMoney(value)} value`, price && `${fmtPriceRange(price)} per round (low to high, items in stock)`].filter(Boolean).join(' · ')
+    [boxes > 0 && `${fmtInt(boxes)} boxes`, `${fmtInt(rounds)} ${note || 'rounds'}`, `${fmtMoney(value)} value`, price && `${fmtPriceRange(price)} per round (low to high, items in stock)`].filter(Boolean).join(' · ')
     + (unpriced ? `. Value leaves out ${fmtInt(unpriced)} product${unpriced === 1 ? '' : 's'} with no cost entered.` : ''));
 }
 
@@ -406,14 +420,14 @@ async function inventoryBrowse(holder) {
       body = table([what, ['Boxes', 'num'], ['Rounds', 'num'], ['Value', 'num'], ['Cost per round', 'num'], ''], d.rows.map((r) => {
         const row = h('tr', r.drillable ? { class: 'drill-row', tabindex: 0, onclick: () => open(r), onkeydown: (e) => { if (e.key === 'Enter') open(r); } } : {},
           td([h('b', {}, r.label), r.out ? h('span', { class: 'low-tag out-tag' }, 'OUT') : r.low && h('span', { class: 'low-tag' }, 'LOW'), r.sublabel && h('span', { class: 'code' }, r.sublabel)]),
-          boxesCell(r.boxes), td(r.rounds === null ? '—' : fmtInt(r.rounds), 'num'), (r.rounds === null ? td('—', 'num') : valueCell(r)),
+          r.rounds === null ? boxesCell(r.boxes) : boxesSum(r), td(r.rounds === null ? '—' : fmtInt(r.rounds), 'num'), (r.rounds === null ? td('—', 'num') : valueCell(r)),
           td(fmtPriceRange(r.price) || '—', 'num'), td(r.drillable ? '›' : '', 'chev'));
         return row;
       }));
     }
     const known = d.rows.filter((r) => r.rounds !== null);
     clear(holder, crumbs, body,
-      d.rows.length ? inventoryFooter(known.reduce((n, r) => n + r.boxes, 0), d.total_rounds, d.total_value, rangeOf(known), d.unpriced, 'identified rounds') : null);
+      d.rows.length ? inventoryFooter(known.filter((r) => !r.single).reduce((n, r) => n + r.boxes, 0), d.total_rounds, d.total_value, rangeOf(known), d.unpriced, 'identified rounds') : null);
   };
   await load();
 }
@@ -454,23 +468,26 @@ async function addStockDialog(calibers, done) {
   const paintCodes = () => {
     let p = null;
     try { p = products.find((x) => x.id === pick.value()); } catch { /* nothing chosen yet */ }
+    boxesRow.firstChild.textContent = p && isSingle(p) ? 'Rounds to add' : 'Boxes to add';
     clear(code, p ? p.codes.map((c) => h('option', { value: c }, c)) : []);
     codeRow.style.display = p && p.codes.length > 1 ? '' : 'none';
   };
   const codeRow = labeled('Barcode', code, 'full');
   const boxes = h('input', { type: 'number', min: 1, step: 1, value: 1 });
+  const boxesRow = labeled('Boxes to add', boxes, 'full');
   const note = h('input', { placeholder: 'e.g. bought at gun show', maxlength: 300 });
   paintCodes();
   const dlg = dialog({
     title: 'Add stock', ok: 'Add to inventory',
-    body: h('div', { class: 'form' }, labeled('Product', pick.el, 'full'), codeRow, labeled('Boxes to add', boxes, 'full'), labeled('Note (optional)', note, 'full'),
+    body: h('div', { class: 'form' }, labeled('Product', pick.el, 'full'), codeRow, boxesRow, labeled('Note (optional)', note, 'full'),
       h('p', { class: 'sub full', style: { margin: 0 } }, ["Not listed? ", h('a', { href: '#', onclick: (e) => { e.preventDefault(); dlg.close(); productDialog(calibers, null, () => { done(); }); } }, 'Create the product first'), '.'])),
     onOk: async () => {
-      pick.value();
+      const chosen = products.find((x) => x.id === pick.value());
+      const unit = isSingle(chosen) ? 'round' : 'box';
       const n = Number(boxes.value);
-      if (!Number.isInteger(n) || n < 1) throw new Error('Enter a whole number of boxes, 1 or more');
+      if (!Number.isInteger(n) || n < 1) throw new Error(`Enter a whole number of ${unit}s, 1 or more`);
       await post('/api/stock', { code: code.value, boxes: n, note: note.value });
-      toast(`Added ${n} box${n === 1 ? '' : 'es'}`, 'ok');
+      toast(`Added ${n} ${unit}${n === 1 ? '' : unit === 'box' ? 'es' : 's'}`, 'ok');
       done();
     },
   });
@@ -483,7 +500,7 @@ function adjustDialog(p, done) {
   const note = h('input', { placeholder: 'e.g. recount, gave away, miscounted', maxlength: 300 });
   dialog({
     title: `Correct count: ${p.label}`,
-    body: h('div', { class: 'form' }, p.codes.length > 1 ? labeled('Code', sel, 'full') : null, labeled('Boxes actually on hand', count, 'full'), labeled('Reason (optional)', note, 'full'),
+    body: h('div', { class: 'form' }, p.codes.length > 1 ? labeled('Code', sel, 'full') : null, labeled(isSingle(p) ? 'Rounds actually on hand' : 'Boxes actually on hand', count, 'full'), labeled('Reason (optional)', note, 'full'),
       h('p', { class: 'sub full', style: { margin: 0 } }, 'This adds a correction entry to the history. Nothing is overwritten.')),
     onOk: async () => {
       const code = sel.value, cur = p.codes.find((c) => c.code === code).boxes;
@@ -566,7 +583,7 @@ async function needsDetails() {
       h('h2', {}, `Products missing details (${fmtInt(d.products.length)})`),
       table(['Product', 'Missing', ['Boxes', 'num'], ''], d.products.map((p) =>
         h('tr', {}, td([h('b', {}, p.label), h('span', { class: 'code' }, `${p.caliber} · ${p.spec}`)]),
-          td(p.missing.map((m) => h('span', { class: 'tag miss' }, m))), boxesCell(p.boxes),
+          td(p.missing.map((m) => h('span', { class: 'tag miss' }, m))), qtyCell(p.boxes, p.single),
           td(h('button', { class: 'btn sm primary', onclick: () => productDialog(calibers, p, reload) }, 'Edit'), 'actions')))),
     ] : null);
 }
