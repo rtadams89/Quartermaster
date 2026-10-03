@@ -801,6 +801,23 @@ async function labels() {
 }
 
 // ----------------------------------------------------------------- settings
+const lockoutText = (s) => (s % 3600 === 0 ? `${s / 3600} hour${s === 3600 ? '' : 's'}` : s % 60 === 0 ? `${s / 60} minute${s === 60 ? '' : 's'}` : `${s} seconds`);
+
+/** Choose how many wrong PINs lock a device out, and how long the first lockout lasts. */
+function lockoutForm(cur) {
+  const threshold = h('input', { type: 'number', min: 3, max: 50, step: 1, value: cur.threshold, style: { width: '80px' } });
+  const seconds = h('input', { type: 'number', min: 10, max: 86400, step: 1, value: cur.seconds, style: { width: '100px' } });
+  return h('form', { class: 'toolbar', onsubmit: async (e) => {
+    e.preventDefault();
+    const t = Number(threshold.value), s = Number(seconds.value);
+    if (!Number.isInteger(t) || t < 3 || t > 50) return toast('Failed attempts must be a whole number from 3 to 50', 'error');
+    if (!Number.isInteger(s) || s < 10 || s > 86400) return toast('Lockout length must be from 10 to 86400 seconds (24 hours)', 'error');
+    try { await put('/api/settings/lockout', { threshold: t, seconds: s }); toast('Saved', 'ok'); settings(); } catch (er) { toast(er.message, 'error'); }
+  } },
+  h('label', {}, 'Lock out after ', threshold, ' failed attempts'),
+  h('label', {}, 'First lockout lasts ', seconds, ' seconds'),
+  h('button', { class: 'btn primary', type: 'submit' }, 'Save'));
+}
 async function settings(restored) {
   const pin = (ph) => h('input', { type: 'password', inputmode: 'numeric', pattern: '\\d{4}', maxlength: 4, placeholder: ph, autocomplete: 'off', style: { width: '110px' } });
   const cur = pin('Current'), nw = pin('New'), cf = pin('Confirm');
@@ -836,7 +853,8 @@ async function settings(restored) {
       try { await post('/api/auth/change-pin', { current: cur.value, new: nw.value }); toast('PIN changed', 'ok'); cur.value = nw.value = cf.value = ''; } catch (er) { toast(er.message, 'error'); }
     } }, cur, nw, cf, h('button', { class: 'btn primary', type: 'submit' }, 'Change PIN')),
     h('h2', {}, 'Failed sign-in attempts'),
-    h('p', { class: 'sub' }, 'Tracked per source IP. Only a locked IP is blocked; other devices can still sign in.'),
+    h('p', { class: 'sub' }, 'Tracked per source IP. Only a locked IP is blocked; other devices can still sign in. Each further wrong PIN after a lockout doubles the wait, up to ' + lockoutText(prefs.lockout.longest) + '.'),
+    lockoutForm(prefs.lockout),
     locks.length ? table(['Source IP', ['Failures', 'num'], 'Status', 'Last failure', ''], locks.map((l) =>
       h('tr', {}, td(h('span', { class: 'code', style: { display: 'inline' } }, l.ip)), td(l.failures, 'num'),
         td(l.locked ? h('span', { class: 'neg' }, `Locked until ${fmtWhen(l.locked_until)}`) : 'Not locked'), td(fmtWhen(l.last_failure_at)),

@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from .. import __version__, config, security
 from ..assets import BUILD
 from ..db import get_db, iso, utcnow
-from ..models import LoginAttempt
+from ..models import AuthSession, LoginAttempt
 
 router = APIRouter(prefix="/api")
 
@@ -76,7 +76,7 @@ def login(body: PinIn, request: Request, response: Response, db: Session = Depen
         if lock:
             raise _too_many(lock)
         row = db.get(LoginAttempt, ip)
-        left = max(0, config.LOCKOUT_THRESHOLD - (row.failures if row else 0))
+        left = max(0, security.lockout_policy(db)[0] - (row.failures if row else 0))
         raise HTTPException(status_code=401, detail=f"Wrong PIN. {left} attempt(s) left before lockout.")
     security.record_success(db, ip)
     security.start_session(db, response, ip)
@@ -110,6 +110,10 @@ def change_pin(body: ChangePinIn, request: Request, db: Session = Depends(get_db
         raise HTTPException(status_code=400, detail="Current PIN is incorrect")
     security.record_success(db, ip)
     security.set_pin(db, body.new)
+    # Every other signed-in browser must use the new PIN.
+    keep = security.find_session(db, request, touch=False)
+    db.execute(delete(AuthSession).where(AuthSession.id != (keep.id if keep else 0)))
+    db.commit()
     return {"ok": True}
 
 

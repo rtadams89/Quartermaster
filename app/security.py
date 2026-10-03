@@ -15,6 +15,9 @@ from .db import get_db, utcnow
 from .models import AuthSession, LoginAttempt, Setting
 
 COOKIE = "qm_session"
+LOCKOUT_THRESHOLD_KEY = "lockout_threshold"
+LOCKOUT_SECONDS_KEY = "lockout_seconds"
+
 PIN_KEY = "pin_hash"
 _TOUCH_EVERY = timedelta(seconds=5)  # don't write last_seen on every request
 
@@ -64,6 +67,33 @@ def client_ip(request: Request) -> str:
 
 
 # -------------------------------------------------------------------- lockout
+def lockout_policy(db: Session) -> tuple[int, int, int]:
+    """(failures that trigger a lockout, first lockout in seconds, longest lockout in seconds).
+
+    Chosen in the admin site's Settings; until then the QM_LOCKOUT_* values (5, 60 s, 1 hour) apply.
+    Every further failure doubles the lockout, up to the longest, which is never shorter than the first."""
+    def stored(key: str, default: int) -> int:
+        row = db.get(Setting, key)
+        try:
+            return int(row.value) if row else default
+        except ValueError:
+            return default
+
+    threshold = stored(LOCKOUT_THRESHOLD_KEY, config.LOCKOUT_THRESHOLD)
+    base = stored(LOCKOUT_SECONDS_KEY, config.LOCKOUT_BASE_SECONDS)
+    return threshold, base, max(config.LOCKOUT_MAX_SECONDS, base)
+
+
+def set_lockout_policy(db: Session, threshold: int, seconds: int) -> None:
+    for key, value in ((LOCKOUT_THRESHOLD_KEY, threshold), (LOCKOUT_SECONDS_KEY, seconds)):
+        row = db.get(Setting, key)
+        if row:
+            row.value = str(value)
+        else:
+            db.add(Setting(key=key, value=str(value)))
+    db.commit()
+
+
 def lock_remaining(db: Session, ip: str) -> int:
     """Seconds this IP must still wait before trying a PIN (0 = may try)."""
     row = db.get(LoginAttempt, ip)
@@ -87,9 +117,10 @@ def record_failure(db: Session, ip: str) -> int:
     row.failures += 1
     row.last_failure_at = now
     lock = 0
-    if row.failures >= config.LOCKOUT_THRESHOLD:
-        exp = row.failures - config.LOCKOUT_THRESHOLD
-        lock = min(config.LOCKOUT_BASE_SECONDS * (2 ** min(exp, 20)), config.LOCKOUT_MAX_SECONDS)
+    threshold, base, longest = lockout_policy(db)
+    if row.failures >= threshold:
+        exp = row.failures - threshold
+        lock = min(base * (2 ** min(exp, 20)), longest)
         row.locked_until = now + timedelta(seconds=lock)
     db.commit()
     return lock

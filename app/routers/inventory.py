@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from .. import security
 from ..codes import normalize_code
+from ..csvsafe import safe_row
 from ..db import get_db, iso
 from ..models import Barcode, Batch, BatchItem, Transaction
 from ..services import (box_count, drill, inventory_by_product, locate, low_stock, on_hand_by_code, out_of_stock_calibers,
@@ -204,7 +205,7 @@ def _csv(rows: list[list], header: list[str], filename: str) -> Response:
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(header)
-    w.writerows(rows)
+    w.writerows(safe_row(r) for r in rows)
     return Response(
         buf.getvalue(),
         media_type="text/csv",

@@ -2,6 +2,21 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.0.0
+First stable release.
+- Settings → Failed sign-in attempts: choose how many wrong PINs lock a device out (3 to 50, default 5) and how long the first lockout lasts (10 seconds to 24 hours, default 60 seconds). Each further wrong PIN still doubles the lockout, up to 1 hour or the first lockout's length, whichever is longer. The `QM_LOCKOUT_*` values in `.env` are now just the starting values.
+- The favicon no longer carries the embedded content-credentials (provenance) record.
+
+## 0.26.0
+Security review.
+- Every page now sends security headers: a strict Content-Security-Policy (scripts only from this server, no inline script, no framing), no MIME sniffing, no referrer to other sites, and HSTS when `QM_COOKIE_SECURE` is on. The admin page's one inline script moved to `layout.js` for this.
+- Changes sent from another website are refused (Origin / Sec-Fetch-Site check), on top of the SameSite=Strict cookie.
+- Changing the PIN now signs out every other browser.
+- CSV exports can no longer run as spreadsheet formulas: text starting with = + - @ gets a leading apostrophe, and the product import removes it again, so exports still import cleanly.
+- The product import stops reading an oversized upload instead of loading it first.
+- Label images are sent sandboxed, so a hostile code cannot run script even if opened directly.
+- Pi installer: the server address and user name are checked before they are written into the files it creates.
+
 ## 0.25.1
 - Fix: N/A bullet weight now saves. The separate checkbox is gone; the bullet weight box itself accepts 0 or N/A and shows N/A, and says so under the field. The product CSV import also accepts 0.
 

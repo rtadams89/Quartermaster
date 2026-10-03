@@ -1,10 +1,11 @@
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from . import __version__
+from . import __version__, config
 from .assets import FreshStatic
 from .db import Base, SessionLocal, engine
 from .routers import auth, backup, batches, catalog, inventory, labels, photos, productsio, settings
@@ -33,6 +34,46 @@ class NoStore(BaseHTTPMiddleware):
 
 
 app.add_middleware(NoStore)
+
+# Everything the pages load comes from this server. Scripts must be files (no inline script), so a
+# stray bit of markup in a product name or an online listing can never run as code.
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+       "img-src 'self' data: blob: https:; media-src 'self' blob:; "
+       "connect-src 'self' http://127.0.0.1:8581; "  # 8581 = the Pi camera helper
+       "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+class Hardening(BaseHTTPMiddleware):
+    """Security headers on every response, and a refusal of state-changing requests that a different
+    website caused the browser to send (the session cookie is SameSite=Strict as well)."""
+
+    async def dispatch(self, request: Request, call_next):
+        if request.method not in SAFE_METHODS:
+            origin = request.headers.get("origin")
+            host = request.headers.get("host", "")
+            if config.TRUST_PROXY:
+                host = request.headers.get("x-forwarded-host", host).split(",")[-1].strip()
+            if request.headers.get("sec-fetch-site") == "cross-site" or (
+                origin and urlsplit(origin).netloc.lower() != host.lower()
+            ):
+                return JSONResponse({"detail": "Cross-site request refused"}, status_code=403)
+        resp = await call_next(request)
+        h = resp.headers
+        h["X-Content-Type-Options"] = "nosniff"
+        h["X-Frame-Options"] = "DENY"
+        h["Referrer-Policy"] = "same-origin"
+        h["Permissions-Policy"] = "camera=(self), microphone=(), geolocation=(), payment=()"
+        if request.url.path.startswith("/api/labels/render"):
+            h["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"  # SVG: never run anything
+        else:
+            h["Content-Security-Policy"] = CSP
+        if config.COOKIE_SECURE:
+            h["Strict-Transport-Security"] = "max-age=31536000"
+        return resp
+
+
+app.add_middleware(Hardening)
 
 for r in (auth.router, batches.router, catalog.router, photos.router, inventory.router, labels.router,
           settings.router, backup.router, productsio.router):

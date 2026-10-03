@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from .. import security
 from ..codes import normalize_code
+from ..csvsafe import safe_row, unsafe
 from ..db import get_db
 from ..models import Barcode, Caliber, Product
 from ..services import brand_spellings, fmt_weight, minimums, set_minimum
@@ -36,7 +37,7 @@ def export_products(db: Session = Depends(get_db)):
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(COLUMNS)
-    w.writerows(rows)
+    w.writerows(safe_row(r) for r in rows)
     return Response(buf.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": 'attachment; filename="quartermaster-products.csv"'})
 
@@ -58,7 +59,7 @@ def _num(text: str, kind, lo, hi, what: str):
 
 def _parse_row(raw: dict, present: set[str]) -> dict:
     """Validate one CSV row. Returns the fields to apply (only columns that are in the file)."""
-    g = {k: (raw.get(k) or "").strip() for k in COLUMNS}
+    g = {k: unsafe((raw.get(k) or "").strip()) for k in COLUMNS}
     caliber = g["caliber"]
     if not caliber or len(caliber) > 64:
         raise RowError("caliber is required (64 characters at most)")
@@ -119,8 +120,15 @@ def _same(a: str | None, b: str | None) -> bool:
 async def import_products(request: Request, apply: bool = False, db: Session = Depends(get_db)):
     """Body is the raw CSV. Without apply=true nothing changes: it only reports what would happen.
     A file with any problem rows is refused as a whole, so an import never half-applies."""
-    body = await request.body()
-    if not body or len(body) > MAX_BYTES:
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_BYTES:
+        raise HTTPException(400, "Send a CSV file under 2 MB")
+    body = b""
+    async for chunk in request.stream():  # stop reading as soon as it is too big
+        body += chunk
+        if len(body) > MAX_BYTES:
+            raise HTTPException(400, "Send a CSV file under 2 MB")
+    if not body:
         raise HTTPException(400, "Send a CSV file under 2 MB")
     rows, present, ignored = _read(body)
 

@@ -123,9 +123,9 @@ def test_slash_not_allowed_in_codes(authed):
 
 
 def test_photo_prompt_setting(authed):
-    assert authed.get("/api/settings").json() == {"photo_prompt": True}
+    assert authed.get("/api/settings").json()["photo_prompt"] is True
     authed.put("/api/settings", json={"photo_prompt": False})
-    assert authed.get("/api/settings").json() == {"photo_prompt": False}
+    assert authed.get("/api/settings").json()["photo_prompt"] is False
 
 
 # ----------------------------------------------------------- backup/restore
@@ -189,7 +189,7 @@ def test_restore_roundtrip_replaces_data_but_keeps_pin_and_session(authed):
 
     assert snapshot_of(authed) == want                                    # data is exactly the backup's
     assert authed.get("/api/barcodes/111111111111/photo").status_code == 200  # photo came back
-    assert authed.get("/api/settings").json() == {"photo_prompt": False}
+    assert authed.get("/api/settings").json()["photo_prompt"] is False
     assert authed.get("/api/calibers").status_code == 200                 # still logged in
     authed.post("/api/auth/logout")
     assert authed.post("/api/auth/login", json={"pin": "4321"}).status_code == 200  # NEW pin kept

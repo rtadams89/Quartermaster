@@ -22,7 +22,8 @@ DB_PATH = os.environ.get("QM_DB_PATH", "./data/quartermaster.db")
 # Sessions (kiosk and admin) lock after this many minutes with no activity.
 IDLE_MINUTES = _int("QM_IDLE_MINUTES", 15)
 
-# Per-source-IP PIN lockout. After LOCKOUT_THRESHOLD consecutive failures from an
+# Per-source-IP PIN lockout. These are the starting values; the admin site's Settings page can change
+# the failure count and first lockout length. After LOCKOUT_THRESHOLD consecutive failures from an
 # IP, that IP is locked out for LOCKOUT_BASE_SECONDS, doubling with every further
 # failure, capped at LOCKOUT_MAX_SECONDS. Other IPs are unaffected.
 LOCKOUT_THRESHOLD = _int("QM_LOCKOUT_THRESHOLD", 5)

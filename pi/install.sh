@@ -332,6 +332,12 @@ while true; do
   ask KIOSK_URL "Server address (for example http://192.168.1.50:8580)" "${KIOSK_URL:-http://quartermaster.local:8580}"
   KIOSK_URL="${KIOSK_URL%/}"; KIOSK_URL="${KIOSK_URL%/kiosk}"; KIOSK_URL="${KIOSK_URL%/}"
   [[ "$KIOSK_URL" =~ ^https?:// ]] || KIOSK_URL="http://$KIOSK_URL"
+  # The address ends up in files that are run as shell scripts, so only plain address characters are accepted.
+  if ! [[ "$KIOSK_URL" =~ ^https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$ ]]; then
+    [ "$YES" = 1 ] && die "That server address contains characters that are not allowed: $KIOSK_URL"
+    say "   That address has characters that are not allowed. Use letters, digits, dots, dashes and an optional :port."
+    KIOSK_URL=""; continue
+  fi
   if ! command -v curl >/dev/null 2>&1; then say "(curl is not installed yet, so the server is not checked)"; break; fi
   if reply="$(curl -fsS -m 6 "$KIOSK_URL/api/health" 2>/dev/null)"; then
     say "   Reached the server: $reply"; break
@@ -344,6 +350,7 @@ done
 # ----------------------------------------------------------------- 2. user
 step "2 of 6: the account that runs the kiosk"
 ask KIOSK_USER "Linux user" "$KIOSK_USER"
+[[ "$KIOSK_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || die "'$KIOSK_USER' is not a valid Linux user name (lowercase letters, digits, - and _)."
 CREATE_USER=0
 if [ "$DRY" = 0 ] && ! id "$KIOSK_USER" >/dev/null 2>&1; then
   yesno "   User '$KIOSK_USER' does not exist. Create it (no password, kiosk use only)?" y || die "Pick an existing user and run again."
