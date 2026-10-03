@@ -12,7 +12,7 @@ from .. import security
 from ..codes import normalize_code
 from ..db import get_db, iso
 from ..models import Barcode, Transaction
-from ..services import drill, inventory_by_product
+from ..services import drill, inventory_by_product, locate
 
 router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
 
@@ -20,6 +20,15 @@ router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
 @router.get("/inventory/drill")
 def inventory_drill(caliber: str | None = None, weight: str | None = None, db: Session = Depends(get_db)):
     return drill(db, caliber, weight)
+
+
+@router.get("/inventory/code/{code}")
+def inventory_code(code: str, db: Session = Depends(get_db)):
+    try:
+        code = normalize_code(code)
+    except ValueError:
+        raise HTTPException(400, "Invalid code")
+    return locate(db, code)
 
 
 @router.get("/inventory/items")

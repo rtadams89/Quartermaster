@@ -198,3 +198,32 @@ def test_add_stock_rejects_unknown_codes_and_bad_quantities(authed):
     authed.post(f"/api/products/{p['id']}/barcodes", json={"code": "012345678905"})
     assert authed.post("/api/stock", json={"code": "012345678905", "boxes": 0}).status_code == 422
     assert authed.post("/api/stock", json={"code": "012345678905", "boxes": -2}).status_code == 422
+
+
+def test_scanned_code_is_located_in_the_drilldown(authed):
+    p = make_product(authed, bullet_weight_gr=115)
+    authed.post(f"/api/products/{p['id']}/barcodes", json={"code": "012345678905"})
+    run_batch(authed, "in", [("012345678905", 3)])
+    r = authed.get("/api/inventory/code/0012345678905").json()  # EAN-13 form of the same UPC
+    assert r["found"] and r["identified"] and r["code"] == "012345678905"
+    assert (r["boxes"], r["rounds"], r["code_boxes"]) == (3, 150, 3)
+    assert r["caliber"] == str(p["caliber_id"]) and r["weight"] == "115" and r["row"] == str(p["id"])
+    # the location it names really lists that product
+    rows = authed.get("/api/inventory/drill", params={"caliber": r["caliber"], "weight": r["weight"]}).json()["rows"]
+    assert [x["key"] for x in rows] == [r["row"]]
+
+
+def test_locate_covers_no_stock_unidentified_and_unknown(authed):
+    p = make_product(authed)
+    authed.post(f"/api/products/{p['id']}/barcodes", json={"code": "012345678905"})
+    run_batch(authed, "in", [("012345678905", 2), ("999999999999", 5)])
+    run_batch(authed, "out", [("012345678905", 2)])
+    assert authed.get("/api/inventory/code/012345678905").json()["boxes"] == 0
+    u = authed.get("/api/inventory/code/999999999999").json()
+    assert u["found"] and not u["identified"] and u["caliber"] == "unidentified" and u["row"] == "999999999999" and u["boxes"] == 5
+    assert authed.get("/api/inventory/code/555555555555").json() == {"found": False, "code": "555555555555"}
+    assert authed.get("/api/inventory/code/bad%20code").status_code == 400
+
+
+def test_locate_needs_login(client):
+    assert client.get("/api/inventory/code/012345678905").status_code == 401

@@ -288,16 +288,18 @@ async function identifyDialog(code, done, hasPhoto = false) {
   paint();
   // Ask the online UPC database what this code is; the answer only ever pre-fills the new-product form.
   const hint = h('div', { class: 'lookup-hint', hidden: true });
+  let listingPhoto = false;
   get(`/api/lookup/${encodeURIComponent(code)}`).then((r) => {
     if (!r.enabled) return;
     hint.hidden = false;
     if (!r.found) { clear(hint, h('span', { class: 'muted' }, 'Not found in the online UPC database.')); return; }
     const s = r.suggestion || {};
+    listingPhoto = !!r.image && !hasPhoto;
     const got = [s.caliber_id && 'caliber', s.rounds_per_box && 'rounds per box', s.bullet_weight_gr && 'weight', s.bullet_type && 'bullet type'].filter(Boolean);
     clear(hint,
       r.image && h('img', { src: r.image, alt: '', referrerpolicy: 'no-referrer' }),
       h('div', {}, h('b', {}, 'Online lookup: '), r.title,
-        h('div', { class: 'muted' }, got.length ? `Guessed ${got.join(', ')}. Check everything before saving.` : 'Could not guess caliber or rounds per box; fill those in.')),
+        h('div', { class: 'muted' }, (got.length ? `Guessed ${got.join(', ')}. Check everything before saving.` : 'Could not guess caliber or rounds per box; fill those in.') + (listingPhoto ? ' The listing photo becomes the box photo when you save, if it looks like a real product photo.' : ''))),
       h('button', { type: 'button', class: 'btn sm', onclick: () => { newForm.fill(s); mode = 'new'; paint(); } }, 'Use these details'));
   }).catch((e) => { hint.hidden = false; clear(hint, h('span', { class: 'muted' }, 'Online lookup: ' + e.message)); });
   dialog({
@@ -310,6 +312,8 @@ async function identifyDialog(code, done, hasPhoto = false) {
       if (mode === 'existing') pid = Number(pick.value);
       else pid = (await post('/api/products', newForm.value())).id;
       await put(`/api/barcodes/${encodeURIComponent(code)}`, { product_id: pid });
+      // Best effort. The server never replaces a photo you already have.
+      if (listingPhoto) await post(`/api/lookup/${encodeURIComponent(code)}/photo`).catch(() => {});
       toast('Saved', 'ok');
       await done();
       refreshBadge();

@@ -117,8 +117,10 @@ def _validate(path: Path) -> dict:
         if not CORE_TABLES <= tables:
             raise not_backup
         for t in Base.metadata.sorted_tables:
-            if t.name in EPHEMERAL_TABLES or t.name not in tables:
+            if t.name in EPHEMERAL_TABLES:
                 continue
+            if t.name not in tables:
+                raise HTTPException(400, f"That backup is from an incompatible version (table '{t.name}' is missing)")
             have = {r[1] for r in con.execute(f'PRAGMA table_info("{t.name}")')}
             missing = {c.name for c in t.columns} - have
             if missing:
@@ -126,7 +128,7 @@ def _validate(path: Path) -> dict:
                     400, f"That backup is from an incompatible version ('{t.name}' is missing {sorted(missing)})"
                 )
         return {
-            name: (con.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0] if name in tables else 0)
+            name: con.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0]
             for name in ("calibers", "products", "barcodes", "transactions", "barcode_photos")
         }
     finally:
@@ -150,7 +152,6 @@ def _apply(backup: Path) -> None:
     try:
         con.execute("PRAGMA foreign_keys=OFF")
         con.execute("ATTACH DATABASE ? AS bk", (str(backup),))
-        bk_tables = {r[0] for r in con.execute("SELECT name FROM bk.sqlite_master WHERE type='table'")}
         tables = [t for t in Base.metadata.sorted_tables if t.name not in EPHEMERAL_TABLES]
         con.execute("BEGIN IMMEDIATE")
         try:
@@ -160,8 +161,6 @@ def _apply(backup: Path) -> None:
                 else:
                     con.execute(f'DELETE FROM main."{t.name}"')
             for t in tables:  # parents before children
-                if t.name not in bk_tables:
-                    continue
                 cols = ", ".join(f'"{c.name}"' for c in t.columns)
                 sql = f'INSERT INTO main."{t.name}" ({cols}) SELECT {cols} FROM bk."{t.name}"'
                 if t.name == "settings":
@@ -202,7 +201,6 @@ async def restore(request: Request):
             raise
         except sqlite3.Error as e:
             raise HTTPException(500, f"Restore failed and nothing was changed ({e})")
-        Base.metadata.create_all(engine)  # backups from older versions may lack newer tables
         engine.dispose()
         return {"ok": True, "restored": counts, "safety_copy": f"backups/{safety.name}"}
     finally:

@@ -47,51 +47,113 @@ emit_helper() {
 """Quartermaster camera helper for the Raspberry Pi.
 
 Why this exists: Chromium can't open Raspberry Pi *CSI* camera modules (they speak libcamera, not
-a plain webcam interface). This ~100-line service runs on the Pi, takes a still with `rpicam-still`
-when the kiosk page asks for one, and hands the JPEG back. It listens on 127.0.0.1 only, so nothing
-else on your network can reach the camera.
+a plain webcam interface). This small service runs on the Pi, reads video from the camera with
+`rpicam-vid`, and hands the kiosk page the newest frame, which gives it a live preview and a photo.
+It listens on 127.0.0.1 only, so nothing else on your network can reach the camera. The camera is only
+switched on while the photo screen is open (and for a few seconds after).
 
 USB webcams do NOT need this: the kiosk uses them directly through the browser (see docs/pi-kiosk.md).
 
-    GET /health         -> {"ok": true, "camera": true|false}
-    GET /snapshot.jpg   -> a fresh JPEG from the camera
+    GET /health                 -> {"ok": true, "camera": true|false}
+    GET /frame.jpg?after=N      -> the newest preview frame (waits briefly for one newer than frame N);
+                                   the frame number comes back in the X-Frame header
 
 Configuration (environment variables):
     QM_CAMERA_PORT     port to listen on                         (default 8581)
     QM_CAMERA_ORIGIN   the kiosk's origin, e.g. http://192.168.1.50:8580. Browsers from other origins
                        are refused. Strongly recommended; if unset, any page may request a photo.
-    QM_CAMERA_WIDTH / QM_CAMERA_HEIGHT   still size             (default 1280x960)
-    QM_CAMERA_COMMAND  override the capture program              (default: rpicam-still, else libcamera-still)
+    QM_CAMERA_WIDTH / QM_CAMERA_HEIGHT   picture size            (default 1280x960)
+    QM_CAMERA_FPS      preview frames per second                 (default 15)
+    QM_CAMERA_COMMAND  override the video program                (default: rpicam-vid, else libcamera-vid)
 """
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = int(os.environ.get("QM_CAMERA_PORT", "8581"))
 ORIGIN = os.environ.get("QM_CAMERA_ORIGIN", "").rstrip("/")
 WIDTH = os.environ.get("QM_CAMERA_WIDTH", "1280")
 HEIGHT = os.environ.get("QM_CAMERA_HEIGHT", "960")
-COMMAND = os.environ.get("QM_CAMERA_COMMAND") or shutil.which("rpicam-still") or shutil.which("libcamera-still")
+FPS = os.environ.get("QM_CAMERA_FPS", "15")
+_override = os.environ.get("QM_CAMERA_COMMAND")
+VIDEO = shlex.split(_override) if _override else [p for p in (shutil.which("rpicam-vid") or shutil.which("libcamera-vid"),) if p]
+IDLE_SECONDS = 6   # the camera is switched off this long after the last request
+SOI = b"\xff\xd8\xff"
 
-_capture_lock = threading.Lock()  # the camera can only do one thing at a time
+
+class Camera:
+    """Runs rpicam-vid on demand and keeps the newest JPEG frame."""
+
+    def __init__(self):
+        self.cond = threading.Condition()
+        self.frame, self.seq, self.proc = None, 0, None
+        self.last_use = 0.0
+
+    def _argv(self):
+        if _override:
+            return VIDEO
+        return VIDEO + ["--nopreview", "-t", "0", "--codec", "mjpeg", "--width", WIDTH, "--height", HEIGHT,
+                        "--framerate", FPS, "--quality", "85", "-o", "-"]
+
+    def _start(self):
+        self.proc = subprocess.Popen(self._argv(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+        threading.Thread(target=self._read, args=(self.proc,), daemon=True).start()
+
+    def _read(self, proc):
+        buf = b""
+        while True:
+            chunk = proc.stdout.read(65536)
+            if not chunk:
+                break
+            buf += chunk
+            while True:
+                start = buf.find(SOI)
+                nxt = buf.find(SOI, start + 3) if start >= 0 else -1
+                if start < 0 or nxt < 0:
+                    buf = buf[max(start, 0):] if start >= 0 else buf[-2:]
+                    break
+                with self.cond:
+                    self.frame, self.seq = buf[start:nxt], self.seq + 1
+                    self.cond.notify_all()
+                buf = buf[nxt:]
+        with self.cond:
+            if self.proc is proc:
+                self.proc = None
+            self.cond.notify_all()
+
+    def get(self, after=0, wait=3.0):
+        """Newest frame as (seq, jpeg), waiting up to `wait` seconds for one newer than `after`."""
+        with self.cond:
+            self.last_use = time.monotonic()
+            if self.proc is None or self.proc.poll() is not None:
+                self.frame = None
+                self._start()
+            end = time.monotonic() + wait
+            while self.frame is None or self.seq <= after:
+                left = end - time.monotonic()
+                if left <= 0:
+                    break
+                self.cond.wait(left)
+            self.last_use = time.monotonic()
+            return (self.seq, self.frame) if self.frame is not None else (0, None)
+
+    def watchdog(self):
+        while True:
+            time.sleep(1)
+            with self.cond:
+                p = self.proc
+                if p is not None and time.monotonic() - self.last_use > IDLE_SECONDS:
+                    self.proc, self.frame = None, None
+                    p.terminate()
 
 
-def capture() -> bytes:
-    if not COMMAND:
-        raise RuntimeError("rpicam-still not found (install rpicam-apps)")
-    with _capture_lock, tempfile.TemporaryDirectory() as tmp:
-        out = os.path.join(tmp, "shot.jpg")
-        subprocess.run(
-            [COMMAND, "--nopreview", "-t", "800", "--width", WIDTH, "--height", HEIGHT, "--quality", "85", "-o", out],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25,
-        )
-        with open(out, "rb") as f:
-            return f.read()
+camera = Camera()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -104,6 +166,7 @@ class Handler(BaseHTTPRequestHandler):
         elif origin == ORIGIN:
             self.send_header("Access-Control-Allow-Origin", ORIGIN)
             self.send_header("Vary", "Origin")
+        self.send_header("Access-Control-Expose-Headers", "X-Frame")
         # Chromium's "Private Network Access" check, for a page on the LAN calling loopback:
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
@@ -111,12 +174,14 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         return not (ORIGIN and origin and origin != ORIGIN)
 
-    def _send(self, status: int, body: bytes, content_type: str):
+    def _send(self, status: int, body: bytes, content_type: str, extra=None):
         self.send_response(status)
         self._cors()
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
 
@@ -128,18 +193,26 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def _error(self, status, message):
+        self._send(status, json.dumps({"error": message}).encode(), "application/json")
+
     def do_GET(self):
         if not self._allowed():
-            return self._send(403, b'{"error":"origin not allowed"}', "application/json")
-        path = self.path.split("?")[0]
+            return self._error(403, "origin not allowed")
+        path, _, query = self.path.partition("?")
         if path == "/health":
-            return self._send(200, json.dumps({"ok": True, "camera": bool(COMMAND)}).encode(), "application/json")
-        if path == "/snapshot.jpg":
-            try:
-                return self._send(200, capture(), "image/jpeg")
-            except Exception as e:  # noqa: BLE001 - report anything to the kiosk, which shows it
-                return self._send(500, json.dumps({"error": str(e)}).encode(), "application/json")
-        self._send(404, b'{"error":"not found"}', "application/json")
+            body = {"ok": True, "camera": bool(VIDEO)}
+            return self._send(200, json.dumps(body).encode(), "application/json")
+        try:
+            if path == "/frame.jpg" and VIDEO:
+                after = next((int(v) for k, _, v in (p.partition("=") for p in query.split("&")) if k == "after" and v.isdigit()), 0)
+                seq, frame = camera.get(after)
+                if frame is None:
+                    return self._error(503, "the camera is not producing pictures")
+                return self._send(200, frame, "image/jpeg", {"X-Frame": str(seq)})
+        except Exception as e:  # noqa: BLE001 - report anything to the kiosk, which shows it
+            return self._error(500, str(e))
+        self._error(404, "not found")
 
     def log_message(self, fmt, *args):  # quiet; journald has the service's own start/stop lines
         pass
@@ -147,7 +220,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> int:
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"Quartermaster camera helper on 127.0.0.1:{PORT} (command: {COMMAND or 'NOT FOUND'}, origin: {ORIGIN or 'any'})", flush=True)
+    threading.Thread(target=camera.watchdog, daemon=True).start()
+    print(f"Quartermaster camera helper on 127.0.0.1:{PORT} (video: {' '.join(VIDEO) or 'NOT FOUND'}, origin: {ORIGIN or 'any'})", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -242,9 +316,6 @@ fi
 KIOSK_USER=""; KIOSK_URL=""; ROTATION="0"; CAMERA="none"; IGNORE_HDMI="yes"; BLANK_AFTER="0"; AUTOSTART="yes"
 # shellcheck disable=SC1090
 [ -r "$(path "$CONF")" ] && . "$(path "$CONF")"
-# Choices saved by older versions of this installer.
-case "$ROTATION" in none) ROTATION=0 ;; browser90|os90) ROTATION=90 ;; browser270|os270) ROTATION=270 ;; esac
-case "$BLANK_AFTER" in 0|900|3600|14400) ;; *) BLANK_AFTER=0 ;; esac
 [ -n "$ARG_URL" ] && KIOSK_URL="$ARG_URL"
 if [ -z "$KIOSK_USER" ]; then
   if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then KIOSK_USER="$SUDO_USER"; else KIOSK_USER="kiosk"; fi
@@ -294,7 +365,7 @@ step "4 of 6: box-photo camera"
 menu CAMERA "Which camera takes pictures of new boxes?" "$CAMERA" \
   none "No camera (the kiosk simply skips the photo step)" \
   usb  "A USB webcam (live preview)" \
-  csi  "A Raspberry Pi camera module on the ribbon cable (takes a still; installs a small helper service)"
+  csi  "A Raspberry Pi camera module on the ribbon cable (live preview; installs a small helper service)"
 
 # ----------------------------------------------------------------- 5. hardware fixes
 step "5 of 6: fixes for common Pi problems"
@@ -427,7 +498,7 @@ EOF
   run udevadm control --reload-rules
   run udevadm trigger
 elif [ -e "$(path "$RULES")" ]; then
-  rm -f "$(path "$RULES")"; say "   removed the old pointer rule"
+  rm -f "$(path "$RULES")"; say "   removed the pointer rule"
 fi
 
 if [ "$CAMERA" = csi ]; then

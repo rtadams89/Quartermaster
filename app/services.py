@@ -206,6 +206,27 @@ def drill(db: Session, caliber: str | None, weight: str | None) -> dict:
     return _drill_result("product", crumbs, rows)
 
 
+def locate(db: Session, code: str) -> dict:
+    """Where a scanned code sits in the kiosk drill-down, and how much of it is in stock."""
+    items, unidentified = inventory_by_product(db)
+    for i in items:
+        mine = next((c for c in i["codes"] if c["code"] == code), None)
+        if mine:
+            return {
+                "found": True, "code": code, "identified": True, "label": i["label"], "spec": i["spec"],
+                "caliber": str(i["caliber_id"]), "weight": _wkey(i["bullet_weight_gr"]), "row": str(i["id"]),
+                "boxes": i["boxes"], "rounds": i["rounds"], "code_boxes": mine["boxes"],
+            }
+    for u in unidentified:
+        if u["code"] == code:
+            return {
+                "found": True, "code": code, "identified": False, "label": code, "spec": "Unidentified code",
+                "caliber": UNIDENTIFIED, "weight": None, "row": code,
+                "boxes": u["boxes"], "rounds": None, "code_boxes": u["boxes"],
+            }
+    return {"found": False, "code": code}
+
+
 def _wkey(w: float | None) -> str:
     return "none" if not w else fmt_weight(w)
 

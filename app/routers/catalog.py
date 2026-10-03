@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 from .. import config, lookup, security
 from ..codes import normalize_code
 from ..db import get_db
-from ..models import Barcode, BarcodePhoto, Caliber, Product, Transaction
+from ..models import Barcode, BarcodePhoto, Caliber, Product, Transaction, UpcLookup
+from .photos import process_image, store_photo
 from ..services import photo_codes, product_dict, spec_text
 
 router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
@@ -233,6 +234,31 @@ def lookup_code(code: str, db: Session = Depends(get_db)):
         return {"enabled": True, "found": False}
     return {"enabled": True, "found": True, "title": row.title, "brand": row.brand,
             "image": row.image_url, "suggestion": lookup.guess(db, row)}
+
+
+@router.post("/lookup/{code}/photo")
+def lookup_photo(code: str, db: Session = Depends(get_db)):
+    """Keep the online listing's photo as this code's box photo, but only when it is a real
+    product photo and the code has no photo yet. An existing (your own) photo is never replaced."""
+    code = _norm(code)
+    if not config.UPC_LOOKUP:
+        return {"saved": False, "reason": "disabled"}
+    if not db.get(Barcode, code):
+        raise HTTPException(404, "Code not found")
+    if db.get(BarcodePhoto, code):
+        return {"saved": False, "reason": "has_photo"}
+    row = db.get(UpcLookup, code)
+    if not row or not row.found or not row.image_url:
+        return {"saved": False, "reason": "no_image"}
+    try:
+        data = lookup.fetch_image(row.image_url)
+    except lookup.LookupFailed:
+        return {"saved": False, "reason": "unavailable"}
+    if not lookup.looks_like_product_photo(data):
+        return {"saved": False, "reason": "not_a_photo"}
+    full, thumb = process_image(data)
+    store_photo(db, code, full, thumb)
+    return {"saved": True}
 
 
 @router.delete("/barcodes/{code}")

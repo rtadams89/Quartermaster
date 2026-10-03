@@ -69,6 +69,18 @@ async def _read_body(request: Request) -> bytes:
     return b"".join(chunks)
 
 
+def store_photo(db: Session, code: str, full: bytes, thumb: bytes) -> None:
+    """Create or replace the photo row for a code (callers decide whether replacing is allowed)."""
+    p = db.get(BarcodePhoto, code)
+    if p is None:
+        p = BarcodePhoto(code=code)
+        db.add(p)
+    p.image, p.thumb = full, thumb
+    p.etag = hashlib.sha1(full).hexdigest()
+    p.updated_at = utcnow()
+    db.commit()
+
+
 @router.get("/{code}/photo")
 def get_photo(code: str, request: Request, thumb: bool = False, db: Session = Depends(get_db)):
     p = db.get(BarcodePhoto, _code(code))
@@ -88,14 +100,7 @@ async def put_photo(code: str, request: Request, db: Session = Depends(get_db)):
     if not db.get(Barcode, code):
         raise HTTPException(404, "Code not found")
     full, thumb = process_image(await _read_body(request))
-    p = db.get(BarcodePhoto, code)
-    if p is None:
-        p = BarcodePhoto(code=code)
-        db.add(p)
-    p.image, p.thumb = full, thumb
-    p.etag = hashlib.sha1(full).hexdigest()
-    p.updated_at = utcnow()
-    db.commit()
+    store_photo(db, code, full, thumb)
     return {"ok": True, "bytes": len(full)}
 
 

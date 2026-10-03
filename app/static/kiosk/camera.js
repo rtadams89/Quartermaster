@@ -1,8 +1,9 @@
 // Camera access for the kiosk. Two back ends, picked automatically:
 //
-//  'helper'  – a tiny local service on the Pi (pi/camera_helper.py) that takes a still with
-//              rpicam-still. This is the reliable route for Raspberry Pi *CSI* camera modules,
-//              which Chromium cannot open directly. No live preview; the photo is shown after.
+//  'helper'  – a tiny local service on the Pi (built into pi/install.sh) that reads the camera with
+//              rpicam-vid. This is the route for Raspberry Pi *CSI* camera modules, which Chromium
+//              cannot open directly. The page polls it for the newest frame, so there is a live
+//              preview too.
 //  'browser' – the browser's own camera access (getUserMedia). Works with USB webcams and gives a
 //              live preview. Needs a secure context: see docs/pi-kiosk.md for the Chromium flag.
 
@@ -63,15 +64,47 @@ function browserCamera() {
   };
 }
 
+/** Live preview from the Pi helper: fetch the newest frame over and over (long-polling, so each
+ *  request returns as soon as there is a new picture). The photo is simply the frame on screen. */
 function helperCamera() {
+  const img = h('img', { class: 'cam-video', alt: '' });
+  let running = false, last = null, lastUrl = null;
+  const loop = async (onFirst, onFail) => {
+    let seq = 0, failures = 0, got = false;
+    while (running) {
+      try {
+        const r = await fetch(`${HELPER}/frame.jpg?after=${seq}`, { signal: AbortSignal.timeout(8000) });
+        if (!r.ok) throw new Error('no picture');
+        seq = Number(r.headers.get('X-Frame')) || seq;
+        last = await r.blob();
+        const url = URL.createObjectURL(last);
+        img.src = url;
+        if (lastUrl) URL.revokeObjectURL(lastUrl);
+        lastUrl = url;
+        failures = 0;
+        if (!got) { got = true; onFirst(); }
+        await new Promise((res) => setTimeout(res, 40)); // ~25 fps ceiling; the camera sets the real rate
+      } catch {
+        if (!got && ++failures >= 3) { onFail(new Error('The camera helper is not producing pictures')); return; }
+        await new Promise((res) => setTimeout(res, 500));
+      }
+    }
+  };
   return {
-    el: h('div', { class: 'cam-placeholder' }, h('div', { class: 'ico' }, '📷'), h('div', {}, 'Hold the box in front of the camera, then tap Take photo')),
-    async start() {},
-    async snapshot() {
-      const r = await fetch(HELPER + '/snapshot.jpg', { signal: AbortSignal.timeout(25000) });
-      if (!r.ok) throw new Error('The camera helper could not take a photo');
-      return r.blob();
+    el: img,
+    start() {
+      running = true;
+      return new Promise((resolve, reject) => loop(resolve, reject));
     },
-    stop() {},
+    async snapshot() {
+      if (!last) throw new Error('Camera is not ready yet');
+      return last;
+    },
+    stop() {
+      running = false;
+      if (lastUrl) URL.revokeObjectURL(lastUrl);
+      lastUrl = last = null;
+      img.removeAttribute('src');
+    },
   };
 }

@@ -61,7 +61,7 @@ const S = {
   warnedNoCam: false,
   batch: null,        // the draft ammo in/out batch being built (lives on the server)
   last: null,         // most recently scanned item, shown on the scan screen
-  inv: { caliber: null, weight: null },
+  inv: { caliber: null, weight: null, hit: null }, // hit: the row to highlight after a scan
   screen: 'lock',
   session: null,
   version: '',        // from /api/auth/status; shown small on the home screen
@@ -206,7 +206,7 @@ function showHome() {
     h('div', { class: 'home' },
       h('button', { class: 'tile in', onclick: () => startBatch('in') }, h('span', { class: 'ico' }, '⬇'), 'Ammo In', h('small', {}, 'Add boxes')),
       h('button', { class: 'tile out', onclick: () => startBatch('out') }, h('span', { class: 'ico' }, '⬆'), 'Ammo Out', h('small', {}, 'Remove boxes')),
-      h('button', { class: 'tile inv', onclick: () => { S.inv = { caliber: null, weight: null }; showInventory(); } }, h('span', { class: 'ico' }, '☰'), 'Inventory', h('small', {}, 'See what you have'))));
+      h('button', { class: 'tile inv', onclick: () => { S.inv = { caliber: null, weight: null, hit: null }; showInventory(); } }, h('span', { class: 'ico' }, '☰'), 'Inventory', h('small', {}, 'See what you have'))));
 }
 
 async function lockNow() {
@@ -239,7 +239,7 @@ let buf = '', lastKeyAt = 0, burstOk = false;
 let scanChain = Promise.resolve();
 
 window.addEventListener('keydown', (e) => {
-  const onScan = S.screen === 'scan' && !app.querySelector('.overlay');
+  const onScan = (S.screen === 'scan' || S.screen === 'inventory') && !app.querySelector('.overlay');
   if (e.key === 'Enter') {
     if (onScan && burstOk && buf.length >= 3) { enqueueScan(buf); e.preventDefault(); }
     buf = ''; burstOk = false; lastKeyAt = 0; // next character starts a fresh burst
@@ -253,7 +253,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 function enqueueScan(code) {
-  scanChain = scanChain.then(() => doScan(code)).catch(() => {});
+  scanChain = scanChain.then(() => (S.screen === 'inventory' ? findInInventory(code) : doScan(code))).catch(() => {});
 }
 
 function flash(kind) {
@@ -286,6 +286,21 @@ async function doScan(code) {
     flash('err');
     beep(200, 220);
     toast(e.message, 'error');
+  }
+}
+
+// Scanning a box on the Inventory screen jumps to that item and shows what is in stock.
+async function findInInventory(code) {
+  try {
+    const r = await get(`/api/inventory/code/${encodeURIComponent(code)}`);
+    if (S.screen !== 'inventory') return;
+    if (!r.found) { beep(200, 220); toast(`${code} is not in the system`, 'error'); return; }
+    if (r.boxes === 0) { beep(520); toast(`${r.label}: none in stock`, 'info'); return; }
+    beep(880);
+    S.inv = { caliber: r.caliber, weight: r.weight, hit: r.row };
+    await showInventory();
+  } catch (e) {
+    if (e.status !== 401) { beep(200, 220); toast(e.message, 'error'); }
   }
 }
 
@@ -322,9 +337,9 @@ async function takeBoxPhoto(code) {
     const msg = h('div', { class: 'cam-msg' });
     const actions = h('div', { class: 'cam-actions' });
     const root = h('div', { class: 'overlay cam' }, h('div', { class: 'cam-panel' },
-      h('div', { class: 'cam-title' }, 'New barcode ', h('b', {}, code)),
-      h('div', { class: 'cam-sub' }, 'Take a photo of the box so you can identify it later.'),
-      stage, msg, actions));
+      actions,
+      h('div', { class: 'cam-title' }, 'New barcode ', h('b', {}, code), h('span', { class: 'cam-sub' }, ' · photograph the box so you can identify it later')),
+      stage, msg));
     app.append(root);
 
     const end = (saved) => {
@@ -529,6 +544,7 @@ async function showInventory() {
   }
   const crumbs = ['All calibers', ...d.breadcrumb].join('  ›  ');
   const back = () => {
+    S.inv.hit = null;
     if (S.inv.weight !== null) S.inv.weight = null;
     else if (S.inv.caliber !== null) S.inv.caliber = null;
     else return showHome();
@@ -536,6 +552,7 @@ async function showInventory() {
   };
   const open = (r) => {
     if (!r.drillable) return;
+    S.inv.hit = null;
     if (d.level === 'caliber') S.inv.caliber = r.key;
     else if (d.level === 'weight') S.inv.weight = r.key;
     showInventory();
@@ -546,16 +563,17 @@ async function showInventory() {
     h('div', { class: 'totals' },
       h('span', { class: 'rounds' }, fmtInt(d.total_rounds)), h('span', { class: 'unit' }, `rounds · ${plural(d.total_boxes - unknownBoxes, 'box')}`),
       unknownBoxes ? h('span', { class: 'extra' }, `+ ${plural(unknownBoxes, 'box')} unidentified`) : null),
-    h('div', { class: 'crumbs' }, d.breadcrumb.length ? crumbs : 'Tap a caliber to drill in'),
+    h('div', { class: 'crumbs' }, d.breadcrumb.length ? crumbs : 'Tap a caliber to drill in, or scan a box to find it'),
     h('div', { class: 'body' }, h('div', { class: 'list' },
       d.rows.length ? d.rows.map((r) =>
-        h('button', { class: 'inv-row', disabled: !r.drillable, onclick: () => open(r) },
+        h('button', { class: 'inv-row' + (r.key === S.inv.hit && !r.drillable ? ' hit' : ''), disabled: !r.drillable, onclick: () => open(r) },
           h('div', { class: 'info' }, h('div', { class: 'title' }, r.label), r.sublabel && h('div', { class: 'sub' }, r.sublabel)),
           h('div', { class: 'r' },
             h('div', { class: 'big' }, r.rounds === null ? '—' : fmtInt(r.rounds)),
             h('small', {}, r.rounds === null ? plural(r.boxes, 'box') : `rounds · ${plural(r.boxes, 'box')}`)),
           r.drillable && h('span', { class: 'chev' }, '›')))
         : h('div', { class: 'empty' }, 'Nothing in stock yet. Use Ammo In to add boxes.'))));
+  app.querySelector('.inv-row.hit')?.scrollIntoView({ block: 'center' });
 }
 
 // Pick up a new server version by itself, but only while resting on the lock or home screen.

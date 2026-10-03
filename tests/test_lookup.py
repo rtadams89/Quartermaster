@@ -103,3 +103,79 @@ def test_guess_matches_user_named_caliber(authed):
         assert pick("PMC Bronze 5.56x45mm NATO 55gr") == ids[".223 Rem / 5.56 NATO"]
         assert pick("Hornady 308 Winchester 168gr") == ids[".308 Win / 7.62x51"]
         assert pick("Some 7mm Rem Mag") is None
+
+
+# ------------------------------------------------------------- listing photo
+def _png(size, noisy=True):
+    import io
+
+    from PIL import Image
+
+    img = Image.effect_noise(size, 60) if noisy else Image.new("L", size, 200)
+    out = io.BytesIO()
+    img.save(out, "PNG")
+    return out.getvalue()
+
+
+def _scanned(c):
+    """A code the kiosk has seen, plus a cached lookup that has a listing photo."""
+    b = c.post("/api/batches", json={"kind": "in"}).json()
+    c.post(f"/api/batches/{b['id']}/scan", json={"code": CODE})
+    c.post(f"/api/batches/{b['id']}/finish")
+    c.get(f"/api/lookup/{CODE}")
+
+
+def test_listing_photo_is_kept_when_there_is_no_photo(authed, fake, monkeypatch):
+    _scanned(authed)
+    monkeypatch.setattr(lookup, "fetch_image", lambda url: _png((400, 300)))
+    assert authed.post(f"/api/lookup/{CODE}/photo").json() == {"saved": True}
+    assert authed.get(f"/api/barcodes/{CODE}/photo").status_code == 200
+
+
+def test_your_own_photo_is_never_replaced(authed, fake, monkeypatch):
+    _scanned(authed)
+    mine = _png((300, 300))
+    assert authed.put(f"/api/barcodes/{CODE}/photo", content=mine).status_code == 200
+    before = authed.get(f"/api/barcodes/{CODE}/photo").content
+    monkeypatch.setattr(lookup, "fetch_image", lambda url: pytest.fail("must not even download"))
+    assert authed.post(f"/api/lookup/{CODE}/photo").json() == {"saved": False, "reason": "has_photo"}
+    assert authed.get(f"/api/barcodes/{CODE}/photo").content == before
+
+
+@pytest.mark.parametrize("data", [_png((100, 100)), _png((600, 100)), _png((400, 400), noisy=False), b"junk"])
+def test_small_odd_shaped_blank_or_broken_images_are_not_kept(authed, fake, monkeypatch, data):
+    _scanned(authed)
+    monkeypatch.setattr(lookup, "fetch_image", lambda url: data)
+    assert authed.post(f"/api/lookup/{CODE}/photo").json() == {"saved": False, "reason": "not_a_photo"}
+    assert authed.get(f"/api/barcodes/{CODE}/photo").status_code == 404
+
+
+def test_no_listing_image_or_failed_download_saves_nothing(authed, fake, monkeypatch):
+    fake.reply = {"code": "OK", "items": [{"title": "Box", "brand": "", "images": []}]}
+    _scanned(authed)
+    assert authed.post(f"/api/lookup/{CODE}/photo").json() == {"saved": False, "reason": "no_image"}
+
+    def boom(url):
+        raise lookup.LookupFailed("down")
+
+    fake.reply = ITEM
+    with SessionLocal() as db:
+        db.query(UpcLookup).delete()
+        db.commit()
+    authed.get(f"/api/lookup/{CODE}")
+    monkeypatch.setattr(lookup, "fetch_image", boom)
+    assert authed.post(f"/api/lookup/{CODE}/photo").json() == {"saved": False, "reason": "unavailable"}
+    assert authed.get(f"/api/barcodes/{CODE}/photo").status_code == 404
+
+
+def test_photo_endpoint_needs_known_code_and_login(authed, client):
+    assert authed.post("/api/lookup/036000291452/photo").status_code == 404
+    client.cookies.clear()
+    assert client.post(f"/api/lookup/{CODE}/photo").status_code == 401
+
+
+def test_downloads_only_from_public_https_hosts():
+    for url in ("http://img.example/a.jpg", "https://127.0.0.1/a.jpg", "https://localhost/a.jpg",
+                "https://169.254.169.254/latest", "https://[::1]/a.jpg", "file:///etc/passwd"):
+        with pytest.raises(lookup.LookupFailed):
+            lookup.fetch_image(url)

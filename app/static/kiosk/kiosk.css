@@ -104,6 +104,7 @@ html.rot-180 #stage { transform: rotate(180deg); }
 .inv-row .r { text-align: right; }
 .inv-row .r .big { font-size: 24px; font-weight: 750; }
 .inv-row .r small { color: var(--muted); font-size: 13px; }
+.inv-row.hit { border-color: var(--in); box-shadow: 0 0 0 2px var(--in) inset; background: color-mix(in srgb, var(--in) 14%, var(--panel)); }
 .inv-row .chev { color: var(--muted); font-size: 26px; }
 
 /* ---------------------------------------------------------------- modal */
@@ -126,13 +127,11 @@ html.rot-180 #stage { transform: rotate(180deg); }
 /* --------------------------------------------------------- box photo step */
 .overlay.cam { background: var(--bg); }
 .cam-panel { width: 100%; height: 100%; padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }
-.cam-title { font-size: 22px; text-align: center; }
+.cam-title { font-size: 20px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cam-title b { font-family: ui-monospace, Consolas, monospace; color: var(--warn); }
-.cam-sub { text-align: center; color: var(--muted); font-size: 15px; }
+.cam-sub { color: var(--muted); font-size: 15px; }
 .cam-stage { flex: 1; min-height: 0; background: #000; border-radius: 12px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
 .cam-video, .cam-shot { width: 100%; height: 100%; object-fit: contain; }
-.cam-placeholder { text-align: center; color: var(--muted); font-size: 19px; padding: 20px; }
-.cam-placeholder .ico { font-size: 64px; }
 .cam-msg { min-height: 22px; text-align: center; color: var(--warn); font-size: 16px; }
 .cam-actions { display: flex; gap: 12px; justify-content: center; }
 .cam-actions .btn { flex: 1; max-width: 260px; }

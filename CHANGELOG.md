@@ -2,6 +2,19 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 0.15.0
+- Kiosk: on the Inventory screen, scanning a box jumps straight to that item (caliber, weight, then the item highlighted) and shows how many are in stock. Boxes with none in stock or not in the system get a short message.
+
+## 0.14.0
+- Removed code kept only for older versions: the still-photo camera mode and `/snapshot.jpg`, the installer's handling of settings saved by earlier installers, and restoring backups that lack newer tables (such a backup is now rejected as incompatible). Re-run the installer on the Pi to update the camera helper.
+
+## 0.13.0
+- Kiosk: the Pi camera module now shows a live preview on the box-photo screen (USB webcams already did). The helper built into `pi/install.sh` streams frames from `rpicam-vid` only while the photo screen is open; the photo is the frame on screen. Re-run the installer on the Pi to update the helper.
+- Kiosk: the Skip / Take photo / Retake / Use photo buttons are now at the top of the photo screen.
+
+## 0.12.0
+- Admin: when you identify a code, the online listing's photo is saved as the box photo if the code has none and the image looks like a real product photo (not tiny, oddly shaped or blank). A photo you took or uploaded is never replaced.
+
 ## 0.11.0
 - Admin: Identify code now asks UPCitemdb (free, no key) what the barcode is and offers to pre-fill the new-product form (title, brand, caliber, rounds per box, weight, bullet type). Nothing is saved until you press Save. Answers are cached; only the barcode number is sent. Turn off with `QM_UPC_LOOKUP=false`.
 

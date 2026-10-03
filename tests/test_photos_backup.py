@@ -231,19 +231,17 @@ def test_restore_rejects_foreign_sqlite_file(authed, tmp_path):
     assert snapshot_of(authed) == want
 
 
-def test_restore_accepts_backup_from_before_photos_existed(authed, tmp_path):
+def test_restore_rejects_backup_missing_a_table(authed, tmp_path):
     seed_data(authed)
-    old = tmp_path / "old.db"
-    old.write_bytes(authed.get("/api/backup").content)
-    con = sqlite3.connect(old)
-    con.execute("DROP TABLE barcode_photos")  # what a pre-photo backup looks like
+    bad = tmp_path / "bad.db"
+    bad.write_bytes(authed.get("/api/backup").content)
+    con = sqlite3.connect(bad)
+    con.execute("DROP TABLE barcode_photos")
     con.commit()
     con.close()
-    r = authed.post("/api/restore", content=old.read_bytes())
-    assert r.status_code == 200 and r.json()["restored"]["barcode_photos"] == 0
-    assert authed.get("/api/barcodes/111111111111/photo").status_code == 404
-    assert put_photo(authed, "111111111111").status_code == 200  # table exists again for new photos
-    assert authed.get("/api/inventory/items").json()["total_boxes"] == 6
+    r = authed.post("/api/restore", content=bad.read_bytes())
+    assert r.status_code == 400 and "incompatible" in r.json()["detail"]
+    assert authed.get("/api/inventory/items").json()["total_boxes"] == 6  # nothing was touched
 
 
 def test_restore_rejects_incompatible_schema(authed, tmp_path):

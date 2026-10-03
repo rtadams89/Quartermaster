@@ -3,12 +3,17 @@
 Only the barcode number leaves the server. The result is a suggestion for the admin to
 confirm; nothing is saved from it automatically.
 """
+import io
+import ipaddress
 import json
 import re
+import socket
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import timedelta
 
+from PIL import Image, ImageStat
 from sqlalchemy.orm import Session
 
 from .db import utcnow
@@ -145,3 +150,64 @@ def guess(db: Session, row: UpcLookup) -> dict:
         name = name[len(brand):].lstrip(" -:,")
     out["name"] = name.strip()[:120]
     return out
+
+
+# ---------------------------------------------------------------- listing photo
+MAX_IMAGE_BYTES = 4 * 1024 * 1024
+MIN_SIDE = 200          # smaller than this is a thumbnail or an icon, not a product photo
+MIN_DETAIL = 12         # grayscale spread below this is a blank or flat-colour placeholder
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):  # noqa: ANN002, ANN003
+        return None  # we follow redirects ourselves so every hop is checked
+
+
+def _public_host(host: str) -> bool:
+    """True only if every address the name resolves to is a public internet address."""
+    try:
+        infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
+    except OSError:
+        return False
+    return bool(infos) and all(ipaddress.ip_address(i[4][0]).is_global for i in infos)
+
+
+def fetch_image(url: str) -> bytes:
+    """Download a listing photo. https only, public hosts only, small, and really an image."""
+    opener = urllib.request.build_opener(_NoRedirect)
+    for _ in range(4):
+        parts = urllib.parse.urlsplit(url)
+        if parts.scheme != "https" or not parts.hostname or not _public_host(parts.hostname):
+            raise LookupFailed("The listing photo is not at a usable address.")
+        req = urllib.request.Request(url, headers={"User-Agent": "Quartermaster", "Accept": "image/*"})
+        try:
+            with opener.open(req, timeout=TIMEOUT) as r:
+                if not (r.headers.get("Content-Type") or "").lower().startswith("image/"):
+                    raise LookupFailed("The listing photo is not an image.")
+                data = r.read(MAX_IMAGE_BYTES + 1)
+        except urllib.error.HTTPError as e:
+            loc = e.headers.get("Location") if e.code in (301, 302, 303, 307, 308) else None
+            if not loc:
+                raise LookupFailed(f"The listing photo could not be downloaded ({e.code}).")
+            url = urllib.parse.urljoin(url, loc)
+            continue
+        except (urllib.error.URLError, TimeoutError, OSError):
+            raise LookupFailed("The listing photo could not be downloaded.")
+        if len(data) > MAX_IMAGE_BYTES:
+            raise LookupFailed("The listing photo is too large.")
+        return data
+    raise LookupFailed("The listing photo redirected too many times.")
+
+
+def looks_like_product_photo(data: bytes) -> bool:
+    """Reject tiny images, extreme shapes and flat/blank placeholders; keep real photos."""
+    try:
+        img = Image.open(io.BytesIO(data))
+        w, h = img.size
+        if min(w, h) < MIN_SIDE or not 0.4 <= w / h <= 2.5:
+            return False
+        small = img.convert("L")
+        small.thumbnail((128, 128))
+        return ImageStat.Stat(small).stddev[0] >= MIN_DETAIL
+    except (OSError, ValueError, Image.DecompressionBombError):
+        return False
