@@ -17,7 +17,7 @@ const td = (c, cls) => h('td', { class: cls || '' }, c);
 const table = (heads, rows) => h('table', {}, h('thead', {}, h('tr', {}, heads.map((x) => (Array.isArray(x) ? th(x[0], x[1]) : th(x))))), h('tbody', {}, rows));
 const empty = (msg) => h('div', { class: 'empty' }, msg);
 const boxesCell = (n) => td(h('span', { class: n < 0 ? 'neg' : '' }, fmtInt(n)), 'num');
-const specOf = (p) => [p.bullet_weight_gr ? `${p.bullet_weight_gr} gr` : '', p.bullet_type, p.rounds_per_box === 1 ? 'by the round' : `${p.rounds_per_box}/box`].filter(Boolean).join(' · ');
+const specOf = (p) => [p.bullet_weight_gr === 0 ? 'N/A' : p.bullet_weight_gr ? `${p.bullet_weight_gr} gr` : '', p.bullet_type, p.rounds_per_box === 1 ? 'by the round' : `${p.rounds_per_box}/box`].filter(Boolean).join(' · ');
 // Products with 1 round per box are counted by the individual round, so they show rounds instead of boxes.
 const isSingle = (p) => p.rounds_per_box === 1;
 /** Boxes cell for a product row that has a Rounds column beside it: a by-the-round product has no boxes. */
@@ -193,11 +193,17 @@ function productFields(calibers, p = {}) {
   const brand = brandBox.input;
   get('/api/brands').then((list) => brandBox.setOptions(list), () => {}); // suggestions are a nicety; the box works without
   const name = h('input', { value: p.name ?? '', placeholder: 'e.g. American Eagle', maxlength: 120 });
-  const weight = h('input', { type: 'number', step: 'any', min: 0, value: p.weight_na ? '' : p.bullet_weight_gr ?? '', placeholder: 'grains' });
-  const weightNa = h('input', { type: 'checkbox', checked: !!p.weight_na });
-  const syncNa = () => { weight.disabled = weightNa.checked; if (weightNa.checked) weight.value = ''; };
-  weightNa.addEventListener('change', syncNa);
-  syncNa();
+  // 0 means N/A (no traditional bullet weight). The box shows it as "N/A" and accepts "N/A", "NA" or 0.
+  const weight = h('input', { type: 'text', inputmode: 'decimal', autocomplete: 'off', maxlength: 8, placeholder: 'grains, or 0 / N/A', value: p.bullet_weight_gr === 0 ? 'N/A' : p.bullet_weight_gr ?? '' });
+  const weightValue = () => {
+    const w = weight.value.trim();
+    if (w === '') return null;
+    if (/^(n\/?a|0+(\.0*)?)$/i.test(w)) return 0;
+    const n = Number(w);
+    if (!Number.isFinite(n) || n < 0 || n > 5000) throw new Error('Bullet weight must be a number of grains, or 0 / N/A');
+    return n;
+  };
+  weight.addEventListener('blur', () => { if (weightValue() === 0) weight.value = 'N/A'; });
   const type = h('input', { value: p.bullet_type ?? '', list: 'bullet-types', placeholder: 'FMJ, JHP…', maxlength: 40 });
   const rpb = h('input', { type: 'number', min: 1, step: 1, required: true, value: p.rounds_per_box ?? '', placeholder: 'e.g. 50' });
   const cost = moneyInput(p.cost_per_box);
@@ -207,8 +213,7 @@ function productFields(calibers, p = {}) {
     labeled('Caliber', cal.el, '', 'Start typing to search; pick one from the list.'),
     labeled('Rounds per box', rpb, '', 'Use 1 for ammo you count by the individual round; it then shows round counts instead of boxes.'),
     labeled('Manufacturer', brandBox.el), labeled('Product / line', name),
-    labeled('Bullet weight (gr)', weight), labeled('Bullet type', type),
-    h('label', { class: 'chk full' }, weightNa, 'N/A: no traditional bullet weight (shot, slugs, flares…)'),
+    labeled('Bullet weight (gr)', weight, '', '0 or N/A means no traditional bullet weight (shot, slugs, flares…).'), labeled('Bullet type', type),
     labeled('Cost per box (US dollars)', cost.el, '', 'Optional. The $ is optional when typing; it is shown as $0.00.'),
     labeled('Alert when below (rounds)', minr, '', 'Optional. Leave blank for no alert. Otherwise this product is flagged as low when its rounds on hand drop under this number.'),
     labeled('Notes', notes, 'full'),
@@ -218,7 +223,7 @@ function productFields(calibers, p = {}) {
     if (!rpb.value || Number(rpb.value) < 1) throw new Error('Rounds per box is required');
     return {
       caliber_id: caliberId, brand: brand.value.trim(), name: name.value.trim(),
-      bullet_weight_gr: weightNa.checked ? 0 : weight.value === '' ? null : Number(weight.value), bullet_type: type.value.trim(),
+      bullet_weight_gr: weightValue(), bullet_type: type.value.trim(),
       rounds_per_box: Number(rpb.value), cost_per_box: cost.value(), notes: notes.value,
       min_rounds: minr.value === '' ? null : Number(minr.value),
     };
@@ -229,7 +234,7 @@ function productFields(calibers, p = {}) {
     if (s.rounds_per_box) rpb.value = s.rounds_per_box;
     if (s.brand) brand.value = s.brand;
     if (s.name) name.value = s.name;
-    if (s.bullet_weight_gr) { weightNa.checked = false; syncNa(); weight.value = s.bullet_weight_gr; }
+    if (s.bullet_weight_gr) weight.value = s.bullet_weight_gr;
     if (s.bullet_type) type.value = s.bullet_type;
   };
   return { el, value, fill };

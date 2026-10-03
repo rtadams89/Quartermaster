@@ -73,7 +73,7 @@ def _parse_row(raw: dict, present: set[str]) -> dict:
     out["rounds_per_box"] = _num(g["rounds_per_box"], int, 1, 10000, "rounds_per_box")
     if "weight_gr" in present:
         w = g["weight_gr"]
-        out["bullet_weight_gr"] = 0.0 if w.upper() in ("N/A", "NA") else _num(w, float, 0.01, 5000, "weight_gr") if w else None
+        out["bullet_weight_gr"] = 0.0 if w.upper() in ("N/A", "NA") else _num(w, float, 0, 5000, "weight_gr") if w else None
     if "cost_per_box" in present:
         cost = g["cost_per_box"].replace("$", "").replace(",", "").strip()  # "$1,234.50" is fine
         out["cost_per_box"] = round(_num(cost, float, 0, 1e9, "cost_per_box (US dollars)"), 2) if cost else None

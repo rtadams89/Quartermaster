@@ -2,8 +2,11 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 0.25.1
+- Fix: N/A bullet weight now saves. The separate checkbox is gone; the bullet weight box itself accepts 0 or N/A and shows N/A, and says so under the field. The product CSV import also accepts 0.
+
 ## 0.25.0
-- Bullet weight can now be **N/A** (tick the box on the product form) for things with no traditional bullet weight, such as shot, slugs or flares. Browse shows them under "N/A", the product CSV import/export uses "N/A", and N/A products are not flagged in *Needs details*.
+- Bullet weight can now be **N/A** (type 0 or N/A in the bullet weight box; it is stored as 0 and always displayed as N/A) for things with no traditional bullet weight, such as shot, slugs or flares. Browse shows them under "N/A", the product CSV import/export uses "N/A", and N/A products are not flagged in *Needs details*.
 - Products with **1 round per box** are treated as counted by the round. Everywhere they appear (inventory, Browse, history, dashboard, adjust and add-stock dialogs, kiosk scan and inventory screens) the count is shown in rounds instead of boxes, and the "boxes" totals no longer include them.
 
 ## 0.24.0
