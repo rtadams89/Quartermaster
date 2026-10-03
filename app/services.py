@@ -6,6 +6,7 @@ from .db import iso
 from .models import Barcode, BarcodePhoto, Caliber, Product, StockMinimum, Transaction
 
 UNIDENTIFIED = "unidentified"
+NO_BRAND = "(none)"  # drill-down key for products with no manufacturer
 
 
 def photo_codes(db: Session) -> set[str]:
@@ -73,6 +74,16 @@ def price_range(items: list[dict]) -> dict | None:
     """Lowest and highest cost per round among items that are in stock and have a cost, else None."""
     costs = [i["cost_per_round"] for i in items if i["boxes"] > 0 and i.get("cost_per_round") is not None]
     return {"low": min(costs), "high": max(costs)} if costs else None
+
+
+def stock_money(items: list[dict]) -> dict:
+    """What the in-stock boxes cost in total (boxes x cost per box), and how many in-stock products
+    have no cost entered and so are left out of that total."""
+    live = [i for i in items if i["boxes"] > 0]
+    return {
+        "value": round(sum(i["boxes"] * i["cost_per_box"] for i in live if i["cost_per_box"] is not None), 2),
+        "unpriced": sum(1 for i in live if i["cost_per_box"] is None),
+    }
 
 
 def spec_text(p: Product) -> str:
@@ -188,8 +199,10 @@ def low_stock(db: Session) -> dict:
     return {"calibers": calibers, "products": products, "count": len(calibers) + len(products)}
 
 
-def drill(db: Session, caliber: str | None, weight: str | None) -> dict:
-    """Drill-down for the kiosk: caliber -> bullet weight -> product."""
+def drill(db: Session, caliber: str | None, weight: str | None, manufacturer: str | None = None,
+          by_manufacturer: bool = False) -> dict:
+    """Drill-down: caliber -> bullet weight -> product (the kiosk), or with by_manufacturer
+    caliber -> bullet weight -> manufacturer -> product (the admin site)."""
     items, unidentified = inventory_by_product(db)
     items = [i for i in items if i["boxes"] != 0]
     unid = [u for u in unidentified if u["boxes"] != 0]
@@ -213,6 +226,7 @@ def drill(db: Session, caliber: str | None, weight: str | None) -> dict:
                         "drillable": bool(mine),
                         "low": bool(floor) and rounds < floor,
                         "price": price_range(mine),
+                        **stock_money(mine),
                     }
                 )
         if unid:
@@ -224,6 +238,8 @@ def drill(db: Session, caliber: str | None, weight: str | None) -> dict:
                     "boxes": sum(u["boxes"] for u in unid),
                     "rounds": None,
                     "drillable": True,
+                    "value": 0,
+                    "unpriced": 0,
                 }
             )
         return _drill_result("caliber", [], rows)
@@ -237,6 +253,9 @@ def drill(db: Session, caliber: str | None, weight: str | None) -> dict:
                 "boxes": u["boxes"],
                 "rounds": None,
                 "drillable": False,
+                "value": 0,
+                "unpriced": 0,
+                "item": u,
             }
             for u in sorted(unid, key=lambda u: u["code"])
         ]
@@ -261,12 +280,35 @@ def drill(db: Session, caliber: str | None, weight: str | None) -> dict:
                     "rounds": sum(i["rounds"] for i in g),
                     "drillable": True,
                     "price": price_range(g),
+                    **stock_money(g),
                 }
             )
         return _drill_result("weight", crumbs, rows)
 
     mine = [i for i in mine if _wkey(i["bullet_weight_gr"]) == weight]
     crumbs.append("No weight listed" if weight == "none" else f"{weight} gr")
+
+    if by_manufacturer:
+        if manufacturer is None:
+            groups = {}
+            for i in mine:
+                groups.setdefault(_mkey(i["brand"]), []).append(i)
+            rows = [
+                {
+                    "key": key,
+                    "label": "No manufacturer" if key == NO_BRAND else key,
+                    "boxes": sum(i["boxes"] for i in g),
+                    "rounds": sum(i["rounds"] for i in g),
+                    "drillable": True,
+                    "price": price_range(g),
+                    **stock_money(g),
+                }
+                for key, g in sorted(groups.items(), key=lambda kv: (kv[0] == NO_BRAND, kv[0].lower()))
+            ]
+            return _drill_result("manufacturer", crumbs, rows)
+        mine = [i for i in mine if _mkey(i["brand"]) == manufacturer]
+        crumbs.append("No manufacturer" if manufacturer == NO_BRAND else manufacturer)
+
     rows = [
         {
             "key": str(i["id"]),
@@ -277,6 +319,8 @@ def drill(db: Session, caliber: str | None, weight: str | None) -> dict:
             "drillable": False,
             "low": i["low"],
             "price": price_range([i]),
+            **stock_money([i]),
+            "item": i,
         }
         for i in sorted(mine, key=lambda i: i["label"].lower())
     ]
@@ -304,6 +348,10 @@ def locate(db: Session, code: str) -> dict:
     return {"found": False, "code": code}
 
 
+def _mkey(brand: str | None) -> str:
+    return (brand or "").strip() or NO_BRAND
+
+
 def _wkey(w: float | None) -> str:
     return "none" if not w else fmt_weight(w)
 
@@ -315,5 +363,7 @@ def _drill_result(level: str, crumbs: list[str], rows: list[dict]) -> dict:
         "total_boxes": sum(r["boxes"] for r in rows),
         "total_rounds": sum(r["rounds"] or 0 for r in rows),
         "has_unknown_rounds": any(r["rounds"] is None for r in rows),
+        "total_value": round(sum(r.get("value") or 0 for r in rows), 2),
+        "unpriced": sum(r.get("unpriced") or 0 for r in rows),
         "rows": rows,
     }

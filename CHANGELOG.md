@@ -2,6 +2,11 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 0.23.0
+- Every price is now shown to the cent, including cost per round (it used to show tenths of a cent, like $0.285; that is now $0.29).
+- Admin dashboard, By caliber: the bars at the end of each row are gone. Each caliber now shows the value of what you have in stock (boxes times cost per box), and a Total row at the bottom adds up boxes, rounds and value. Value only counts products with a cost entered; a note says how many in stock have none.
+- Admin Inventory now opens as a drill-down like the kiosk: caliber, then bullet weight, then manufacturer, then the product, with value and cost per round at every level and breadcrumbs you can click to go back up. At the product level you get the photo, codes, Adjust and Identify as before. The previous table is still there under "All items", now with a Value column.
+
 ## 0.22.4
 - Identify's online lookup now recognises the standard SAAMI/CIP caliber names as well as the common ones (.32 Auto/.32 ACP, .30-30 Winchester, .460 S&W Magnum, .50 Action Express, 9x18 Makarov, 7.62x25 Tokarev, .45-70 Government, 7.5x55 Swiss), so renamed calibers keep getting guessed.
 

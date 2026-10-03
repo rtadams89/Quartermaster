@@ -53,8 +53,15 @@ td .code { font-family: ui-monospace, Consolas, monospace; font-size: 13px; colo
 .tag.in { color: var(--in); border-color: var(--in); } .tag.out { color: var(--out); border-color: var(--out); } .tag.adjust { color: var(--accent); border-color: var(--accent); }
 .neg { color: var(--danger); font-weight: 700; }
 .empty { padding: 36px; text-align: center; color: var(--muted); background: var(--panel); border: 1px dashed var(--line); border-radius: 12px; }
-.bar-cell { display: flex; align-items: center; gap: 10px; }
-.bar-cell .bar { height: 8px; border-radius: 4px; background: var(--accent); min-width: 2px; }
+.drill-row { cursor: pointer; }
+.drill-row:hover td, .drill-row:focus td { background: var(--panel-2); outline: none; }
+td.chev { text-align: right; color: var(--muted); font-size: 20px; width: 1%; }
+tr.total td { font-weight: 700; background: var(--panel-2); border-top: 2px solid var(--line); }
+.crumbs { margin: 0 0 12px; font-size: 15px; color: var(--muted); }
+.crumbs .sep { margin: 0 8px; }
+.crumbs a { color: var(--accent); text-decoration: none; }
+.crumbs a:hover { text-decoration: underline; }
+.crumbs b { color: var(--text); }
 
 .modal-bg { position: fixed; inset: 0; background: rgba(5, 8, 12, .6); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 14px; z-index: 50; overflow: auto; }
 .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; width: 100%; max-width: 560px; padding: 20px; box-shadow: 0 20px 60px rgba(0, 0, 0, .4); }

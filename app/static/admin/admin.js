@@ -1,5 +1,5 @@
 import { get, post, put, patch, del, sendBlob, watchSession, watchBuild } from '/shared/api.js';
-import { h, clear, fmtInt, fmtPerRound, fmtPriceRange, fmtWhen, toast } from '/shared/dom.js';
+import { h, clear, fmtInt, fmtMoney, fmtPerRound, fmtPriceRange, fmtWhen, toast } from '/shared/dom.js';
 import { renderLogin } from '/shared/login.js';
 
 const app = document.getElementById('app');
@@ -173,7 +173,6 @@ const parseMoney = (text) => {
   if (!/^\d*\.?\d+$|^\d+\.$/.test(t)) throw new Error('Cost per box must be a dollar amount, like $18.50');
   return Math.round(parseFloat(t) * 100) / 100;
 };
-const fmtMoney = (n) => (n == null ? '' : '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 function moneyInput(initial) {
   const input = h('input', { type: 'text', inputmode: 'decimal', placeholder: '$0.00', autocomplete: 'off', value: fmtMoney(initial) });
   input.addEventListener('blur', () => { try { input.value = fmtMoney(parseMoney(input.value)); } catch { /* left as typed; save reports it */ } });
@@ -283,7 +282,6 @@ async function dashboard() {
     get('/api/inventory/drill'), get('/api/inventory/unidentified'), get('/api/products'), get('/api/transactions?limit=8'), get('/api/low-stock'),
   ]);
   const cal = top.rows.filter((r) => r.key !== 'unidentified');
-  const max = Math.max(1, ...cal.map((r) => r.rounds));
   const unBoxes = unid.reduce((n, u) => n + u.boxes, 0);
   clear(main,
     h('h1', {}, 'Dashboard'),
@@ -299,12 +297,24 @@ async function dashboard() {
       ...low.products.map((p) => h('tr', {}, td([h('b', {}, p.label), ' ', h('span', { class: 'muted' }, p.caliber || '')]), td(fmtInt(p.rounds), 'num'), td(fmtInt(p.min_rounds), 'num'))),
     ])] : null,
     h('h2', {}, 'By caliber'),
-    cal.length ? table(['Caliber', ['Boxes', 'num'], ['Rounds', 'num'], ['Cost per round', 'num'], ''], cal.map((r) =>
-      h('tr', {}, td(r.label), boxesCell(r.boxes), td(fmtInt(r.rounds), 'num'), td(fmtPriceRange(r.price) || '—', 'num'), td(h('div', { class: 'bar-cell' }, h('div', { class: 'bar', style: { width: `${Math.round((r.rounds / max) * 100)}%` } })), ''))))
-      : empty('Nothing in stock yet.'),
+    cal.length ? [
+      table(['Caliber', ['Boxes', 'num'], ['Rounds', 'num'], ['Value', 'num'], ['Cost per round', 'num']], [
+        ...cal.map((r) => h('tr', {}, td(r.label), boxesCell(r.boxes), td(fmtInt(r.rounds), 'num'), valueCell(r), td(fmtPriceRange(r.price) || '—', 'num'))),
+        h('tr', { class: 'total' }, td('Total'), boxesCell(cal.reduce((n, r) => n + r.boxes, 0)), td(fmtInt(cal.reduce((n, r) => n + r.rounds, 0)), 'num'),
+          td(fmtMoney(cal.reduce((n, r) => n + r.value, 0)), 'num'), td(fmtPriceRange(rangeOf(cal)) || '—', 'num')),
+      ]),
+      top.unpriced ? h('p', { class: 'sub', style: { marginTop: '8px' } }, `Value counts only products with a cost entered. ${fmtInt(top.unpriced)} product${top.unpriced === 1 ? '' : 's'} in stock ${top.unpriced === 1 ? 'has' : 'have'} none.`) : null,
+    ] : empty('Nothing in stock yet.'),
     h('h2', {}, 'Recent activity'),
     recent.length ? txTable(recent) : empty('No activity yet. Scan some ammo in from the kiosk.'));
 }
+/** Overall {low, high} cost per round across rows that each carry their own range. */
+/** A row's stock value, or a dash when it has stock but none of it has a cost entered. */
+const valueCell = (r) => td(r.value === 0 && r.unpriced ? '—' : fmtMoney(r.value), 'num');
+const rangeOf = (rows) => {
+  const rs = rows.map((r) => r.price).filter(Boolean);
+  return rs.length ? { low: Math.min(...rs.map((r) => r.low)), high: Math.max(...rs.map((r) => r.high)) } : null;
+};
 const card = (k, v) => h('div', { class: 'card' }, h('div', { class: 'k' }, k), h('div', { class: 'v' }, v));
 
 function txTable(rows) {
@@ -315,41 +325,119 @@ function txTable(rows) {
 }
 
 // ---------------------------------------------------------------- inventory
+const valueOf = (p) => (p.boxes > 0 && p.cost_per_box != null ? p.boxes * p.cost_per_box : null);
+const INV_HEAD = ['', 'Caliber', 'Product', 'Code(s)', ['Boxes', 'num'], ['Rounds', 'num'], ['Value', 'num'], ['Cost per round', 'num'], 'Last activity', ''];
+
+function productRow(p, load) {
+  return h('tr', {},
+    td(thumb(p.photo_code || p.codes[0]?.code, !!p.photo_code, load)),
+    td(p.caliber), td([h('b', {}, p.label), p.low && h('span', { class: 'low-tag' }, 'LOW'), h('span', { class: 'code' }, p.spec)]), td(codesOf(p.codes)),
+    boxesCell(p.boxes), td(fmtInt(p.rounds), 'num'), td(fmtMoney(valueOf(p)) || '—', 'num'), td(fmtPerRound(p.cost_per_round) || '—', 'num'), td(fmtWhen(p.last_activity)),
+    td(p.codes.length ? h('button', { class: 'btn sm', onclick: () => adjustDialog(p, load) }, 'Adjust') : '', 'actions'));
+}
+
+function unidentifiedRow(u, load) {
+  return h('tr', {},
+    td(thumb(u.code, u.has_photo, load)),
+    td(h('em', { class: 'muted' }, '—')), td(h('em', {}, 'Unidentified')), td(codesOf([u.code])),
+    boxesCell(u.boxes), td('—', 'num'), td('—', 'num'), td('—', 'num'), td(fmtWhen(u.last_activity)),
+    td(h('button', { class: 'btn sm primary', onclick: () => identifyDialog(u.code, load, u.has_photo) }, 'Identify'), 'actions'));
+}
+
+/** "412 boxes · 9,800 rounds · $1,234.50 · $0.25–$0.40 per round" */
+function inventoryFooter(boxes, rounds, value, price, unpriced, note) {
+  return h('p', { class: 'sub', style: { marginTop: '10px' } },
+    [`${fmtInt(boxes)} boxes`, `${fmtInt(rounds)} ${note || 'rounds'}`, `${fmtMoney(value)} value`, price && `${fmtPriceRange(price)} per round (low to high, items in stock)`].filter(Boolean).join(' · ')
+    + (unpriced ? `. Value leaves out ${fmtInt(unpriced)} product${unpriced === 1 ? '' : 's'} with no cost entered.` : ''));
+}
+
+// Where the Browse view is: caliber, then bullet weight, then manufacturer (null = not chosen yet).
+const invNav = { view: 'browse', caliber: null, weight: null, manufacturer: null };
+
 async function inventory() {
   const calibers = await get('/api/calibers');
+  const holder = h('div');
+  const seg = h('div', { class: 'seg' });
+  const show = async () => {
+    clear(seg,
+      h('button', { type: 'button', class: invNav.view === 'browse' ? 'on' : '', onclick: () => { invNav.view = 'browse'; show(); } }, 'Browse'),
+      h('button', { type: 'button', class: invNav.view === 'list' ? 'on' : '', onclick: () => { invNav.view = 'list'; show(); } }, 'All items'));
+    if (invNav.view === 'browse') await inventoryBrowse(holder);
+    else await inventoryList(calibers, holder);
+  };
+  clear(main, h('h1', {}, 'Inventory'),
+    h('div', { class: 'toolbar' }, seg, h('span', { class: 'grow' }),
+      h('button', { class: 'btn primary', onclick: () => addStockDialog(calibers, show) }, '+ Add stock'),
+      h('a', { class: 'btn', href: '/api/export/inventory.csv' }, 'Export CSV')), holder);
+  await show();
+}
+
+/** Drill down like the kiosk: caliber, then bullet weight, then manufacturer, then the product itself. */
+async function inventoryBrowse(holder) {
+  const load = async () => {
+    const qs = new URLSearchParams({ by_manufacturer: 'true' });
+    if (invNav.caliber !== null) qs.set('caliber', invNav.caliber);
+    if (invNav.weight !== null) qs.set('weight', invNav.weight);
+    if (invNav.manufacturer !== null) qs.set('manufacturer', invNav.manufacturer);
+    const d = await get('/api/inventory/drill?' + qs);
+    const go = (caliber, weight, manufacturer) => { Object.assign(invNav, { caliber, weight, manufacturer }); load(); };
+    // Each crumb jumps back to that level; the last one is where you are now.
+    const steps = [
+      ['All calibers', () => go(null, null, null)],
+      ...d.breadcrumb.map((label, i) => [label, [
+        () => go(invNav.caliber, null, null), () => go(invNav.caliber, invNav.weight, null), () => {}][i]]),
+    ];
+    const crumbs = h('div', { class: 'crumbs' }, steps.map(([label, fn], i) => [
+      i > 0 && h('span', { class: 'sep' }, '›'),
+      i === steps.length - 1 && i > 0 ? h('b', {}, label) : h('a', { href: '#', onclick: (e) => { e.preventDefault(); fn(); } }, label)]));
+    const open = (r) => {
+      if (d.level === 'caliber') go(r.key, null, null);
+      else if (d.level === 'weight') go(invNav.caliber, r.key, null);
+      else if (d.level === 'manufacturer') go(invNav.caliber, invNav.weight, r.key);
+    };
+    let body;
+    if (!d.rows.length) body = empty(d.level === 'caliber' ? 'Nothing in stock yet.' : 'Nothing in stock here.');
+    else if (d.level === 'product') {
+      body = table(INV_HEAD, d.rows.map((r) => (r.item.codes ? productRow(r.item, load) : unidentifiedRow(r.item, load))));
+    } else {
+      const what = { caliber: 'Caliber', weight: 'Bullet weight', manufacturer: 'Manufacturer' }[d.level];
+      body = table([what, ['Boxes', 'num'], ['Rounds', 'num'], ['Value', 'num'], ['Cost per round', 'num'], ''], d.rows.map((r) => {
+        const row = h('tr', r.drillable ? { class: 'drill-row', tabindex: 0, onclick: () => open(r), onkeydown: (e) => { if (e.key === 'Enter') open(r); } } : {},
+          td([h('b', {}, r.label), r.low && h('span', { class: 'low-tag' }, 'LOW'), r.sublabel && h('span', { class: 'code' }, r.sublabel)]),
+          boxesCell(r.boxes), td(r.rounds === null ? '—' : fmtInt(r.rounds), 'num'), (r.rounds === null ? td('—', 'num') : valueCell(r)),
+          td(fmtPriceRange(r.price) || '—', 'num'), td(r.drillable ? '›' : '', 'chev'));
+        return row;
+      }));
+    }
+    const known = d.rows.filter((r) => r.rounds !== null);
+    clear(holder, crumbs, body,
+      d.rows.length ? inventoryFooter(known.reduce((n, r) => n + r.boxes, 0), d.total_rounds, d.total_value, rangeOf(known), d.unpriced, 'identified rounds') : null);
+  };
+  await load();
+}
+
+/** Every product in one searchable table. */
+async function inventoryList(calibers, holder) {
   const calSel = h('select', {}, h('option', { value: '' }, 'All calibers'), calibers.map((c) => h('option', { value: c.id }, c.name)));
   const q = h('input', { type: 'search', placeholder: 'Search manufacturer, product, code…', size: 28 });
   const zero = h('input', { type: 'checkbox' });
-  const holder = h('div');
+  const results = h('div');
   const load = async () => {
     const qs = new URLSearchParams();
     if (calSel.value) qs.set('caliber_id', calSel.value);
     if (q.value.trim()) qs.set('q', q.value.trim());
     if (zero.checked) qs.set('include_zero', 'true');
     const d = await get('/api/inventory/items?' + qs);
-    const rows = [
-      ...d.products.map((p) => h('tr', {},
-        td(thumb(p.photo_code || p.codes[0]?.code, !!p.photo_code, load)),
-        td(p.caliber), td([h('b', {}, p.label), p.low && h('span', { class: 'low-tag' }, 'LOW'), h('span', { class: 'code' }, p.spec)]), td(codesOf(p.codes)),
-        boxesCell(p.boxes), td(fmtInt(p.rounds), 'num'), td(fmtPerRound(p.cost_per_round) || '—', 'num'), td(fmtWhen(p.last_activity)),
-        td(p.codes.length ? h('button', { class: 'btn sm', onclick: () => adjustDialog(p, load) }, 'Adjust') : '', 'actions'))),
-      ...d.unidentified.map((u) => h('tr', {},
-        td(thumb(u.code, u.has_photo, load)),
-        td(h('em', { class: 'muted' }, '—')), td(h('em', {}, 'Unidentified')), td(codesOf([u.code])),
-        boxesCell(u.boxes), td('—', 'num'), td('—', 'num'), td(fmtWhen(u.last_activity)),
-        td(h('button', { class: 'btn sm primary', onclick: () => identifyDialog(u.code, load, u.has_photo) }, 'Identify'), 'actions'))),
-    ];
-    clear(holder, rows.length ? table(['', 'Caliber', 'Product', 'Code(s)', ['Boxes', 'num'], ['Rounds', 'num'], ['Cost per round', 'num'], 'Last activity', ''], rows) : empty('Nothing matches.'),
-      h('p', { class: 'sub', style: { marginTop: '10px' } }, `${fmtInt(d.total_boxes)} boxes · ${fmtInt(d.total_rounds)} identified rounds` + (d.price ? ` · ${fmtPriceRange(d.price)} per round (low to high, items in stock)` : '')));
+    const rows = [...d.products.map((p) => productRow(p, load)), ...d.unidentified.map((u) => unidentifiedRow(u, load))];
+    const unpriced = d.products.filter((p) => p.boxes > 0 && p.cost_per_box == null).length;
+    clear(results, rows.length ? table(INV_HEAD, rows) : empty('Nothing matches.'),
+      inventoryFooter(d.total_boxes, d.total_rounds, d.total_value, d.price, unpriced, 'identified rounds'));
   };
   let t;
   q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 200); });
   calSel.addEventListener('change', load);
   zero.addEventListener('change', load);
-  clear(main, h('h1', {}, 'Inventory'),
-    h('div', { class: 'toolbar' }, calSel, q, h('label', { class: 'chk' }, zero, 'Show zero stock'), h('span', { class: 'grow' }),
-      h('button', { class: 'btn primary', onclick: () => addStockDialog(calibers, load) }, '+ Add stock'),
-      h('a', { class: 'btn', href: '/api/export/inventory.csv' }, 'Export CSV')), holder);
+  clear(holder, h('div', { class: 'toolbar' }, calSel, q, h('label', { class: 'chk' }, zero, 'Show zero stock')), results);
   await load();
 }
 

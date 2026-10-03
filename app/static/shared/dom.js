@@ -32,12 +32,20 @@ export function clear(el, ...children) {
   return el;
 }
 
-/** Cost per round: cents, or tenths of a cent under a dollar when needed. 0.37 -> $0.37, 0.285 -> $0.285, 1.3995 -> $1.40 */
-export function fmtPerRound(n) {
+/** Dollars and cents, always two decimals, half-cents rounding up: 0.285 -> "0.29", 18.5 -> "18.50". */
+function cents(n) {
+  return (Math.round(n * 100 + 1e-9) / 100).toFixed(2);
+}
+
+/** Money to the cent with thousands separators: 1234.5 -> "$1,234.50". Empty for null. */
+export function fmtMoney(n) {
   if (n == null) return '';
-  if (n >= 1) return '$' + n.toFixed(2);
-  const t = n.toFixed(3);
-  return '$' + (t.endsWith('0') ? t.slice(0, -1) : t);
+  return '$' + Number(cents(n)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Cost per round, to the cent like every other price: 0.37 -> $0.37, 0.285 -> $0.29. */
+export function fmtPerRound(n) {
+  return n == null ? '' : '$' + cents(n);
 }
 
 /** {low, high} -> "$0.31–$0.45", or "$0.37" when they match; empty when there is no cost. */

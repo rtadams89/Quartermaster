@@ -41,11 +41,11 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 
 **Unknown barcodes.** A barcode the system hasn't seen is still recorded, as "Unknown item". When it is new, the kiosk offers to take a photo of the box (if you have a camera). Later, open **Unidentified** in the admin site and name it, and everything already scanned picks up the details. The server looks the barcode up online (only the number is sent) and offers to fill in the form for you (and keeps the listing's photo if the box has none yet); set `QM_UPC_LOOKUP=false` in `.env` to turn that off.
 
-**Inventory.** On the kiosk, tap *Inventory* and drill down by caliber, then bullet weight, then product, or scan a box to jump straight to it and see how many are in stock. In the admin site, *Inventory → + Add stock* adds boxes without scanning, and *Adjust* corrects a count.
+**Inventory.** On the kiosk, tap *Inventory* and drill down by caliber, then bullet weight, then product, or scan a box to jump straight to it and see how many are in stock. In the admin site, *Inventory* opens the same drill-down (caliber, then bullet weight, then manufacturer, then the product) with clickable breadcrumbs to jump back; *All items* shows every product in one searchable table. *+ Add stock* adds boxes without scanning, and *Adjust* corrects a count.
 
 **Low stock.** In the admin site, *Calibers* has an "Alert below (rounds)" box for each caliber, and each product has the same setting. Leave the box blank for no alert. When rounds on hand drop under it, the item shows on the admin dashboard, the kiosk Inventory screen marks it LOW, and the kiosk home screen says how many are running low.
 
-**Cost per round.** Enter the cost per box on a product. Products and Inventory then show the cost per round, and the summaries (dashboard, inventory totals, kiosk calibers and bullet weights) show the low-to-high range for what you have in stock.
+**Cost per round.** Enter the cost per box on a product. Products and Inventory then show the cost per round, and the summaries (dashboard, inventory totals, kiosk calibers and bullet weights) show the low-to-high range for what you have in stock. All prices are shown to the cent. The admin dashboard and inventory also show the value of what you have (boxes times cost per box, for products that have a cost entered), with a totals row at the bottom of *By caliber*.
 
 **Product list in a spreadsheet.** *Products → Export CSV* downloads every product with its barcodes. Edit it (or write your own with at least the columns `caliber` and `rounds_per_box`; costs are US dollars, with or without the $), then *Import CSV*. You see what will be added or changed before anything happens, and a file with any problem rows is refused whole.
 
