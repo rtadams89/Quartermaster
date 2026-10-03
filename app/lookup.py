@@ -94,6 +94,15 @@ _GROUPS = [
     {"65creedmoor", "65cm"},
     {"44magnum", "44mag"},
     {"22wmr", "22magnum", "22winmag"},
+    {"32acp", "32auto"},
+    {"25acp", "25auto"},
+    {"3030", "3030win", "3030winchester"},
+    {"460s&wmagnum", "460sw", "460magnum"},
+    {"50ae", "50actionexpress"},
+    {"9x18", "9x18mm", "9x18makarov", "9mmmakarov"},
+    {"762x25", "762x25mm", "762x25tokarev", "762tokarev"},
+    {"4570", "4570govt", "4570government"},
+    {"75x55", "75x55mm", "75x55swiss"},
 ]
 _BULLETS = ["FMJ", "TMJ", "JHP", "HP", "SP", "LRN", "LSWC", "BTHP", "SMK"]
 

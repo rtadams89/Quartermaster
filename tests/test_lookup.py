@@ -105,6 +105,26 @@ def test_guess_matches_user_named_caliber(authed):
         assert pick("Some 7mm Rem Mag") is None
 
 
+def test_guess_knows_the_standard_names_and_the_common_ones(authed):
+    names = [".32 Auto", ".30-30 Winchester", ".460 S&W Magnum", ".50 Action Express", "9x18 Makarov",
+             "7.62x25 Tokarev", ".45-70 Government", "7.5x55 Swiss"]
+    ids = {}
+    for n in names:
+        r = authed.post("/api/calibers", json={"name": n})
+        assert r.status_code == 200, r.text
+        ids[n] = r.json()["id"]
+    with SessionLocal() as db:
+        def pick(title):
+            return lookup.guess(db, UpcLookup(code="x", found=True, title=title, brand="", description="")).get("caliber_id")
+        assert pick("PPU Handgun .32 ACP 71 gr FMJ 50 rounds") == ids[".32 Auto"]
+        assert pick("Fiocchi 30-30 Win 170 gr SP") == ids[".30-30 Winchester"]
+        assert pick("Hornady 460 S&W Magnum 200 gr FTX") == ids[".460 S&W Magnum"]
+        assert pick("Armscor .50 AE 300 gr JHP") == ids[".50 Action Express"]
+        assert pick("S&B 9mm Makarov 95 gr FMJ") == ids["9x18 Makarov"]
+        assert pick("PPU 7.62x25mm Tokarev 85 gr") == ids["7.62x25 Tokarev"]
+        assert pick("Remington 45-70 Govt 405 gr") == ids[".45-70 Government"]
+
+
 # ------------------------------------------------------------- listing photo
 def _png(size, noisy=True):
     import io

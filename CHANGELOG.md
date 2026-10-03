@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 0.22.4
+- Identify's online lookup now recognises the standard SAAMI/CIP caliber names as well as the common ones (.32 Auto/.32 ACP, .30-30 Winchester, .460 S&W Magnum, .50 Action Express, 9x18 Makarov, 7.62x25 Tokarev, .45-70 Government, 7.5x55 Swiss), so renamed calibers keep getting guessed.
+
 ## 0.22.3
 - Admin: Add stock now picks the product with the same type-ahead search as Labels (type part of the caliber, manufacturer or product, then pick). The barcode choice appears once a product with several codes is chosen. Identify code's "Existing product" choice uses the same search.
 
