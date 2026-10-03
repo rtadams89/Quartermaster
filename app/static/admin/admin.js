@@ -51,40 +51,108 @@ function confirmBox(title, text, ok, onOk) {
   return dialog({ title, body: h('p', {}, text), ok, danger: true, onOk });
 }
 
-function labeled(text, el, cls) {
-  return h('label', { class: cls || '' }, text, el);
+function labeled(text, el, cls, hint) {
+  return h('label', { class: cls || '' }, text, el, hint ? h('small', { class: 'hint' }, hint) : null);
+}
+
+/** Type-ahead caliber chooser: a text box that filters a drop-down list of calibers as you type. */
+function caliberPicker(calibers, selectedId) {
+  const squash = (t) => t.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const list = calibers.map((c) => ({ ...c, key: squash(c.name) }));
+  let chosen = list.find((c) => c.id === selectedId) || null;
+  let shown = [], active = -1;
+  const input = h('input', { type: 'text', placeholder: 'Type to search, e.g. 9mm or 45', autocomplete: 'off', role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false', value: chosen ? chosen.name : '' });
+  const box = h('div', { class: 'combo-list', role: 'listbox', hidden: true });
+  const el = h('div', { class: 'combo' }, input, box);
+  const close = () => { box.hidden = true; input.setAttribute('aria-expanded', 'false'); active = -1; };
+  const pick = (c) => { chosen = c; input.value = c.name; close(); };
+  const paint = () => {
+    const q = squash(input.value);
+    shown = list.filter((c) => c.key.includes(q)).sort((a, b) => (b.key.startsWith(q) - a.key.startsWith(q)));
+    if (active >= shown.length) active = shown.length - 1;
+    clear(box, shown.length
+      ? shown.map((c, i) => h('div', { class: 'opt' + (i === active ? ' on' : ''), role: 'option', onmousedown: (e) => { e.preventDefault(); pick(c); } }, c.name + (c.active ? '' : ' (inactive)')))
+      : h('div', { class: 'opt none' }, list.length ? 'No matching caliber' : 'No calibers yet. Add one on the Calibers page.'));
+    box.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+    box.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+  };
+  input.addEventListener('input', () => { chosen = list.find((c) => c.key === squash(input.value)) || null; active = -1; paint(); });
+  input.addEventListener('focus', () => { if (!chosen) paint(); else input.select(); });
+  input.addEventListener('click', () => { if (box.hidden) paint(); });
+  input.addEventListener('blur', () => {
+    if (!chosen && input.value.trim() && shown.length === 1) pick(shown[0]); // one match left: take it
+    close();
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (box.hidden) paint();
+      active = shown.length ? (active + (e.key === 'ArrowDown' ? 1 : -1) + shown.length) % shown.length : -1;
+      paint();
+    } else if (e.key === 'Enter' && !box.hidden) {
+      e.preventDefault(); e.stopPropagation();
+      const c = shown[active >= 0 ? active : (shown.length === 1 ? 0 : -1)];
+      if (c) pick(c);
+    } else if (e.key === 'Escape' && !box.hidden) {
+      e.stopPropagation(); close();
+    }
+  });
+  return {
+    el,
+    value() {
+      if (chosen) return chosen.id;
+      throw new Error(input.value.trim() ? `"${input.value.trim()}" is not one of your calibers. Pick one from the list.` : 'Pick a caliber (add one on the Calibers page first)');
+    },
+    set(id) { const c = list.find((x) => x.id === id); if (c) { chosen = c; input.value = c.name; } },
+  };
+}
+
+/** US-dollar amount box. Accepts "18.5", "$18.50" or "1,234", and tidies it to $18.50 when you leave it. */
+const parseMoney = (text) => {
+  const t = text.replace(/[\s$,]/g, '');
+  if (t === '') return null;
+  if (!/^\d*\.?\d+$|^\d+\.$/.test(t)) throw new Error('Cost per box must be a dollar amount, like $18.50');
+  return Math.round(parseFloat(t) * 100) / 100;
+};
+const fmtMoney = (n) => (n == null ? '' : '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+function moneyInput(initial) {
+  const input = h('input', { type: 'text', inputmode: 'decimal', placeholder: '$0.00', autocomplete: 'off', value: fmtMoney(initial) });
+  input.addEventListener('blur', () => { try { input.value = fmtMoney(parseMoney(input.value)); } catch { /* left as typed; save reports it */ } });
+  return { el: input, value: () => parseMoney(input.value) };
 }
 
 function productFields(calibers, p = {}) {
-  const cal = h('select', {}, calibers.filter((c) => c.active || c.id === p.caliber_id).map((c) => h('option', { value: c.id, selected: c.id === p.caliber_id }, c.name + (c.active ? '' : ' (inactive)'))));
+  const cal = caliberPicker(calibers.filter((c) => c.active || c.id === p.caliber_id), p.caliber_id);
   const brand = h('input', { value: p.brand ?? '', placeholder: 'e.g. Federal', maxlength: 80 });
   const name = h('input', { value: p.name ?? '', placeholder: 'e.g. American Eagle', maxlength: 120 });
   const weight = h('input', { type: 'number', step: 'any', min: 0, value: p.bullet_weight_gr ?? '', placeholder: 'grains' });
   const type = h('input', { value: p.bullet_type ?? '', list: 'bullet-types', placeholder: 'FMJ, JHP…', maxlength: 40 });
   const rpb = h('input', { type: 'number', min: 1, step: 1, required: true, value: p.rounds_per_box ?? '', placeholder: 'e.g. 50' });
-  const cost = h('input', { type: 'number', min: 0, step: 'any', value: p.cost_per_box ?? '', placeholder: 'optional' });
-  const minr = h('input', { type: 'number', min: 0, step: 1, value: p.min_rounds ?? '', placeholder: 'optional' });
+  const cost = moneyInput(p.cost_per_box);
+  const minr = h('input', { type: 'number', min: 0, step: 1, value: p.min_rounds ?? '', placeholder: 'blank = no alert' });
   const notes = h('textarea', { rows: 2 }, p.notes ?? '');
   const el = h('div', { class: 'form' },
-    labeled('Caliber', cal), labeled('Rounds per box', rpb),
+    labeled('Caliber', cal.el, '', 'Start typing to search; pick one from the list.'), labeled('Rounds per box', rpb),
     labeled('Brand', brand), labeled('Product / line', name),
     labeled('Bullet weight (gr)', weight), labeled('Bullet type', type),
-    labeled('Cost per box', cost), labeled('Alert when below (rounds)', minr),
+    labeled('Cost per box (US dollars)', cost.el, '', 'Optional. The $ is optional when typing; it is shown as $0.00.'),
+    labeled('Alert when below (rounds)', minr, '', 'Optional. Leave blank for no alert. Otherwise this product is flagged as low when its rounds on hand drop under this number.'),
     labeled('Notes', notes, 'full'),
     h('datalist', { id: 'bullet-types' }, ['FMJ', 'TMJ', 'JHP', 'HP', 'SP', 'LRN', 'LSWC', 'BTHP', 'SMK', 'Birdshot', 'Buckshot', 'Slug'].map((t) => h('option', { value: t }))));
   const value = () => {
-    if (!cal.value) throw new Error('Pick a caliber (add one on the Calibers page first)');
+    const caliberId = cal.value();
     if (!rpb.value || Number(rpb.value) < 1) throw new Error('Rounds per box is required');
     return {
-      caliber_id: Number(cal.value), brand: brand.value.trim(), name: name.value.trim(),
+      caliber_id: caliberId, brand: brand.value.trim(), name: name.value.trim(),
       bullet_weight_gr: weight.value === '' ? null : Number(weight.value), bullet_type: type.value.trim(),
-      rounds_per_box: Number(rpb.value), cost_per_box: cost.value === '' ? null : Number(cost.value), notes: notes.value,
+      rounds_per_box: Number(rpb.value), cost_per_box: cost.value(), notes: notes.value,
       min_rounds: minr.value === '' ? null : Number(minr.value),
     };
   };
   /** Pre-fill from an online lookup. Only fields the lookup was sure about are touched. */
   const fill = (s) => {
-    if (s.caliber_id && [...cal.options].some((o) => o.value === String(s.caliber_id))) cal.value = String(s.caliber_id);
+    if (s.caliber_id) cal.set(s.caliber_id);
     if (s.rounds_per_box) rpb.value = s.rounds_per_box;
     if (s.brand) brand.value = s.brand;
     if (s.name) name.value = s.name;
@@ -352,7 +420,7 @@ async function products() {
     if (q.value.trim()) qs.set('q', q.value.trim());
     const list = await get('/api/products?' + qs);
     clear(holder, list.length ? table(['', 'Caliber', 'Product', 'Details', 'Codes', ''], list.map((p) =>
-      h('tr', {}, td(thumb(p.photo_codes[0] || p.codes[0], p.photo_codes.length > 0, load)), td(p.caliber), td(h('b', {}, p.label)), td(specOf(p) + (p.cost_per_box != null ? ` · $${p.cost_per_box}/box` : '')), td(p.codes.length ? codesOf(p.codes) : h('em', { class: 'muted' }, 'none')),
+      h('tr', {}, td(thumb(p.photo_codes[0] || p.codes[0], p.photo_codes.length > 0, load)), td(p.caliber), td(h('b', {}, p.label)), td(specOf(p) + (p.cost_per_box != null ? ` · ${fmtMoney(p.cost_per_box)}/box` : '')), td(p.codes.length ? codesOf(p.codes) : h('em', { class: 'muted' }, 'none')),
         td([h('button', { class: 'btn sm', onclick: () => productDialog(calibers, p, load) }, 'Edit'), ' ',
           h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete product?', `Delete ${p.label}? Its codes keep their history and go back to "unidentified".`, 'Delete', async () => { await del(`/api/products/${p.id}`); load(); refreshBadge(); }) }, 'Delete')], 'actions'))))
       : empty('No products match.'));

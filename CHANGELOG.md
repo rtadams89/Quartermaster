@@ -2,6 +2,11 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 0.17.0
+- Admin product form (including Identify): Caliber is now a type-ahead box. Typing filters the list ("45" finds .45 ACP, "5.56" finds .223 Rem / 5.56 NATO); pick with the mouse, or the arrow keys and Enter.
+- Cost per box is labelled as US dollars and tidied to $0.00 when you leave the box. Typing the $ or commas is optional. In CSV files costs are written as 18.50 and may be read with or without the $.
+- Alert when below: the form now says that leaving it blank means no alert.
+
 ## 0.16.0
 - Low-stock alerts: set an "Alert below (rounds)" level on a caliber (Calibers page) or a product (product form). Items under their level show on the admin dashboard and Inventory page, and on the kiosk (a LOW tag on Inventory, and a count on the home screen). A caliber with a level stays listed on the kiosk even when it has run out.
 - Products: Export CSV and Import CSV. Import shows what will be added, updated or left alone before doing it, creates missing calibers, and refuses the whole file if any row has a problem. Importing a barcode that was scanned but never described identifies it.

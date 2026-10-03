@@ -187,3 +187,14 @@ def test_duplicate_new_product_rows_are_refused(authed):
 def test_import_export_need_login(client):
     assert client.get("/api/export/products.csv").status_code == 401
     assert client.post("/api/import/products", content=b"x").status_code == 401
+
+
+def test_costs_accept_dollar_signs_and_export_with_two_decimals(authed):
+    text = HEAD + "9mm Luger,A,One,,,50,\"$1,234.5\",,,\n9mm Luger,B,Two,,,50,18,,,\n9mm Luger,C,Three,,,50,,,,\n"
+    assert do_import(authed, text, apply=True).json()["create"] == 3
+    costs = {p["name"]: p["cost_per_box"] for p in authed.get("/api/products").json()}
+    assert costs == {"One": 1234.5, "Two": 18.0, "Three": None}
+    exported = authed.get("/api/export/products.csv").text
+    assert ",1234.50," in exported and ",18.00," in exported
+    bad = do_import(authed, HEAD + "9mm Luger,D,Four,,,50,about ten,,,\n").json()
+    assert bad["error_count"] == 1 and "cost_per_box" in bad["errors"][0]["error"]

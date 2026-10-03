@@ -28,7 +28,7 @@ def export_products(db: Session = Depends(get_db)):
     for p in db.scalars(select(Product)):
         rows.append([
             p.caliber.name, p.brand, p.name, fmt_weight(p.bullet_weight_gr) if p.bullet_weight_gr else "",
-            p.bullet_type, p.rounds_per_box, "" if p.cost_per_box is None else p.cost_per_box,
+            p.bullet_type, p.rounds_per_box, "" if p.cost_per_box is None else f"{p.cost_per_box:.2f}",
             mins.get(("product", p.id), ""), " ".join(sorted(b.code for b in p.barcodes)), p.notes,
         ])
     rows.sort(key=lambda r: (r[0].lower(), float(r[3] or 0), str(r[1]).lower(), str(r[2]).lower()))
@@ -73,7 +73,8 @@ def _parse_row(raw: dict, present: set[str]) -> dict:
     if "weight_gr" in present:
         out["bullet_weight_gr"] = _num(g["weight_gr"], float, 0.01, 5000, "weight_gr") if g["weight_gr"] else None
     if "cost_per_box" in present:
-        out["cost_per_box"] = _num(g["cost_per_box"], float, 0, 1e9, "cost_per_box") if g["cost_per_box"] else None
+        cost = g["cost_per_box"].replace("$", "").replace(",", "").strip()  # "$1,234.50" is fine
+        out["cost_per_box"] = round(_num(cost, float, 0, 1e9, "cost_per_box (US dollars)"), 2) if cost else None
     if "low_stock_rounds" in present:
         out["min_rounds"] = _num(g["low_stock_rounds"], int, 0, 1_000_000, "low_stock_rounds") if g["low_stock_rounds"] else None
     codes = []
