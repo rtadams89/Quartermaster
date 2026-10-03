@@ -469,7 +469,7 @@ function manualEntry() {
 }
 
 function editQty(item) {
-  keypad({ title: 'How many boxes?', value: item.quantity, maxLen: 3, onOk: (v) => setQty(item, Number(v)) });
+  keypad({ title: 'How many boxes?', value: item.quantity, maxLen: 5, onOk: (v) => setQty(item, Number(v)) });
 }
 
 // ------------------------------------------------------------------- review

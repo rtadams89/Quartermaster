@@ -114,7 +114,7 @@ def transactions(
 
 class AdjustIn(BaseModel):
     code: str
-    boxes: int = Field(ge=-10000, le=10000)
+    boxes: int = Field(ge=-100000, le=100000)
     note: str = Field(default="", max_length=300)
 
 
@@ -137,7 +137,7 @@ def adjust(body: AdjustIn, db: Session = Depends(get_db)):
 
 class StockIn(BaseModel):
     code: str
-    boxes: int = Field(ge=1, le=10000)
+    boxes: int = Field(ge=1, le=100000)
     note: str = Field(default="", max_length=300)
 
 

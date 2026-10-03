@@ -243,3 +243,16 @@ def test_locate_covers_no_stock_unidentified_and_unknown(authed):
 
 def test_locate_needs_login(client):
     assert client.get("/api/inventory/code/012345678905").status_code == 401
+
+
+def test_large_batch_quantities(authed):
+    p = make_product(authed, rounds_per_box=1)
+    authed.post(f"/api/products/{p['id']}/barcodes", json={"code": "012345678905"})
+    b = authed.post("/api/batches", json={"kind": "in"}).json()
+    item = authed.post(f"/api/batches/{b['id']}/scan", json={"code": "012345678905"}).json()["item"]
+    url = f"/api/batches/{b['id']}/items/{item['id']}"
+    assert authed.patch(url, json={"quantity": 99999}).status_code == 200
+    assert authed.patch(url, json={"quantity": 100000}).status_code == 422
+    assert authed.patch(url, json={"quantity": 12345}).status_code == 200
+    authed.post(f"/api/batches/{b['id']}/finish")
+    assert authed.get("/api/inventory/items").json()["total_rounds"] == 12345

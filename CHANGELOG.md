@@ -2,6 +2,12 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 0.22.3
+- Admin: Add stock now picks the product with the same type-ahead search as Labels (type part of the caliber, manufacturer or product, then pick). The barcode choice appears once a product with several codes is chosen. Identify code's "Existing product" choice uses the same search.
+
+## 0.22.2
+- Kiosk: the per-item box quantity can now be up to 99,999 (it was capped at 999). The keypad accepts five digits. The admin Add stock and Adjust limits were raised to match.
+
 ## 0.22.1
 - Labels: the number of labels now starts at 1 and the sheet starts with 2 columns.
 

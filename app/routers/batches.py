@@ -12,7 +12,7 @@ from ..services import on_hand, product_dict, spec_text
 
 router = APIRouter(prefix="/api/batches", dependencies=[Depends(security.require_auth)])
 
-MAX_QTY = 999
+MAX_QTY = 99999
 
 
 class NewBatch(BaseModel):

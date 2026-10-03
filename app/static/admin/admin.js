@@ -57,7 +57,7 @@ function labeled(text, el, cls, hint) {
 
 /** Type-ahead chooser: a text box that filters a drop-down list of {id, name} items as you type.
  *  o: placeholder, none (shown when nothing matches), empty (shown when there are no items), bad(text) and
- *  missing (error messages), optional (an empty box is allowed and gives null). */
+ *  missing (error messages), optional (an empty box is allowed and gives null), onChange (called when the chosen item changes). */
 function searchPicker(items, selectedId, o) {
   const squash = (t) => t.toLowerCase().replace(/[^a-z0-9]/g, '');
   const list = items.map((c) => ({ ...c, key: squash(c.name) }));
@@ -67,7 +67,7 @@ function searchPicker(items, selectedId, o) {
   const box = h('div', { class: 'combo-list', role: 'listbox', hidden: true });
   const el = h('div', { class: 'combo' }, input, box);
   const close = () => { box.hidden = true; input.setAttribute('aria-expanded', 'false'); active = -1; };
-  const pick = (c) => { chosen = c; input.value = c.name; close(); };
+  const pick = (c) => { chosen = c; input.value = c.name; close(); o.onChange?.(); };
   const paint = () => {
     const q = squash(input.value);
     shown = list.filter((c) => c.key.includes(q)).sort((a, b) => (b.key.startsWith(q) - a.key.startsWith(q)));
@@ -79,7 +79,7 @@ function searchPicker(items, selectedId, o) {
     input.setAttribute('aria-expanded', 'true');
     box.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
   };
-  input.addEventListener('input', () => { chosen = list.find((c) => c.key === squash(input.value)) || null; active = -1; paint(); });
+  input.addEventListener('input', () => { chosen = list.find((c) => c.key === squash(input.value)) || null; active = -1; paint(); o.onChange?.(); });
   input.addEventListener('focus', () => { if (chosen) input.select(); }); // the list opens on click, typing or arrow keys, not on the dialog's own autofocus
   input.addEventListener('click', () => { if (box.hidden) paint(); });
   input.addEventListener('blur', () => {
@@ -109,6 +109,14 @@ function searchPicker(items, selectedId, o) {
     },
     set(id) { const c = list.find((x) => x.id === id); if (c) { chosen = c; input.value = c.name; } },
   };
+}
+
+/** Type-ahead product chooser. optional: an empty box is allowed (value() is null). */
+function productPicker(products, { optional = false, placeholder = 'Type to search by caliber, manufacturer or product', onChange } = {}) {
+  return searchPicker(products.map((p) => ({ id: p.id, name: `${p.caliber} — ${p.label} (${specOf(p)})` })), null, {
+    placeholder, none: 'No matching product', empty: 'No products yet.', optional, onChange,
+    bad: (t) => `"${t}" is not one of your products. Pick one from the list${optional ? ', or clear the box' : ''}.`, missing: 'Pick a product',
+  });
 }
 
 function caliberPicker(calibers, selectedId) {
@@ -351,23 +359,24 @@ async function addStockDialog(calibers, done) {
     toast('Create a product with a barcode first', 'error');
     return productDialog(calibers, null, () => { done(); });
   }
-  const pick = h('select', {}, products.map((p) => h('option', { value: p.id }, `${p.caliber} — ${p.label} (${specOf(p)})`)));
+  const pick = productPicker(products, { onChange: () => paintCodes() });
   const code = h('select');
   const paintCodes = () => {
-    const p = products.find((x) => String(x.id) === pick.value);
-    clear(code, p.codes.map((c) => h('option', { value: c }, c)));
-    codeRow.style.display = p.codes.length > 1 ? '' : 'none';
+    let p = null;
+    try { p = products.find((x) => x.id === pick.value()); } catch { /* nothing chosen yet */ }
+    clear(code, p ? p.codes.map((c) => h('option', { value: c }, c)) : []);
+    codeRow.style.display = p && p.codes.length > 1 ? '' : 'none';
   };
   const codeRow = labeled('Barcode', code, 'full');
   const boxes = h('input', { type: 'number', min: 1, step: 1, value: 1 });
   const note = h('input', { placeholder: 'e.g. bought at gun show', maxlength: 300 });
-  pick.addEventListener('change', paintCodes);
   paintCodes();
   const dlg = dialog({
     title: 'Add stock', ok: 'Add to inventory',
-    body: h('div', { class: 'form' }, labeled('Product', pick, 'full'), codeRow, labeled('Boxes to add', boxes, 'full'), labeled('Note (optional)', note, 'full'),
+    body: h('div', { class: 'form' }, labeled('Product', pick.el, 'full'), codeRow, labeled('Boxes to add', boxes, 'full'), labeled('Note (optional)', note, 'full'),
       h('p', { class: 'sub full', style: { margin: 0 } }, ["Not listed? ", h('a', { href: '#', onclick: (e) => { e.preventDefault(); dlg.close(); productDialog(calibers, null, () => { done(); }); } }, 'Create the product first'), '.'])),
     onOk: async () => {
+      pick.value();
       const n = Number(boxes.value);
       if (!Number.isInteger(n) || n < 1) throw new Error('Enter a whole number of boxes, 1 or more');
       await post('/api/stock', { code: code.value, boxes: n, note: note.value });
@@ -402,9 +411,9 @@ function adjustDialog(p, done) {
 async function identifyDialog(code, done, hasPhoto = false) {
   const [calibers, products] = await Promise.all([get('/api/calibers'), get('/api/products')]);
   let mode = products.length ? 'existing' : 'new';
-  const pick = h('select', {}, products.map((p) => h('option', { value: p.id }, `${p.caliber} — ${p.label} (${specOf(p)})`)));
+  const pick = productPicker(products);
   const newForm = productFields(calibers);
-  const existingBox = labeled('Product', pick, 'full');
+  const existingBox = labeled('Product', pick.el, 'full');
   const wrap = h('div');
   const seg = h('div', { class: 'seg', style: { marginBottom: '14px' } });
   const paint = () => {
@@ -437,7 +446,7 @@ async function identifyDialog(code, done, hasPhoto = false) {
       h('p', { class: 'sub', style: { margin: '0 0 12px' } }, ['Barcode ', h('b', {}, code), '. Every ammo in and ammo out already logged for it will pick up these details.']), seg, wrap),
     onOk: async () => {
       let pid;
-      if (mode === 'existing') pid = Number(pick.value);
+      if (mode === 'existing') pid = pick.value();
       else pid = (await post('/api/products', newForm.value())).id;
       await put(`/api/barcodes/${encodeURIComponent(code)}`, { product_id: pid });
       // Best effort. The server never replaces a photo you already have.
@@ -625,10 +634,7 @@ const labelJob = { items: [], cols: 2, type: 'code128' };
 
 async function labels() {
   const prods = await get('/api/products');
-  const pick = searchPicker(prods.map((p) => ({ id: p.id, name: `${p.caliber} — ${p.label} (${specOf(p)})` })), null, {
-    placeholder: 'Product: type to search, or leave empty to identify later', none: 'No matching product', empty: 'No products yet.',
-    bad: (t) => `"${t}" is not one of your products. Pick one from the list, or clear the box.`, missing: '', optional: true,
-  });
+  const pick = productPicker(prods, { optional: true, placeholder: 'Product: type to search, or leave empty to identify later' });
   const count = h('input', { type: 'number', min: 1, max: 100, value: 1, style: { width: '80px' }, 'aria-label': 'Number of labels' });
   const type = h('select', { 'aria-label': 'Label style', onchange: () => { labelJob.type = type.value; paint(); } },
     h('option', { value: 'code128' }, 'Code 128 (bar)'), h('option', { value: 'qr' }, 'QR code'));
