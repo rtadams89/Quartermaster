@@ -12,7 +12,7 @@ from .. import security
 from ..codes import normalize_code
 from ..db import get_db, iso
 from ..models import Barcode, Transaction
-from ..services import drill, inventory_by_product, locate, low_stock
+from ..services import drill, inventory_by_product, locate, low_stock, price_range
 
 router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
 
@@ -64,6 +64,7 @@ def inventory_items(
         "unidentified": unidentified,
         "total_boxes": sum(p["boxes"] for p in products) + sum(u["boxes"] for u in unidentified),
         "total_rounds": sum(p["rounds"] for p in products),
+        "price": price_range(products),
     }
 
 

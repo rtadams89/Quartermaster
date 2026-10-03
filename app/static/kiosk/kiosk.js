@@ -1,5 +1,5 @@
 import { get, post, patch, sendBlob, watchSession, watchBuild } from '/shared/api.js';
-import { h, clear, fmtInt, toast } from '/shared/dom.js';
+import { h, clear, fmtInt, fmtPriceRange, toast } from '/shared/dom.js';
 import { renderLogin } from '/shared/login.js';
 import { detectCamera, createCamera } from '/kiosk/camera.js';
 
@@ -571,7 +571,7 @@ async function showInventory() {
     h('div', { class: 'body' }, h('div', { class: 'list' },
       d.rows.length ? d.rows.map((r) =>
         h('button', { class: 'inv-row' + (r.key === S.inv.hit && !r.drillable ? ' hit' : ''), disabled: !r.drillable, onclick: () => open(r) },
-          h('div', { class: 'info' }, h('div', { class: 'title' }, r.label, r.low && h('span', { class: 'low-tag' }, 'LOW')), r.sublabel && h('div', { class: 'sub' }, r.sublabel)),
+          h('div', { class: 'info' }, h('div', { class: 'title' }, r.label, r.low && h('span', { class: 'low-tag' }, 'LOW')), (r.sublabel || r.price) && h('div', { class: 'sub' }, [r.sublabel, r.price && `${fmtPriceRange(r.price)}/rd`].filter(Boolean).join(' · '))),
           h('div', { class: 'r' },
             h('div', { class: 'big' }, r.rounds === null ? '—' : fmtInt(r.rounds)),
             h('small', {}, r.rounds === null ? plural(r.boxes, 'box') : `rounds · ${plural(r.boxes, 'box')}`)),

@@ -32,6 +32,21 @@ export function clear(el, ...children) {
   return el;
 }
 
+/** Cost per round: cents, or tenths of a cent under a dollar when needed. 0.37 -> $0.37, 0.285 -> $0.285, 1.3995 -> $1.40 */
+export function fmtPerRound(n) {
+  if (n == null) return '';
+  if (n >= 1) return '$' + n.toFixed(2);
+  const t = n.toFixed(3);
+  return '$' + (t.endsWith('0') ? t.slice(0, -1) : t);
+}
+
+/** {low, high} -> "$0.31–$0.45", or "$0.37" when they match; empty when there is no cost. */
+export function fmtPriceRange(r) {
+  if (!r) return '';
+  const lo = fmtPerRound(r.low), hi = fmtPerRound(r.high);
+  return lo === hi ? lo : `${lo}–${hi}`;
+}
+
 export function fmtInt(n) {
   return n == null ? '—' : Number(n).toLocaleString('en-US');
 }

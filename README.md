@@ -45,6 +45,8 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 
 **Low stock.** In the admin site, *Calibers* has an "Alert below (rounds)" box for each caliber, and each product has the same setting. Leave the box blank for no alert. When rounds on hand drop under it, the item shows on the admin dashboard, the kiosk Inventory screen marks it LOW, and the kiosk home screen says how many are running low.
 
+**Cost per round.** Enter the cost per box on a product. Products and Inventory then show the cost per round, and the summaries (dashboard, inventory totals, kiosk calibers and bullet weights) show the low-to-high range for what you have in stock.
+
 **Product list in a spreadsheet.** *Products → Export CSV* downloads every product with its barcodes. Edit it (or write your own with at least the columns `caliber` and `rounds_per_box`; costs are US dollars, with or without the $), then *Import CSV*. You see what will be added or changed before anything happens, and a file with any problem rows is refused whole.
 
 **Ammo without a barcode.** In the admin site, **Labels** prints your own barcode or QR labels to stick on those boxes. Add as many different products as you like to one sheet (every label for a product carries the same code, so each box scans as that product), pick the number of columns, remove any label you don't want, and print.

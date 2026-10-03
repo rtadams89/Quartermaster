@@ -1,5 +1,5 @@
 import { get, post, put, patch, del, sendBlob, watchSession, watchBuild } from '/shared/api.js';
-import { h, clear, fmtInt, fmtWhen, toast } from '/shared/dom.js';
+import { h, clear, fmtInt, fmtPerRound, fmtPriceRange, fmtWhen, toast } from '/shared/dom.js';
 import { renderLogin } from '/shared/login.js';
 
 const app = document.getElementById('app');
@@ -291,8 +291,8 @@ async function dashboard() {
       ...low.products.map((p) => h('tr', {}, td([h('b', {}, p.label), ' ', h('span', { class: 'muted' }, p.caliber || '')]), td(fmtInt(p.rounds), 'num'), td(fmtInt(p.min_rounds), 'num'))),
     ])] : null,
     h('h2', {}, 'By caliber'),
-    cal.length ? table(['Caliber', ['Boxes', 'num'], ['Rounds', 'num'], ''], cal.map((r) =>
-      h('tr', {}, td(r.label), boxesCell(r.boxes), td(fmtInt(r.rounds), 'num'), td(h('div', { class: 'bar-cell' }, h('div', { class: 'bar', style: { width: `${Math.round((r.rounds / max) * 100)}%` } })), ''))))
+    cal.length ? table(['Caliber', ['Boxes', 'num'], ['Rounds', 'num'], ['Cost per round', 'num'], ''], cal.map((r) =>
+      h('tr', {}, td(r.label), boxesCell(r.boxes), td(fmtInt(r.rounds), 'num'), td(fmtPriceRange(r.price) || '—', 'num'), td(h('div', { class: 'bar-cell' }, h('div', { class: 'bar', style: { width: `${Math.round((r.rounds / max) * 100)}%` } })), ''))))
       : empty('Nothing in stock yet.'),
     h('h2', {}, 'Recent activity'),
     recent.length ? txTable(recent) : empty('No activity yet. Scan some ammo in from the kiosk.'));
@@ -323,16 +323,16 @@ async function inventory() {
       ...d.products.map((p) => h('tr', {},
         td(thumb(p.photo_code || p.codes[0]?.code, !!p.photo_code, load)),
         td(p.caliber), td([h('b', {}, p.label), p.low && h('span', { class: 'low-tag' }, 'LOW'), h('span', { class: 'code' }, p.spec)]), td(codesOf(p.codes)),
-        boxesCell(p.boxes), td(fmtInt(p.rounds), 'num'), td(fmtWhen(p.last_activity)),
+        boxesCell(p.boxes), td(fmtInt(p.rounds), 'num'), td(fmtPerRound(p.cost_per_round) || '—', 'num'), td(fmtWhen(p.last_activity)),
         td(p.codes.length ? h('button', { class: 'btn sm', onclick: () => adjustDialog(p, load) }, 'Adjust') : '', 'actions'))),
       ...d.unidentified.map((u) => h('tr', {},
         td(thumb(u.code, u.has_photo, load)),
         td(h('em', { class: 'muted' }, '—')), td(h('em', {}, 'Unidentified')), td(codesOf([u.code])),
-        boxesCell(u.boxes), td('—', 'num'), td(fmtWhen(u.last_activity)),
+        boxesCell(u.boxes), td('—', 'num'), td('—', 'num'), td(fmtWhen(u.last_activity)),
         td(h('button', { class: 'btn sm primary', onclick: () => identifyDialog(u.code, load, u.has_photo) }, 'Identify'), 'actions'))),
     ];
-    clear(holder, rows.length ? table(['', 'Caliber', 'Product', 'Code(s)', ['Boxes', 'num'], ['Rounds', 'num'], 'Last activity', ''], rows) : empty('Nothing matches.'),
-      h('p', { class: 'sub', style: { marginTop: '10px' } }, `${fmtInt(d.total_boxes)} boxes · ${fmtInt(d.total_rounds)} identified rounds`));
+    clear(holder, rows.length ? table(['', 'Caliber', 'Product', 'Code(s)', ['Boxes', 'num'], ['Rounds', 'num'], ['Cost per round', 'num'], 'Last activity', ''], rows) : empty('Nothing matches.'),
+      h('p', { class: 'sub', style: { marginTop: '10px' } }, `${fmtInt(d.total_boxes)} boxes · ${fmtInt(d.total_rounds)} identified rounds` + (d.price ? ` · ${fmtPriceRange(d.price)} per round (low to high, items in stock)` : '')));
   };
   let t;
   q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 200); });
@@ -471,8 +471,8 @@ async function products() {
     if (calSel.value) qs.set('caliber_id', calSel.value);
     if (q.value.trim()) qs.set('q', q.value.trim());
     const list = await get('/api/products?' + qs);
-    clear(holder, list.length ? table(['', 'Caliber', 'Product', 'Details', 'Codes', ''], list.map((p) =>
-      h('tr', {}, td(thumb(p.photo_codes[0] || p.codes[0], p.photo_codes.length > 0, load)), td(p.caliber), td(h('b', {}, p.label)), td(specOf(p) + (p.cost_per_box != null ? ` · ${fmtMoney(p.cost_per_box)}/box` : '')), td(p.codes.length ? codesOf(p.codes) : h('em', { class: 'muted' }, 'none')),
+    clear(holder, list.length ? table(['', 'Caliber', 'Product', 'Details', ['Cost per round', 'num'], 'Codes', ''], list.map((p) =>
+      h('tr', {}, td(thumb(p.photo_codes[0] || p.codes[0], p.photo_codes.length > 0, load)), td(p.caliber), td(h('b', {}, p.label)), td(specOf(p) + (p.cost_per_box != null ? ` · ${fmtMoney(p.cost_per_box)}/box` : '')), td(fmtPerRound(p.cost_per_round) || '—', 'num'), td(p.codes.length ? codesOf(p.codes) : h('em', { class: 'muted' }, 'none')),
         td([h('button', { class: 'btn sm', onclick: () => productDialog(calibers, p, load) }, 'Edit'), ' ',
           h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete product?', `Delete ${p.label}? Its codes keep their history and go back to "unidentified".`, 'Delete', async () => { await del(`/api/products/${p.id}`); load(); refreshBadge(); }) }, 'Delete')], 'actions'))))
       : empty('No products match.'));
@@ -621,7 +621,7 @@ async function history() {
 
 // ------------------------------------------------------------------- labels
 // The print job is kept while you move around the admin site, so you can leave and come back to it.
-const labelJob = { items: [], cols: 3, type: 'code128' };
+const labelJob = { items: [], cols: 2, type: 'code128' };
 
 async function labels() {
   const prods = await get('/api/products');
@@ -629,7 +629,7 @@ async function labels() {
     placeholder: 'Product: type to search, or leave empty to identify later', none: 'No matching product', empty: 'No products yet.',
     bad: (t) => `"${t}" is not one of your products. Pick one from the list, or clear the box.`, missing: '', optional: true,
   });
-  const count = h('input', { type: 'number', min: 1, max: 100, value: 10, style: { width: '80px' }, 'aria-label': 'Number of labels' });
+  const count = h('input', { type: 'number', min: 1, max: 100, value: 1, style: { width: '80px' }, 'aria-label': 'Number of labels' });
   const type = h('select', { 'aria-label': 'Label style', onchange: () => { labelJob.type = type.value; paint(); } },
     h('option', { value: 'code128' }, 'Code 128 (bar)'), h('option', { value: 'qr' }, 'QR code'));
   type.value = labelJob.type;

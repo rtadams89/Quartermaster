@@ -64,8 +64,15 @@ def product_dict(p: Product | None) -> dict | None:
         "bullet_type": p.bullet_type,
         "rounds_per_box": p.rounds_per_box,
         "cost_per_box": p.cost_per_box,
+        "cost_per_round": round(p.cost_per_box / p.rounds_per_box, 4) if p.cost_per_box is not None else None,
         "notes": p.notes,
     }
+
+
+def price_range(items: list[dict]) -> dict | None:
+    """Lowest and highest cost per round among items that are in stock and have a cost, else None."""
+    costs = [i["cost_per_round"] for i in items if i["boxes"] > 0 and i.get("cost_per_round") is not None]
+    return {"low": min(costs), "high": max(costs)} if costs else None
 
 
 def spec_text(p: Product) -> str:
@@ -205,6 +212,7 @@ def drill(db: Session, caliber: str | None, weight: str | None) -> dict:
                         "rounds": rounds,
                         "drillable": bool(mine),
                         "low": bool(floor) and rounds < floor,
+                        "price": price_range(mine),
                     }
                 )
         if unid:
@@ -252,6 +260,7 @@ def drill(db: Session, caliber: str | None, weight: str | None) -> dict:
                     "boxes": sum(i["boxes"] for i in g),
                     "rounds": sum(i["rounds"] for i in g),
                     "drillable": True,
+                    "price": price_range(g),
                 }
             )
         return _drill_result("weight", crumbs, rows)
@@ -267,6 +276,7 @@ def drill(db: Session, caliber: str | None, weight: str | None) -> dict:
             "rounds": i["rounds"],
             "drillable": False,
             "low": i["low"],
+            "price": price_range([i]),
         }
         for i in sorted(mine, key=lambda i: i["label"].lower())
     ]

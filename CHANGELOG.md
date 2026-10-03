@@ -2,6 +2,13 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 0.22.1
+- Labels: the number of labels now starts at 1 and the sheet starts with 2 columns.
+
+## 0.22.0
+- Cost per round: you still enter the cost per box, and the Products and Inventory pages now show the cost per round for each product (cost per box divided by rounds per box).
+- Summary views show the low-to-high cost per round of everything in stock in that group: the admin Dashboard "By caliber" table, the admin Inventory footer (respecting the caliber filter and search), and the kiosk Inventory screens at caliber, bullet-weight and product level. Products with no cost entered, and products with no stock, are left out.
+
 ## 0.21.0
 - Labels: build one print sheet from many different labels. Each "Add to sheet" adds that product's labels (or new unassigned codes, or an existing code) to the sheet, and the sheet keeps filling until you clear it, even if you visit other pages and come back.
 - Labels: choose 1 to 6 columns for the sheet, and remove any single label with the × on it before printing. Clear sheet starts over. The label style (bar or QR) applies to the whole sheet.
