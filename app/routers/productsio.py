@@ -10,11 +10,11 @@ from .. import security
 from ..codes import normalize_code
 from ..db import get_db
 from ..models import Barcode, Caliber, Product
-from ..services import fmt_weight, minimums, set_minimum
+from ..services import brand_spellings, fmt_weight, minimums, set_minimum
 
 router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
 
-COLUMNS = ["caliber", "brand", "name", "weight_gr", "type", "rounds_per_box", "cost_per_box",
+COLUMNS = ["caliber", "manufacturer", "name", "weight_gr", "type", "rounds_per_box", "cost_per_box",
            "low_stock_rounds", "codes", "notes"]
 MAX_BYTES = 2 * 1024 * 1024
 MAX_ROWS = 5000
@@ -62,7 +62,7 @@ def _parse_row(raw: dict, present: set[str]) -> dict:
     if not caliber or len(caliber) > 64:
         raise RowError("caliber is required (64 characters at most)")
     out: dict = {"caliber": caliber}
-    for col, field, limit in (("brand", "brand", 80), ("name", "name", 120), ("type", "bullet_type", 40)):
+    for col, field, limit in (("manufacturer", "brand", 80), ("name", "name", 120), ("type", "bullet_type", 40)):
         if col in present:
             if len(g[col]) > limit:
                 raise RowError(f"{col} is too long ({limit} characters at most)")
@@ -126,6 +126,7 @@ async def import_products(request: Request, apply: bool = False, db: Session = D
     products = list(db.scalars(select(Product)))
     code_owner = {b.code: b.product_id for b in db.scalars(select(Barcode)) if b.product_id is not None}
     mins = minimums(db)
+    brands = brand_spellings(db)  # a brand typed "federal" in the file becomes the "Federal" already on file
 
     errors: list[dict] = []
     plan: list[tuple[Product | None, dict]] = []
@@ -135,6 +136,8 @@ async def import_products(request: Request, apply: bool = False, db: Session = D
     for n, raw in enumerate(rows, start=2):  # row 1 is the header
         try:
             data = _parse_row(raw, present)
+            if data.get("brand"):
+                data["brand"] = brands.setdefault(data["brand"].lower(), data["brand"])
             owners = {code_owner[c] for c in data.get("codes", []) if c in code_owner}
             if len(owners) > 1:
                 raise RowError("its barcodes already belong to different products")

@@ -2,6 +2,18 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 0.20.0
+- Labels: the product box is now a type-ahead search (same as Caliber and Manufacturer). Leave it empty to make labels for codes you will identify later.
+- Labels: a product keeps one label code. Choosing a product that already has a QM label reprints that same code instead of making a new one; a product with no label yet gets one new code. The number is now how many labels to print. With no product chosen, each label still gets its own new code.
+
+## 0.19.0
+- "Brand" is now called "Manufacturer" everywhere you see it: the product form, the product search box and the CSV columns. CSV files now use a `manufacturer` column in place of `brand`, both in exports and in imports.
+
+## 0.18.0
+- Admin product form: Brand now suggests brands you have used before as you type (most-used first). New brands can still be typed freely.
+- A brand typed in a different case ("federal") is saved with the spelling already in use ("Federal"), including on CSV import, so the same brand never ends up spelled two ways.
+- The Caliber list no longer pops open by itself when the product form opens; it opens when you click, type or press an arrow key.
+
 ## 0.17.0
 - Admin product form (including Identify): Caliber is now a type-ahead box. Typing filters the list ("45" finds .45 ACP, "5.56" finds .223 Rem / 5.56 NATO); pick with the mouse, or the arrow keys and Enter.
 - Cost per box is labelled as US dollars and tidied to $0.00 when you leave the box. Typing the $ or commas is optional. In CSV files costs are written as 18.50 and may be read with or without the $.

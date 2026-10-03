@@ -13,6 +13,27 @@ def photo_codes(db: Session) -> set[str]:
     return set(db.scalars(select(BarcodePhoto.code)))
 
 
+def brand_spellings(db: Session, skip_id: int | None = None) -> dict[str, str]:
+    """Every brand already in use, as {lower-case: spelling}. If one brand is spelled two ways,
+    the spelling on more products wins (ties go to the one that sorts first)."""
+    counts: dict[str, int] = {}
+    for b in db.scalars(select(Product.brand).where(Product.id != skip_id) if skip_id else select(Product.brand)):
+        b = (b or "").strip()
+        if b:
+            counts[b] = counts.get(b, 0) + 1
+    best: dict[str, str] = {}
+    for b in sorted(counts, key=lambda x: (-counts[x], x)):
+        best.setdefault(b.lower(), b)
+    return best
+
+
+def canonical_brand(db: Session, brand: str, skip_id: int | None = None) -> str:
+    """Trim a typed brand and reuse the spelling other products already use ("federal" becomes
+    "Federal"). skip_id is the product being edited, so a lone brand can still be re-cased."""
+    brand = (brand or "").strip()
+    return brand_spellings(db, skip_id).get(brand.lower(), brand) if brand else ""
+
+
 def minimums(db: Session) -> dict[tuple[str, int], int]:
     return {(m.kind, m.ref_id): m.min_rounds for m in db.scalars(select(StockMinimum))}
 

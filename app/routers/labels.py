@@ -7,6 +7,7 @@ from barcode.writer import SVGWriter
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import security
@@ -27,13 +28,24 @@ class AllocateIn(BaseModel):
 
 @router.post("/allocate")
 def allocate(body: AllocateIn, db: Session = Depends(get_db)):
-    """Reserve fresh QM000123-style codes, optionally already attached to a product."""
+    """Codes for `count` labels.
+
+    With a product: the product keeps one label code, so its existing QM code is reused (the
+    labels are copies of it); only a product with no label yet gets a new code.
+    Without a product: `count` fresh, unique codes to identify later."""
     if body.product_id is not None and not db.get(Product, body.product_id):
         raise HTTPException(400, "Unknown product")
+    if body.product_id is not None:
+        mine = db.scalars(select(Barcode.code).where(Barcode.product_id == body.product_id,
+                                                      Barcode.code.like(f"{PREFIX}%")).order_by(Barcode.code))
+        existing = next((c for c in mine if c[len(PREFIX):].isdigit()), None)
+        if existing:
+            return {"codes": [existing] * body.count, "reused": True}
     row = db.get(Setting, COUNTER_KEY)
     n = int(row.value) if row else 0
     codes = []
-    while len(codes) < body.count:
+    fresh = 1 if body.product_id is not None else body.count
+    while len(codes) < fresh:
         n += 1
         code = f"{PREFIX}{n:06d}"
         if db.get(Barcode, code):
@@ -45,7 +57,9 @@ def allocate(body: AllocateIn, db: Session = Depends(get_db)):
     else:
         db.add(Setting(key=COUNTER_KEY, value=str(n)))
     db.commit()
-    return {"codes": codes}
+    if body.product_id is not None:
+        codes = codes * body.count
+    return {"codes": codes, "reused": False}
 
 
 @router.get("/render")

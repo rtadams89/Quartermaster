@@ -55,13 +55,15 @@ function labeled(text, el, cls, hint) {
   return h('label', { class: cls || '' }, text, el, hint ? h('small', { class: 'hint' }, hint) : null);
 }
 
-/** Type-ahead caliber chooser: a text box that filters a drop-down list of calibers as you type. */
-function caliberPicker(calibers, selectedId) {
+/** Type-ahead chooser: a text box that filters a drop-down list of {id, name} items as you type.
+ *  o: placeholder, none (shown when nothing matches), empty (shown when there are no items), bad(text) and
+ *  missing (error messages), optional (an empty box is allowed and gives null). */
+function searchPicker(items, selectedId, o) {
   const squash = (t) => t.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const list = calibers.map((c) => ({ ...c, key: squash(c.name) }));
+  const list = items.map((c) => ({ ...c, key: squash(c.name) }));
   let chosen = list.find((c) => c.id === selectedId) || null;
   let shown = [], active = -1;
-  const input = h('input', { type: 'text', placeholder: 'Type to search, e.g. 9mm or 45', autocomplete: 'off', role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false', value: chosen ? chosen.name : '' });
+  const input = h('input', { type: 'text', placeholder: o.placeholder, autocomplete: 'off', role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false', value: chosen ? chosen.name : '' });
   const box = h('div', { class: 'combo-list', role: 'listbox', hidden: true });
   const el = h('div', { class: 'combo' }, input, box);
   const close = () => { box.hidden = true; input.setAttribute('aria-expanded', 'false'); active = -1; };
@@ -71,14 +73,14 @@ function caliberPicker(calibers, selectedId) {
     shown = list.filter((c) => c.key.includes(q)).sort((a, b) => (b.key.startsWith(q) - a.key.startsWith(q)));
     if (active >= shown.length) active = shown.length - 1;
     clear(box, shown.length
-      ? shown.map((c, i) => h('div', { class: 'opt' + (i === active ? ' on' : ''), role: 'option', onmousedown: (e) => { e.preventDefault(); pick(c); } }, c.name + (c.active ? '' : ' (inactive)')))
-      : h('div', { class: 'opt none' }, list.length ? 'No matching caliber' : 'No calibers yet. Add one on the Calibers page.'));
+      ? shown.map((c, i) => h('div', { class: 'opt' + (i === active ? ' on' : ''), role: 'option', onmousedown: (e) => { e.preventDefault(); pick(c); } }, c.name + (c.active === false ? ' (inactive)' : '')))
+      : h('div', { class: 'opt none' }, list.length ? o.none : o.empty));
     box.hidden = false;
     input.setAttribute('aria-expanded', 'true');
     box.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
   };
   input.addEventListener('input', () => { chosen = list.find((c) => c.key === squash(input.value)) || null; active = -1; paint(); });
-  input.addEventListener('focus', () => { if (!chosen) paint(); else input.select(); });
+  input.addEventListener('focus', () => { if (chosen) input.select(); }); // the list opens on click, typing or arrow keys, not on the dialog's own autofocus
   input.addEventListener('click', () => { if (box.hidden) paint(); });
   input.addEventListener('blur', () => {
     if (!chosen && input.value.trim() && shown.length === 1) pick(shown[0]); // one match left: take it
@@ -102,10 +104,58 @@ function caliberPicker(calibers, selectedId) {
     el,
     value() {
       if (chosen) return chosen.id;
-      throw new Error(input.value.trim() ? `"${input.value.trim()}" is not one of your calibers. Pick one from the list.` : 'Pick a caliber (add one on the Calibers page first)');
+      if (!input.value.trim() && o.optional) return null;
+      throw new Error(input.value.trim() ? o.bad(input.value.trim()) : o.missing);
     },
     set(id) { const c = list.find((x) => x.id === id); if (c) { chosen = c; input.value = c.name; } },
   };
+}
+
+function caliberPicker(calibers, selectedId) {
+  return searchPicker(calibers, selectedId, {
+    placeholder: 'Type to search, e.g. 9mm or 45', none: 'No matching caliber', empty: 'No calibers yet. Add one on the Calibers page.',
+    bad: (t) => `"${t}" is not one of your calibers. Pick one from the list.`, missing: 'Pick a caliber (add one on the Calibers page first)',
+  });
+}
+
+/** Free-text box that suggests values already used (manufacturers). Anything can still be typed. */
+function suggestInput({ value = '', placeholder = '', maxlength }) {
+  let options = [], shown = [], active = -1;
+  const input = h('input', { type: 'text', value, placeholder, maxlength, autocomplete: 'off', role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false' });
+  const box = h('div', { class: 'combo-list', role: 'listbox', hidden: true });
+  const el = h('div', { class: 'combo' }, input, box);
+  const close = () => { box.hidden = true; input.setAttribute('aria-expanded', 'false'); active = -1; };
+  const pick = (t) => { input.value = t; close(); };
+  const paint = () => {
+    const q = input.value.trim().toLowerCase();
+    shown = options.filter((o) => o.toLowerCase().includes(q) && o.toLowerCase() !== q)
+      .sort((a, b) => (b.toLowerCase().startsWith(q) - a.toLowerCase().startsWith(q))).slice(0, 8);
+    if (!shown.length) return close();
+    if (active >= shown.length) active = shown.length - 1;
+    clear(box, shown.map((o, i) => h('div', { class: 'opt' + (i === active ? ' on' : ''), role: 'option', onmousedown: (e) => { e.preventDefault(); pick(o); } }, o)));
+    box.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+  };
+  input.addEventListener('input', () => { active = -1; paint(); });
+  input.addEventListener('click', () => { if (box.hidden) paint(); });
+  input.addEventListener('blur', () => {
+    const same = options.find((o) => o.toLowerCase() === input.value.trim().toLowerCase());
+    if (same) input.value = same; // "federal" becomes "Federal"
+    close();
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (box.hidden) paint();
+      active = shown.length ? (active + (e.key === 'ArrowDown' ? 1 : -1) + shown.length) % shown.length : -1;
+      paint();
+    } else if (e.key === 'Enter' && !box.hidden && active >= 0) {
+      e.preventDefault(); e.stopPropagation(); pick(shown[active]);
+    } else if (e.key === 'Escape' && !box.hidden) {
+      e.stopPropagation(); close();
+    }
+  });
+  return { el, input, setOptions(list) { options = list; } };
 }
 
 /** US-dollar amount box. Accepts "18.5", "$18.50" or "1,234", and tidies it to $18.50 when you leave it. */
@@ -124,7 +174,9 @@ function moneyInput(initial) {
 
 function productFields(calibers, p = {}) {
   const cal = caliberPicker(calibers.filter((c) => c.active || c.id === p.caliber_id), p.caliber_id);
-  const brand = h('input', { value: p.brand ?? '', placeholder: 'e.g. Federal', maxlength: 80 });
+  const brandBox = suggestInput({ value: p.brand ?? '', placeholder: 'e.g. Federal', maxlength: 80 });
+  const brand = brandBox.input;
+  get('/api/brands').then((list) => brandBox.setOptions(list), () => {}); // suggestions are a nicety; the box works without
   const name = h('input', { value: p.name ?? '', placeholder: 'e.g. American Eagle', maxlength: 120 });
   const weight = h('input', { type: 'number', step: 'any', min: 0, value: p.bullet_weight_gr ?? '', placeholder: 'grains' });
   const type = h('input', { value: p.bullet_type ?? '', list: 'bullet-types', placeholder: 'FMJ, JHP…', maxlength: 40 });
@@ -134,7 +186,7 @@ function productFields(calibers, p = {}) {
   const notes = h('textarea', { rows: 2 }, p.notes ?? '');
   const el = h('div', { class: 'form' },
     labeled('Caliber', cal.el, '', 'Start typing to search; pick one from the list.'), labeled('Rounds per box', rpb),
-    labeled('Brand', brand), labeled('Product / line', name),
+    labeled('Manufacturer', brandBox.el), labeled('Product / line', name),
     labeled('Bullet weight (gr)', weight), labeled('Bullet type', type),
     labeled('Cost per box (US dollars)', cost.el, '', 'Optional. The $ is optional when typing; it is shown as $0.00.'),
     labeled('Alert when below (rounds)', minr, '', 'Optional. Leave blank for no alert. Otherwise this product is flagged as low when its rounds on hand drop under this number.'),
@@ -258,7 +310,7 @@ function txTable(rows) {
 async function inventory() {
   const calibers = await get('/api/calibers');
   const calSel = h('select', {}, h('option', { value: '' }, 'All calibers'), calibers.map((c) => h('option', { value: c.id }, c.name)));
-  const q = h('input', { type: 'search', placeholder: 'Search brand, product, code…', size: 28 });
+  const q = h('input', { type: 'search', placeholder: 'Search manufacturer, product, code…', size: 28 });
   const zero = h('input', { type: 'checkbox' });
   const holder = h('div');
   const load = async () => {
@@ -570,7 +622,10 @@ async function history() {
 // ------------------------------------------------------------------- labels
 async function labels() {
   const prods = await get('/api/products');
-  const pick = h('select', {}, h('option', { value: '' }, 'No product yet (identify later)'), prods.map((p) => h('option', { value: p.id }, `${p.caliber} — ${p.label} (${specOf(p)})`)));
+  const pick = searchPicker(prods.map((p) => ({ id: p.id, name: `${p.caliber} — ${p.label} (${specOf(p)})` })), null, {
+    placeholder: 'Product: type to search, or leave empty to identify later', none: 'No matching product', empty: 'No products yet.',
+    bad: (t) => `"${t}" is not one of your products. Pick one from the list, or clear the box.`, missing: '', optional: true,
+  });
   const count = h('input', { type: 'number', min: 1, max: 100, value: 10, style: { width: '80px' } });
   const type = h('select', {}, h('option', { value: 'code128' }, 'Code 128 (bar)'), h('option', { value: 'qr' }, 'QR code'));
   const sheet = h('div', { class: 'sheet' });
@@ -582,15 +637,16 @@ async function labels() {
   };
   const printBtn = h('button', { class: 'btn', onclick: () => window.print() }, 'Print');
   clear(main, h('h1', {}, 'Labels'),
-    h('p', { class: 'sub' }, 'For ammo with no UPC (or repacked boxes). Each label is a new unique code that you can scan like any other barcode. Any 2D-capable scanner reads both styles.'),
-    h('div', { class: 'toolbar no-print' }, pick, h('span', {}, 'Count'), count, type,
+    h('p', { class: 'sub' }, 'For ammo with no UPC (or repacked boxes). A label is a code you can scan like any other barcode. A product keeps one label code: choosing it again reprints the same code. With no product chosen, each label gets its own new code to identify later. Any 2D-capable scanner reads both styles.'),
+    h('div', { class: 'toolbar no-print' }, h('div', { style: { flex: '1 1 320px', minWidth: '260px' } }, pick.el), h('span', {}, 'Labels'), count, type,
       h('button', { class: 'btn primary', onclick: async () => {
         try {
           const n = Number(count.value);
-          const r = await post('/api/labels/allocate', { count: n, product_id: pick.value ? Number(pick.value) : null });
-          const p = prods.find((x) => String(x.id) === pick.value);
+          const pid = pick.value();
+          const r = await post('/api/labels/allocate', { count: n, product_id: pid });
+          const p = prods.find((x) => x.id === pid);
           show(r.codes, p ? `${p.label}\n${p.caliber} ${specOf(p)}` : '');
-          toast(`Created ${r.codes.length} code(s)`, 'ok');
+          toast(!pid ? `Created ${r.codes.length} new code(s)` : r.reused ? `Reusing ${r.codes[0]}, already this product's label` : `Created ${r.codes[0]} for this product`, 'ok');
         } catch (e) { toast(e.message, 'error'); }
       } }, 'Create labels'), printBtn),
     h('div', { class: 'toolbar no-print' }, h('span', { class: 'muted' }, 'Reprint an existing code:'), reprint,

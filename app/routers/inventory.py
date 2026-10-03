@@ -183,7 +183,7 @@ def export_inventory(db: Session = Depends(get_db)):
     rows += [["(unidentified)", "", "", "", "", "", u["code"], u["boxes"], ""] for u in unid if u["boxes"] != 0]
     return _csv(
         rows,
-        ["caliber", "brand", "name", "weight_gr", "type", "rounds_per_box", "codes", "boxes", "rounds"],
+        ["caliber", "manufacturer", "name", "weight_gr", "type", "rounds_per_box", "codes", "boxes", "rounds"],
         "quartermaster-inventory.csv",
     )
 

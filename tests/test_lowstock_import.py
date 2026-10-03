@@ -84,7 +84,7 @@ def test_low_stock_needs_login(client):
 
 
 # ---------------------------------------------------------------- import / export
-HEAD = "caliber,brand,name,weight_gr,type,rounds_per_box,cost_per_box,low_stock_rounds,codes,notes\n"
+HEAD = "caliber,manufacturer,name,weight_gr,type,rounds_per_box,cost_per_box,low_stock_rounds,codes,notes\n"
 
 
 def do_import(c, text, apply=False):
@@ -174,7 +174,7 @@ def test_import_handles_excel_style_files(authed):
     text = "﻿Caliber,Rounds_Per_Box,Extra\r\n9mm Luger,50,ignored\r\n"
     r = do_import(authed, text, apply=True).json()
     assert r["create"] == 1 and r["ignored_columns"] == ["extra"]
-    legacy = "caliber,brand,rounds_per_box\n9mm Luger,Caf\xe9,50\n".encode("cp1252")
+    legacy = "caliber,manufacturer,rounds_per_box\n9mm Luger,Caf\xe9,50\n".encode("cp1252")
     assert authed.post("/api/import/products?apply=true", content=legacy).json()["create"] == 1
 
 

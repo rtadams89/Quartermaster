@@ -9,7 +9,7 @@ from ..codes import normalize_code
 from ..db import get_db
 from ..models import Barcode, BarcodePhoto, Caliber, Product, Transaction, UpcLookup
 from .photos import process_image, store_photo
-from ..services import minimums, photo_codes, product_dict, set_minimum, spec_text
+from ..services import brand_spellings, canonical_brand, minimums, photo_codes, product_dict, set_minimum, spec_text
 
 router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
 
@@ -126,6 +126,18 @@ def _product_full(db: Session, p: Product, photos: set[str] | None = None, mins:
     return d
 
 
+@router.get("/brands")
+def list_brands(db: Session = Depends(get_db)):
+    """Brands already used on products, most-used first, for the type-ahead on the product form."""
+    uses: dict[str, int] = {}
+    spell = brand_spellings(db)
+    for b in db.scalars(select(Product.brand)):
+        if (b or "").strip():
+            k = b.strip().lower()
+            uses[k] = uses.get(k, 0) + 1
+    return [spell[k] for k in sorted(uses, key=lambda k: (-uses[k], spell[k].lower()))]
+
+
 @router.get("/products")
 def list_products(caliber_id: int | None = None, q: str | None = None, db: Session = Depends(get_db)):
     stmt = select(Product)
@@ -153,7 +165,9 @@ def _check_caliber(db: Session, cid: int) -> None:
 @router.post("/products")
 def create_product(body: ProductIn, db: Session = Depends(get_db)):
     _check_caliber(db, body.caliber_id)
-    p = Product(**body.model_dump(exclude={"min_rounds"}))
+    fields = body.model_dump(exclude={"min_rounds"})
+    fields["brand"] = canonical_brand(db, body.brand)
+    p = Product(**fields)
     db.add(p)
     db.flush()
     set_minimum(db, "product", p.id, body.min_rounds)
@@ -167,7 +181,9 @@ def update_product(pid: int, body: ProductIn, db: Session = Depends(get_db)):
     if not p:
         raise HTTPException(404, "Product not found")
     _check_caliber(db, body.caliber_id)
-    for k, v in body.model_dump(exclude={"min_rounds"}).items():
+    fields = body.model_dump(exclude={"min_rounds"})
+    fields["brand"] = canonical_brand(db, body.brand, pid)
+    for k, v in fields.items():
         setattr(p, k, v)
     set_minimum(db, "product", pid, body.min_rounds)
     db.commit()
