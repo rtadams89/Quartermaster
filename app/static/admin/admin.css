@@ -45,6 +45,12 @@ label.chk { display: inline-flex; gap: 6px; align-items: center; font-size: 14px
 /* separate (not collapse): with collapsed borders the table's own square outline is drawn outside its rounded corners */
 table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: 14px; }
 th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th[data-sortable] { cursor: pointer; user-select: none; }
+th[data-sortable]:hover { color: var(--text); }
+th[data-sortable]:focus-visible { outline: 2px solid var(--accent, #6cb6ff); outline-offset: -2px; }
+th[aria-sort="ascending"]::after { content: ' \25B2'; font-size: 9px; }
+th[aria-sort="descending"]::after { content: ' \25BC'; font-size: 9px; }
+th[aria-sort="ascending"], th[aria-sort="descending"] { color: var(--text); }
 th { background: var(--panel-2); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); white-space: nowrap; }
 tr:last-child td { border-bottom: 0; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -122,7 +128,11 @@ html.mobile .crumbs { font-size: 16px; line-height: 1.9; }
 
 /* tables become one card per row; each cell carries its column name (added by admin.js) */
 html.mobile table { display: block; background: none; border: 0; border-radius: 0; overflow: visible; }
-html.mobile thead { display: none; }
+html.mobile thead { display: block; }
+html.mobile thead tr { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; background: none; border: 0; padding: 0; margin: 0 0 10px; }
+html.mobile thead tr::before { content: 'Sort by'; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+html.mobile th { border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; }
+html.mobile th:not([data-sortable]) { display: none; }
 html.mobile tbody { display: block; }
 html.mobile tr { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; padding: 4px 12px; }
 html.mobile tr:last-child td { border-bottom: 1px solid var(--line); }

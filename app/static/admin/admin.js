@@ -14,7 +14,94 @@ const NAV = [
 // ------------------------------------------------------------------ helpers
 const th = (t, cls) => h('th', { class: cls || '' }, t);
 const td = (c, cls) => h('td', { class: cls || '' }, c);
-const table = (heads, rows) => h('table', {}, h('thead', {}, h('tr', {}, heads.map((x) => (Array.isArray(x) ? th(x[0], x[1]) : th(x))))), h('tbody', {}, rows));
+/**
+ * A table whose column headers sort it when clicked: ascending, then descending, then back to the original order.
+ * Numbers (including $ amounts and "55 gr"), dates and text each sort the way you would expect, empty cells always
+ * go last, and a Total row stays at the bottom. The choice survives the page refreshing itself.
+ * Pass { sort: false } for a table whose row order matters (the caliber list).
+ */
+const table = (heads, rows, { sort = true } = {}) => {
+  const labels = heads.map((x) => (Array.isArray(x) ? x[0] : x));
+  const ths = heads.map((x) => (Array.isArray(x) ? th(x[0], x[1]) : th(x)));
+  const tbl = h('table', {}, h('thead', {}, h('tr', {}, ths)), h('tbody', {}, rows));
+  if (sort) makeSortable(tbl, ths, labels);
+  return tbl;
+};
+
+const sortChoice = new Map(); // table identity -> { col, dir }
+const BLANK = /^\s*([—–-])?\s*$/;
+const NUM = /^[+\-−]?\$?\d[\d,]*(\.\d+)?(\s*(gr|%|rounds?|rds?|boxes))?(\s*[–-]\s*\$?\d[\d,]*(\.\d+)?)?$/i;
+const sortText = (cell) => (cell?.querySelector('b') || cell)?.textContent.trim() ?? '';
+
+function columnKind(rows, col) {
+  const texts = rows.map((r) => sortText(r.cells[col])).filter((t) => !BLANK.test(t));
+  if (texts.length && texts.every((t) => NUM.test(t))) return 'num';
+  if (texts.length && texts.every((t) => /\d{4}/.test(t) && !Number.isNaN(Date.parse(t)))) return 'date';
+  return 'text';
+}
+
+function sortValue(kind, text) {
+  if (kind === 'num') return Number(text.match(/\d[\d,]*(\.\d+)?/)[0].replace(/,/g, '')) * (/^[\-−]/.test(text) ? -1 : 1);
+  if (kind === 'date') return Date.parse(text);
+  return text;
+}
+
+function makeSortable(tbl, ths, labels) {
+  const key = `${location.hash.split('?')[0]}|${labels.join('|')}`;
+  let seq = 0;
+  const apply = () => {
+    const tbody = tbl.tBodies[0];
+    if (!tbody) return;
+    const all = [...tbody.rows];
+    all.forEach((r) => { if (r._order === undefined) r._order = seq++; });
+    const total = all.filter((r) => r.classList.contains('total'));
+    const body = all.filter((r) => !r.classList.contains('total'));
+    const pick = sortChoice.get(key);
+    if (!pick) {
+      body.sort((a, b) => a._order - b._order);
+    } else {
+      const kind = columnKind(body, pick.col);
+      const sign = pick.dir === 'asc' ? 1 : -1;
+      const keyed = body.map((r) => {
+        const t = sortText(r.cells[pick.col]);
+        return { r, blank: BLANK.test(t), v: BLANK.test(t) ? null : sortValue(kind, t) };
+      });
+      keyed.sort((a, b) => {
+        if (a.blank !== b.blank) return a.blank ? 1 : -1; // empty cells last, whichever way it sorts
+        const c = kind === 'text' ? a.v.localeCompare(b.v, undefined, { numeric: true, sensitivity: 'base' }) : a.v - b.v;
+        return c * sign || a.r._order - b.r._order;
+      });
+      body.splice(0, body.length, ...keyed.map((k) => k.r));
+    }
+    tbody.append(...body, ...total);
+    watcher.takeRecords(); // our own reordering is not news
+    ths.forEach((t, i) => {
+      if (t.dataset.sortable) t.setAttribute('aria-sort', pick && pick.col === i ? (pick.dir === 'asc' ? 'ascending' : 'descending') : 'none');
+    });
+  };
+  const watcher = new MutationObserver((muts) => {
+    // Rows added later (History loads more) or the whole body swapped: sort them in too.
+    if (muts.some((m) => m.target === tbl || m.target.tagName === 'TBODY')) apply();
+  });
+  watcher.observe(tbl, { childList: true, subtree: true });
+  ths.forEach((t, i) => {
+    if (!labels[i]) return;
+    t.dataset.sortable = '1';
+    t.tabIndex = 0;
+    t.setAttribute('role', 'columnheader');
+    t.title = 'Click to sort';
+    const click = () => {
+      const cur = sortChoice.get(key);
+      if (!cur || cur.col !== i) sortChoice.set(key, { col: i, dir: 'asc' });
+      else if (cur.dir === 'asc') sortChoice.set(key, { col: i, dir: 'desc' });
+      else sortChoice.delete(key);
+      apply();
+    };
+    t.addEventListener('click', click);
+    t.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); click(); } });
+  });
+  apply();
+}
 const empty = (msg) => h('div', { class: 'empty' }, msg);
 const boxesCell = (n) => td(h('span', { class: n < 0 ? 'neg' : '' }, fmtInt(n)), 'num');
 const specOf = (p, { naWeight = true } = {}) => [p.bullet_weight_gr === 0 ? (naWeight ? 'N/A' : '') : p.bullet_weight_gr ? `${p.bullet_weight_gr} gr` : '', p.bullet_type, p.rounds_per_box === 1 ? 'by the round' : `${p.rounds_per_box}/box`].filter(Boolean).join(' · ');
@@ -715,7 +802,7 @@ async function calibers() {
         td(h('input', { type: 'number', min: 0, step: 1, value: c.min_rounds ?? '', placeholder: 'none', style: { width: '110px' }, 'aria-label': `Alert below, rounds, for ${c.name}`,
           onchange: async (e) => { try { await patch(`/api/calibers/${c.id}`, { min_rounds: e.target.value === '' ? null : Number(e.target.value) }); toast('Saved', 'ok'); } catch (er) { toast(er.message, 'error'); } } })),
         td([h('button', { class: 'btn sm', onclick: () => renameCaliber(c) }, 'Rename'), ' ',
-          h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete caliber?', c.products ? `${c.name} is used by ${c.products} product(s) and can't be deleted. Mark it inactive instead.` : `Delete ${c.name}?`, 'Delete', async () => { await del(`/api/calibers/${c.id}`); calibers(); }) }, 'Delete')], 'actions')))));
+          h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete caliber?', c.products ? `${c.name} is used by ${c.products} product(s) and can't be deleted. Mark it inactive instead.` : `Delete ${c.name}?`, 'Delete', async () => { await del(`/api/calibers/${c.id}`); calibers(); }) }, 'Delete')], 'actions'))), { sort: false }));
 }
 
 function renameCaliber(c) {

@@ -57,6 +57,8 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 
 **Bullet weight N/A and ammo counted by the round.** For ammo with no traditional bullet weight (shot, slugs, flares), enter *0* (or *N/A*) as the bullet weight on the product form; it is shown as N/A. For ammo you count loose, set *Rounds per box* to 1: it is then shown and counted in rounds everywhere (the kiosk asks "How many rounds?") and is left out of box totals.
 
+**Sorting.** Click any column heading in an admin table to sort by it (click again to reverse, a third time to go back to the original order). The Calibers list is the exception, since its order is the order used everywhere else.
+
 **Security.** Everything needs the PIN except the first-run PIN screen, so set the PIN as soon as the server starts and keep the server on your home network (do not port-forward it). By default five wrong PINs lock that device out for a minute, doubling each time; *Settings → Failed sign-in attempts* changes the number of attempts and the length of the first lockout. Changing the PIN signs out every other browser. Backups never contain the PIN. If you put the server behind an HTTPS reverse proxy, set `QM_TRUST_PROXY=true` and `QM_COOKIE_SECURE=true` and make the proxy pass the original `Host` header.
 
 **Clearing the history.** *Settings → History → Clear history…* erases the log of ins, outs and corrections but keeps your counts: each barcode's current number of boxes stays as one "opening balance" entry. Products, barcodes, photos and alert levels are untouched. It can't be undone, so export the history CSV or download a backup first if you want the log.

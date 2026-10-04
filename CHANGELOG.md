@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.1.0
+- Admin tables sort when you click a column header: once for ascending, again for descending, a third time for the original order. Numbers, dollar amounts, weights, dates and text each sort properly, empty cells always go last, and a Total row stays at the bottom. Your choice is kept while the page refreshes itself, and History keeps it as you load more. On a phone the column names appear as "Sort by" buttons above the cards. The Calibers list is not sortable because its order is the order used elsewhere.
+
 ## 1.0.1
 - Admin tables (the dashboard's By caliber and every other list) no longer show a square outline poking out around their rounded corners.
 - A label printed for a product whose bullet weight is N/A no longer says "N/A".
