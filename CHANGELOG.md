@@ -2,6 +2,10 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.0.1
+- Admin tables (the dashboard's By caliber and every other list) no longer show a square outline poking out around their rounded corners.
+- A label printed for a product whose bullet weight is N/A no longer says "N/A".
+
 ## 1.0.0
 First stable release.
 - Settings → Failed sign-in attempts: choose how many wrong PINs lock a device out (3 to 50, default 5) and how long the first lockout lasts (10 seconds to 24 hours, default 60 seconds). Each further wrong PIN still doubles the lockout, up to 1 hour or the first lockout's length, whichever is longer. The `QM_LOCKOUT_*` values in `.env` are now just the starting values.

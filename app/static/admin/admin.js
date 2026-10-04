@@ -17,7 +17,9 @@ const td = (c, cls) => h('td', { class: cls || '' }, c);
 const table = (heads, rows) => h('table', {}, h('thead', {}, h('tr', {}, heads.map((x) => (Array.isArray(x) ? th(x[0], x[1]) : th(x))))), h('tbody', {}, rows));
 const empty = (msg) => h('div', { class: 'empty' }, msg);
 const boxesCell = (n) => td(h('span', { class: n < 0 ? 'neg' : '' }, fmtInt(n)), 'num');
-const specOf = (p) => [p.bullet_weight_gr === 0 ? 'N/A' : p.bullet_weight_gr ? `${p.bullet_weight_gr} gr` : '', p.bullet_type, p.rounds_per_box === 1 ? 'by the round' : `${p.rounds_per_box}/box`].filter(Boolean).join(' · ');
+const specOf = (p, { naWeight = true } = {}) => [p.bullet_weight_gr === 0 ? (naWeight ? 'N/A' : '') : p.bullet_weight_gr ? `${p.bullet_weight_gr} gr` : '', p.bullet_type, p.rounds_per_box === 1 ? 'by the round' : `${p.rounds_per_box}/box`].filter(Boolean).join(' · ');
+/** The same, for a printed label: no weight line at all when the weight is N/A. */
+const labelSpecOf = (p) => specOf(p, { naWeight: false });
 // Products with 1 round per box are counted by the individual round, so they show rounds instead of boxes.
 const isSingle = (p) => p.rounds_per_box === 1;
 /** Boxes cell for a product row that has a Rounds column beside it: a by-the-round product has no boxes. */
@@ -787,7 +789,7 @@ async function labels() {
           const pid = pick.value();
           const r = await post('/api/labels/allocate', { count: n, product_id: pid });
           const p = prods.find((x) => x.id === pid);
-          add(r.codes, p ? `${p.label}\n${p.caliber} ${specOf(p)}` : '');
+          add(r.codes, p ? `${p.label}\n${p.caliber} ${labelSpecOf(p)}`.trim() : '');
           toast(!pid ? `Added ${r.codes.length} new code(s)` : r.reused ? `Added ${n} of ${r.codes[0]}, already this product's label` : `Created ${r.codes[0]} for this product and added ${n}`, 'ok');
         } catch (e) { toast(e.message, 'error'); }
       } }, 'Add to sheet')),
