@@ -42,6 +42,14 @@ engine = make_engine(config.DB_PATH)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
+def upgrade_schema() -> None:
+    """Add columns that newer versions introduced to a database made by an older one."""
+    with engine.begin() as con:
+        have = {r[1] for r in con.exec_driver_sql('PRAGMA table_info("products")')}
+        if have and "indoor_safe" not in have:
+            con.exec_driver_sql("ALTER TABLE products ADD COLUMN indoor_safe BOOLEAN NOT NULL DEFAULT 1")
+
+
 def get_db():
     db = SessionLocal()
     try:

@@ -71,6 +71,7 @@ def product_dict(p: Product | None) -> dict | None:
         "cost_per_box": p.cost_per_box,
         "cost_per_round": round(p.cost_per_box / p.rounds_per_box, 4) if p.cost_per_box is not None else None,
         "notes": p.notes,
+        "indoor_safe": bool(p.indoor_safe),
     }
 
 
@@ -137,7 +138,8 @@ def spec_text(p: Product) -> str:
         bits.append(p.bullet_type)
     spec = " ".join(bits)
     box = "by the round" if p.rounds_per_box == 1 else f"{p.rounds_per_box} rd/box"
-    return f"{spec} · {box}" if spec else box
+    text = f"{spec} · {box}" if spec else box
+    return text if p.indoor_safe else f"{text} · outdoor range only"
 
 
 def fmt_weight(w: float) -> str:

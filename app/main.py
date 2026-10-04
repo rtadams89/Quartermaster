@@ -7,13 +7,14 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import __version__, config
 from .assets import FreshStatic
-from .db import Base, SessionLocal, engine
+from .db import Base, SessionLocal, engine, upgrade_schema
 from .routers import auth, backup, batches, catalog, inventory, labels, photos, productsio, settings
 from .seed import seed
 
 STATIC = Path(__file__).parent / "static"
 
 Base.metadata.create_all(engine)
+upgrade_schema()
 with SessionLocal() as _db:
     seed(_db)
 

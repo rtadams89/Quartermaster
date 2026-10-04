@@ -2,6 +2,11 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.2.0
+- **Indoor range safe.** Every product has a new "Indoor range safe" checkbox, checked by default. Uncheck it for ammo indoor ranges do not allow. When an Ammo Out batch contains such ammo, the kiosk shows a warning naming it before the batch is recorded, with *Go back* and *Take it anyway*. Outdoor-only products show "Outdoor only" next to their details in the admin site and kiosk, and the products CSV has a new `indoor_safe` column (yes or no; a file without the column leaves the setting alone).
+- **Kiosk sounds.** *Settings → Kiosk sounds* turns the kiosk's beeps on or off and sets their volume, with a Test sound button. The kiosk picks the change up when it returns to the home screen.
+- Existing data upgrades itself: products you already have become indoor safe, and backups made by earlier versions still restore (their products come back indoor safe).
+
 ## 1.1.0
 - Admin tables sort when you click a column header: once for ascending, again for descending, a third time for the original order. Numbers, dollar amounts, weights, dates and text each sort properly, empty cells always go last, and a Total row stays at the bottom. Your choice is kept while the page refreshes itself, and History keeps it as you load more. On a phone the column names appear as "Sort by" buttons above the cards. The Calibers list is not sortable because its order is the order used elsewhere.
 

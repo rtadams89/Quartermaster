@@ -56,6 +56,7 @@ const app = document.getElementById('app');
 })();
 
 const S = {
+  sound: { enabled: true, volume: 50 }, // admin setting
   photoPrompt: true,  // ask for a box photo when a brand-new barcode is scanned (admin setting)
   cam: null,          // { kind, at } cached camera detection
   warnedNoCam: false,
@@ -72,10 +73,13 @@ document.addEventListener('contextmenu', (e) => e.preventDefault());
 // ------------------------------------------------------------------ helpers
 let audio;
 function beep(freq = 880, ms = 90) {
+  if (!S.sound.enabled || S.sound.volume <= 0) return;
   try {
     audio ??= new AudioContext();
     const o = audio.createOscillator(), g = audio.createGain();
-    o.frequency.value = freq; g.gain.value = 0.08;
+    o.frequency.value = freq;
+    const v = S.sound.volume / 100;
+    g.gain.value = 0.32 * v * v; // squared so the slider feels even
     o.connect(g); g.connect(audio.destination);
     o.start(); o.stop(audio.currentTime + ms / 1000);
   } catch { /* no audio available: fine */ }
@@ -129,10 +133,11 @@ function modal(content) {
   return () => ov.remove();
 }
 
-function confirmDialog({ title, text, ok = 'OK', cancel = 'Cancel', danger = false }) {
+function confirmDialog({ title, text, items, ok = 'OK', cancel = 'Cancel', danger = false }) {
   return new Promise((resolve) => {
     const close = modal(h('div', { class: 'dialog' },
       h('h2', {}, title), text && h('p', {}, text),
+      items && h('ul', {}, ...items.map((t) => h('li', {}, t))),
       h('div', { class: 'actions' },
         h('button', { class: 'btn', onclick: () => { close(); resolve(false); } }, cancel),
         h('button', { class: 'btn ' + (danger ? 'danger' : 'primary'), onclick: () => { close(); resolve(true); } }, ok))));
@@ -191,13 +196,21 @@ async function boot() {
     onLock: () => { if (S.screen !== 'lock') showLock(`Locked after ${status.idle_minutes} minutes of inactivity`); },
   });
   S.batch = await get('/api/batches/current').catch(() => null);
-  S.photoPrompt = await get('/api/settings').then((s) => s.photo_prompt).catch(() => true);
+  await loadSettings();
   showHome();
+}
+
+async function loadSettings() {
+  const s = await get('/api/settings').catch(() => null);
+  if (!s) return;
+  S.photoPrompt = s.photo_prompt;
+  S.sound = s.sound;
 }
 
 // --------------------------------------------------------------------- home
 function showHome() {
   S.screen = 'home';
+  loadSettings(); // pick up admin changes without a new login
   const invSub = h('small', {}, 'See what you have');
   S.last = null;
   const b = S.batch && S.batch.items.length ? S.batch : null;
@@ -521,6 +534,12 @@ async function finish() {
   if (finishing) return;
   const b = S.batch;
   const over = b.kind === 'out' && b.items.some((i) => i.quantity > i.on_hand);
+  const outdoor = b.kind === 'out' ? b.items.filter((i) => i.product && i.product.indoor_safe === false) : [];
+  if (outdoor.length && !(await confirmDialog({
+    title: '⚠ Not for indoor ranges',
+    text: outdoor.length === 1 ? 'This ammo is marked outdoor range only:' : 'These items are marked outdoor range only:',
+    items: outdoor.map((i) => i.product.label),
+    ok: 'Take it anyway', cancel: 'Go back', danger: true }))) return;
   if (over && !(await confirmDialog({ title: 'More than you have on record', text: 'Some items are above the quantity on hand. Record anyway?', ok: 'Record anyway' }))) return;
   finishing = true;
   try {

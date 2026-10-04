@@ -104,7 +104,7 @@ function makeSortable(tbl, ths, labels) {
 }
 const empty = (msg) => h('div', { class: 'empty' }, msg);
 const boxesCell = (n) => td(h('span', { class: n < 0 ? 'neg' : '' }, fmtInt(n)), 'num');
-const specOf = (p, { naWeight = true } = {}) => [p.bullet_weight_gr === 0 ? (naWeight ? 'N/A' : '') : p.bullet_weight_gr ? `${p.bullet_weight_gr} gr` : '', p.bullet_type, p.rounds_per_box === 1 ? 'by the round' : `${p.rounds_per_box}/box`].filter(Boolean).join(' · ');
+const specOf = (p, { naWeight = true } = {}) => [p.bullet_weight_gr === 0 ? (naWeight ? 'N/A' : '') : p.bullet_weight_gr ? `${p.bullet_weight_gr} gr` : '', p.bullet_type, p.rounds_per_box === 1 ? 'by the round' : `${p.rounds_per_box}/box`, naWeight && p.indoor_safe === false ? 'Outdoor only' : ''].filter(Boolean).join(' · ');
 /** The same, for a printed label: no weight line at all when the weight is N/A. */
 const labelSpecOf = (p) => specOf(p, { naWeight: false });
 // Products with 1 round per box are counted by the individual round, so they show rounds instead of boxes.
@@ -297,6 +297,7 @@ function productFields(calibers, p = {}) {
   const rpb = h('input', { type: 'number', min: 1, step: 1, required: true, value: p.rounds_per_box ?? '', placeholder: 'e.g. 50' });
   const cost = moneyInput(p.cost_per_box);
   const minr = h('input', { type: 'number', min: 0, step: 1, value: p.min_rounds ?? '', placeholder: 'blank = no alert' });
+  const indoor = h('input', { type: 'checkbox', checked: p.indoor_safe !== false });
   const notes = h('textarea', { rows: 2 }, p.notes ?? '');
   const el = h('div', { class: 'form' },
     labeled('Caliber', cal.el, '', 'Start typing to search; pick one from the list.'),
@@ -305,6 +306,7 @@ function productFields(calibers, p = {}) {
     labeled('Bullet weight (gr)', weight, '', '0 or N/A means no traditional bullet weight (shot, slugs, flares…).'), labeled('Bullet type', type),
     labeled('Cost per box (US dollars)', cost.el, '', 'Optional. The $ is optional when typing; it is shown as $0.00.'),
     labeled('Alert when below (rounds)', minr, '', 'Optional. Leave blank for no alert. Otherwise this product is flagged as low when its rounds on hand drop under this number.'),
+    labeled('Indoor range safe', h('label', { class: 'chk' }, indoor, 'Safe to shoot at an indoor range'), '', 'Uncheck for ammo that indoor ranges do not allow (steel core, tracer, incendiary, some shot…). The kiosk asks for confirmation when it is checked out.'),
     labeled('Notes', notes, 'full'),
     h('datalist', { id: 'bullet-types' }, ['FMJ', 'TMJ', 'JHP', 'HP', 'SP', 'LRN', 'LSWC', 'BTHP', 'SMK', 'Birdshot', 'Buckshot', 'Slug'].map((t) => h('option', { value: t }))));
   const value = () => {
@@ -313,7 +315,7 @@ function productFields(calibers, p = {}) {
     return {
       caliber_id: caliberId, brand: brand.value.trim(), name: name.value.trim(),
       bullet_weight_gr: weightValue(), bullet_type: type.value.trim(),
-      rounds_per_box: Number(rpb.value), cost_per_box: cost.value(), notes: notes.value,
+      rounds_per_box: Number(rpb.value), cost_per_box: cost.value(), notes: notes.value, indoor_safe: indoor.checked,
       min_rounds: minr.value === '' ? null : Number(minr.value),
     };
   };
@@ -907,6 +909,31 @@ function lockoutForm(cur) {
   h('label', {}, 'First lockout lasts ', seconds, ' seconds'),
   h('button', { class: 'btn primary', type: 'submit' }, 'Save'));
 }
+/** Kiosk beeps: on/off and volume, with a button to hear the current level. */
+function soundForm(cur) {
+  const on = h('input', { type: 'checkbox', checked: cur.enabled });
+  const vol = h('input', { type: 'range', min: 0, max: 100, step: 5, value: cur.volume, style: { width: '200px' } });
+  const out = h('span', { class: 'muted' }, `${cur.volume}%`);
+  vol.addEventListener('input', () => { out.textContent = `${vol.value}%`; });
+  let ctx;
+  const test = () => {
+    try {
+      ctx ??= new AudioContext();
+      const o = ctx.createOscillator(), g = ctx.createGain(), v = Number(vol.value) / 100;
+      o.frequency.value = 880; g.gain.value = on.checked ? 0.32 * v * v : 0;
+      o.connect(g); g.connect(ctx.destination);
+      o.start(); o.stop(ctx.currentTime + 0.25);
+    } catch { /* no audio here */ }
+  };
+  return h('form', { class: 'toolbar', onsubmit: async (e) => {
+    e.preventDefault();
+    try { await put('/api/settings/sound', { enabled: on.checked, volume: Number(vol.value) }); toast('Saved', 'ok'); } catch (er) { toast(er.message, 'error'); }
+  } },
+  h('label', { class: 'chk', style: { fontSize: '15px', color: 'var(--text)' } }, on, 'Play sounds'),
+  h('label', {}, 'Volume ', vol, ' ', out),
+  h('button', { class: 'btn', type: 'button', onclick: test }, '🔊 Test sound'),
+  h('button', { class: 'btn primary', type: 'submit' }, 'Save'));
+}
 async function settings(restored) {
   const pin = (ph) => h('input', { type: 'password', inputmode: 'numeric', pattern: '\\d{4}', maxlength: 4, placeholder: ph, autocomplete: 'off', style: { width: '110px' } });
   const cur = pin('Current'), nw = pin('New'), cf = pin('Confirm');
@@ -927,6 +954,9 @@ async function settings(restored) {
     h('h2', {}, 'Box photos'),
     h('label', { class: 'chk', style: { fontSize: '15px', color: 'var(--text)' } }, photoToggle,
       'Ask for a photo of the box at the kiosk when a brand-new barcode is scanned (needs a camera on the Pi)'),
+    h('h2', {}, 'Kiosk sounds'),
+    h('p', { class: 'sub' }, 'Beeps when the kiosk scans an item, hits an error, or finishes a batch. The kiosk picks up changes the next time it returns to the home screen. Test sound plays on this device, so the kiosk\'s speaker may sound different.'),
+    soundForm(prefs.sound),
     h('h2', {}, 'Backup & restore'),
     h('p', { class: 'sub' }, 'A backup holds everything: inventory history, products, calibers, box photos and the label counter. It does not include your PIN. Restoring replaces all current data with the backup; your PIN and sign-in are not touched.'),
     h('div', { class: 'toolbar' },

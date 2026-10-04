@@ -16,7 +16,7 @@ from ..services import brand_spellings, fmt_weight, minimums, set_minimum
 router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
 
 COLUMNS = ["caliber", "manufacturer", "name", "weight_gr", "type", "rounds_per_box", "cost_per_box",
-           "low_stock_rounds", "codes", "notes"]
+           "low_stock_rounds", "codes", "notes", "indoor_safe"]
 MAX_BYTES = 2 * 1024 * 1024
 MAX_ROWS = 5000
 MAX_ERRORS = 50
@@ -32,6 +32,7 @@ def export_products(db: Session = Depends(get_db)):
             "N/A" if p.bullet_weight_gr == 0 else fmt_weight(p.bullet_weight_gr) if p.bullet_weight_gr else "",
             p.bullet_type, p.rounds_per_box, "" if p.cost_per_box is None else f"{p.cost_per_box:.2f}",
             mins.get(("product", p.id), ""), " ".join(sorted(b.code for b in p.barcodes)), p.notes,
+            "yes" if p.indoor_safe else "no",
         ])
     rows.sort(key=lambda r: (r[0].lower(), 0 if r[3] == "N/A" else float(r[3] or 0), str(r[1]).lower(), str(r[2]).lower()))
     buf = io.StringIO()
@@ -71,6 +72,11 @@ def _parse_row(raw: dict, present: set[str]) -> dict:
             out[field] = g[col]
     if "notes" in present:
         out["notes"] = g["notes"]
+    if "indoor_safe" in present and g["indoor_safe"]:
+        word = g["indoor_safe"].lower()
+        if word not in ("yes", "y", "true", "1", "no", "n", "false", "0"):
+            raise RowError("indoor_safe must be yes or no")
+        out["indoor_safe"] = word in ("yes", "y", "true", "1")
     out["rounds_per_box"] = _num(g["rounds_per_box"], int, 1, 10000, "rounds_per_box")
     if "weight_gr" in present:
         w = g["weight_gr"]
@@ -190,7 +196,7 @@ async def import_products(request: Request, apply: bool = False, db: Session = D
         cal = calibers.get(d["caliber"].lower())
         if cal is None or cal.id != p.caliber_id:
             return True
-        for k in ("brand", "name", "bullet_type", "notes", "bullet_weight_gr", "cost_per_box", "rounds_per_box"):
+        for k in ("brand", "name", "bullet_type", "notes", "bullet_weight_gr", "cost_per_box", "rounds_per_box", "indoor_safe"):
             if k in d and d[k] != getattr(p, k):
                 return True
         if "min_rounds" in d and (d["min_rounds"] or None) != mins.get(("product", p.id)):

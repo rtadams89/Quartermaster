@@ -30,6 +30,8 @@ from .auth import _too_many  # same lockout response as the PIN change
 router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
 
 EPHEMERAL_TABLES = {"auth_sessions", "login_attempts"}
+# Columns added after a backup was made are filled with their default when it is restored.
+OPTIONAL_COLUMNS = {("products", "indoor_safe")}
 CORE_TABLES = {"calibers", "products", "barcodes", "transactions"}
 MAX_RESTORE_BYTES = 1024 * 1024 * 1024
 KEEP_SAFETY_COPIES = 5
@@ -122,7 +124,7 @@ def _validate(path: Path) -> dict:
             if t.name not in tables:
                 raise HTTPException(400, f"That backup is from an incompatible version (table '{t.name}' is missing)")
             have = {r[1] for r in con.execute(f'PRAGMA table_info("{t.name}")')}
-            missing = {c.name for c in t.columns} - have
+            missing = {c.name for c in t.columns if (t.name, c.name) not in OPTIONAL_COLUMNS} - have
             if missing:
                 raise HTTPException(
                     400, f"That backup is from an incompatible version ('{t.name}' is missing {sorted(missing)})"
@@ -161,7 +163,8 @@ def _apply(backup: Path) -> None:
                 else:
                     con.execute(f'DELETE FROM main."{t.name}"')
             for t in tables:  # parents before children
-                cols = ", ".join(f'"{c.name}"' for c in t.columns)
+                inbk = {r[1] for r in con.execute(f'PRAGMA bk.table_info("{t.name}")')}
+                cols = ", ".join(f'"{c.name}"' for c in t.columns if c.name in inbk)
                 sql = f'INSERT INTO main."{t.name}" ({cols}) SELECT {cols} FROM bk."{t.name}"'
                 if t.name == "settings":
                     con.execute(sql + " WHERE key != ?", (security.PIN_KEY,))

@@ -84,7 +84,7 @@ def test_low_stock_needs_login(client):
 
 
 # ---------------------------------------------------------------- import / export
-HEAD = "caliber,manufacturer,name,weight_gr,type,rounds_per_box,cost_per_box,low_stock_rounds,codes,notes\n"
+HEAD = "caliber,manufacturer,name,weight_gr,type,rounds_per_box,cost_per_box,low_stock_rounds,codes,notes,indoor_safe\n"
 
 
 def do_import(c, text, apply=False):

@@ -2,6 +2,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -9,6 +10,7 @@ from sqlalchemy import (
     LargeBinary,
     String,
     Text,
+    text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -64,6 +66,8 @@ class Product(Base):
     rounds_per_box: Mapped[int] = mapped_column(Integer)
     cost_per_box: Mapped[float | None] = mapped_column(Float, nullable=True)
     notes: Mapped[str] = mapped_column(Text, default="")
+    # False = outdoor ranges only; the kiosk asks for confirmation before it is checked out.
+    indoor_safe: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("1"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     caliber: Mapped[Caliber] = relationship(back_populates="products")

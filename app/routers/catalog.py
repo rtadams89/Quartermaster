@@ -113,6 +113,7 @@ class ProductIn(BaseModel):
     rounds_per_box: int = Field(gt=0, le=10000)
     cost_per_box: float | None = Field(default=None, ge=0)
     notes: str = ""
+    indoor_safe: bool = True
     min_rounds: int | None = MIN_ROUNDS
 
 
