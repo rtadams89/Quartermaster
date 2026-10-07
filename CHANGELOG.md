@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.2.3
+- Barcode lookup: the message shown when a lookup fails now comes from a fixed list instead of from the error itself, so nothing from an error can ever reach the screen. The wording is the same, except the lookup service's error code is no longer shown. This heads off a code scanning alert like the two cleared in 1.2.2.
+
 ## 1.2.2
 - Product CSV import: problems with a row are now reported without going through exception handling, which clears two GitHub code scanning alerts ("Information exposure through an exception"). The messages shown for bad rows are unchanged, and no stack trace was ever sent.
 

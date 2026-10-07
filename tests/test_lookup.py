@@ -52,11 +52,11 @@ def test_not_found_is_cached_but_errors_are_not(authed, fake, monkeypatch):
     assert len(fake) == 1
 
     def boom(code):
-        raise lookup.LookupFailed("down")
+        raise lookup.LookupFailed("unreachable")
 
     monkeypatch.setattr(lookup, "_fetch", boom)
     r = authed.get("/api/lookup/036000291452")
-    assert r.status_code == 503 and r.json()["detail"] == "down"
+    assert r.status_code == 503 and r.json()["detail"] == lookup.MESSAGES["unreachable"]
     with SessionLocal() as db:
         assert db.get(UpcLookup, "036000291452") is None
 
@@ -176,7 +176,7 @@ def test_no_listing_image_or_failed_download_saves_nothing(authed, fake, monkeyp
     assert authed.post(f"/api/lookup/{CODE}/photo").json() == {"saved": False, "reason": "no_image"}
 
     def boom(url):
-        raise lookup.LookupFailed("down")
+        raise lookup.LookupFailed("unreachable")
 
     fake.reply = ITEM
     with SessionLocal() as db:
@@ -199,3 +199,13 @@ def test_downloads_only_from_public_https_hosts():
                 "https://169.254.169.254/latest", "https://[::1]/a.jpg", "file:///etc/passwd"):
         with pytest.raises(lookup.LookupFailed):
             lookup.fetch_image(url)
+
+
+def test_failures_show_only_the_fixed_messages(authed, monkeypatch):
+    def boom(code):
+        raise lookup.LookupFailed("something unexpected, /srv/app/secret.py line 3")
+
+    monkeypatch.setattr(lookup, "_fetch", boom)
+    r = authed.get("/api/lookup/036000291452")
+    assert r.status_code == 503 and r.json()["detail"] == "The lookup failed."
+    assert all(isinstance(m, str) and "Traceback" not in m for m in lookup.MESSAGES.values())

@@ -24,8 +24,28 @@ TIMEOUT = 8
 NOT_FOUND_RETRY = timedelta(days=7)  # a miss is asked again after this long; hits are kept
 
 
+# What the user is told for each way a lookup can fail. The exception carries only a key into this table,
+# so no text from an exception (or a stack trace) can ever reach a response.
+MESSAGES = {
+    "limit": "The daily lookup limit was reached. Try again tomorrow, or fill the details in by hand.",
+    "service_error": "The lookup service answered with an error.",
+    "unreachable": "Could not reach the lookup service from the server.",
+    "photo_address": "The listing photo is not at a usable address.",
+    "photo_not_image": "The listing photo is not an image.",
+    "photo_failed": "The listing photo could not be downloaded.",
+    "photo_large": "The listing photo is too large.",
+    "photo_redirects": "The listing photo redirected too many times.",
+}
+
+
 class LookupFailed(Exception):
-    """The service could not be asked (offline, rate limited, bad reply). Never cached."""
+    """The service could not be asked (offline, rate limited, bad reply). Never cached.
+
+    `reason` is a key of MESSAGES."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
 
 
 def is_lookupable(code: str) -> bool:
@@ -40,12 +60,12 @@ def _fetch(code: str) -> dict:
             return json.load(r)
     except urllib.error.HTTPError as e:
         if e.code == 429:
-            raise LookupFailed("The daily lookup limit was reached. Try again tomorrow, or fill the details in by hand.")
+            raise LookupFailed("limit")
         if e.code == 404:
             return {"items": []}
-        raise LookupFailed(f"The lookup service answered with an error ({e.code}).")
+        raise LookupFailed("service_error")
     except (urllib.error.URLError, TimeoutError, OSError, ValueError):
-        raise LookupFailed("Could not reach the lookup service from the server.")
+        raise LookupFailed("unreachable")
 
 
 def lookup(db: Session, code: str) -> UpcLookup:
@@ -56,7 +76,7 @@ def lookup(db: Session, code: str) -> UpcLookup:
     items = data.get("items") if isinstance(data, dict) else None
     if data.get("code") not in (None, "OK") and not items:
         if data.get("code") == "EXCEED_LIMIT":
-            raise LookupFailed("The daily lookup limit was reached. Try again tomorrow, or fill the details in by hand.")
+            raise LookupFailed("limit")
         items = []
     item = items[0] if items else None
     if row is None:
@@ -187,25 +207,25 @@ def fetch_image(url: str) -> bytes:
     for _ in range(4):
         parts = urllib.parse.urlsplit(url)
         if parts.scheme != "https" or not parts.hostname or not _public_host(parts.hostname):
-            raise LookupFailed("The listing photo is not at a usable address.")
+            raise LookupFailed("photo_address")
         req = urllib.request.Request(url, headers={"User-Agent": "Quartermaster", "Accept": "image/*"})
         try:
             with opener.open(req, timeout=TIMEOUT) as r:
                 if not (r.headers.get("Content-Type") or "").lower().startswith("image/"):
-                    raise LookupFailed("The listing photo is not an image.")
+                    raise LookupFailed("photo_not_image")
                 data = r.read(MAX_IMAGE_BYTES + 1)
         except urllib.error.HTTPError as e:
             loc = e.headers.get("Location") if e.code in (301, 302, 303, 307, 308) else None
             if not loc:
-                raise LookupFailed(f"The listing photo could not be downloaded ({e.code}).")
+                raise LookupFailed("photo_failed")
             url = urllib.parse.urljoin(url, loc)
             continue
         except (urllib.error.URLError, TimeoutError, OSError):
-            raise LookupFailed("The listing photo could not be downloaded.")
+            raise LookupFailed("photo_failed")
         if len(data) > MAX_IMAGE_BYTES:
-            raise LookupFailed("The listing photo is too large.")
+            raise LookupFailed("photo_large")
         return data
-    raise LookupFailed("The listing photo redirected too many times.")
+    raise LookupFailed("photo_redirects")
 
 
 def looks_like_product_photo(data: bytes) -> bool:

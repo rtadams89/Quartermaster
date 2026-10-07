@@ -285,7 +285,7 @@ def lookup_code(code: str, db: Session = Depends(get_db)):
     try:
         row = lookup.lookup(db, code)
     except lookup.LookupFailed as e:
-        raise HTTPException(503, str(e))
+        raise HTTPException(503, lookup.MESSAGES.get(e.reason, "The lookup failed."))
     if not row.found:
         return {"enabled": True, "found": False}
     return {"enabled": True, "found": True, "title": row.title, "brand": row.brand,
