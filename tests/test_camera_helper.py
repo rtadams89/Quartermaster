@@ -75,3 +75,52 @@ def test_unknown_path_is_404(helper):
     with pytest.raises(urllib.error.HTTPError) as e:
         _get(helper + "/nope")
     assert e.value.code == 404
+
+
+# ------------------------------------------------------------------ autofocus
+def _load_helper(tmp_path, monkeypatch, **env):
+    import importlib.util
+    monkeypatch.delenv("QM_CAMERA_COMMAND", raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    src = tmp_path / "helper_mod.py"
+    src.write_text(subprocess.run(["bash", str(INSTALL), "--print-helper"], capture_output=True, text=True, check=True).stdout)
+    spec = importlib.util.spec_from_file_location("helper_mod", src)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.VIDEO = ["rpicam-vid"]
+    return mod
+
+
+def _listing(mod, monkeypatch, text):
+    monkeypatch.setattr(mod.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout=text, stderr=""))
+
+
+def test_autofocus_is_on_for_camera_module_3(tmp_path, monkeypatch):
+    mod = _load_helper(tmp_path, monkeypatch)
+    _listing(mod, monkeypatch, "Available cameras\n0 : imx708 [4608x2592] (/base/axi/pcie@120000/rp1/i2c@80000/imx708@1a)")
+    argv = mod.Camera()._argv()
+    assert argv[argv.index("--autofocus-mode") + 1] == "continuous"
+    assert argv[argv.index("--autofocus-range") + 1] == "full"
+
+
+def test_fixed_focus_cameras_get_no_autofocus_options(tmp_path, monkeypatch):
+    mod = _load_helper(tmp_path, monkeypatch)
+    _listing(mod, monkeypatch, "Available cameras\n0 : ov5647 [2592x1944]")
+    assert "--autofocus-mode" not in mod.Camera()._argv()
+
+
+def test_autofocus_setting_can_force_or_disable(tmp_path, monkeypatch):
+    mod = _load_helper(tmp_path, monkeypatch, QM_CAMERA_AUTOFOCUS="continuous")
+    assert "--autofocus-mode" in mod.Camera()._argv()
+    mod = _load_helper(tmp_path, monkeypatch, QM_CAMERA_AUTOFOCUS="off")
+    _listing(mod, monkeypatch, "0 : imx708")
+    assert "--autofocus-mode" not in mod.Camera()._argv()
+
+
+def test_a_failed_camera_listing_means_no_autofocus_options(tmp_path, monkeypatch):
+    mod = _load_helper(tmp_path, monkeypatch)
+    def boom(*a, **k):
+        raise FileNotFoundError
+    monkeypatch.setattr(mod.subprocess, "run", boom)
+    assert "--autofocus-mode" not in mod.Camera()._argv()

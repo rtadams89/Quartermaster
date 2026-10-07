@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.2.1
+- Pi camera: cameras with autofocus (Camera Module 3 and similar) now focus continuously on the box-photo screen, from close range out to far away. Fixed-focus cameras (Module 1 and 2) and USB webcams behave as before. To pick it up, run `sudo bash install.sh` again on the Pi. `QM_CAMERA_AUTOFOCUS=off` turns it off, or `continuous` forces it on.
+
 ## 1.2.0
 - **Indoor range safe.** Every product has a new "Indoor range safe" checkbox, checked by default. Uncheck it for ammo indoor ranges do not allow. When an Ammo Out batch contains such ammo, the kiosk shows a warning naming it before the batch is recorded, with *Go back* and *Take it anyway*. Outdoor-only products show "Outdoor only" next to their details in the admin site and kiosk, and the products CSV has a new `indoor_safe` column (yes or no; a file without the column leaves the setting alone).
 - **Kiosk sounds.** *Settings → Kiosk sounds* turns the kiosk's beeps on or off and sets their volume, with a Test sound button. The kiosk picks the change up when it returns to the home screen.

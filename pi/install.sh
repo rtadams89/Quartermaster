@@ -64,7 +64,11 @@ Configuration (environment variables):
                        are refused. Strongly recommended; if unset, any page may request a photo.
     QM_CAMERA_WIDTH / QM_CAMERA_HEIGHT   picture size            (default 1280x960)
     QM_CAMERA_FPS      preview frames per second                 (default 15)
-    QM_CAMERA_COMMAND  override the video program                (default: rpicam-vid, else libcamera-vid)
+    QM_CAMERA_AUTOFOCUS  continuous | off | auto                 (default auto: continuous autofocus is
+                       switched on when the camera has a focus motor, i.e. Camera Module 3 and
+                       similar, and left alone for fixed-focus cameras such as Module 1 / 2)
+    QM_CAMERA_COMMAND  override the video program                (default: rpicam-vid, else libcamera-vid;
+                       when you set this, you choose every option yourself, autofocus included)
 """
 import json
 import os
@@ -83,8 +87,24 @@ HEIGHT = os.environ.get("QM_CAMERA_HEIGHT", "960")
 FPS = os.environ.get("QM_CAMERA_FPS", "15")
 _override = os.environ.get("QM_CAMERA_COMMAND")
 VIDEO = shlex.split(_override) if _override else [p for p in (shutil.which("rpicam-vid") or shutil.which("libcamera-vid"),) if p]
+AUTOFOCUS = os.environ.get("QM_CAMERA_AUTOFOCUS", "auto").strip().lower()
+# Sensors that sit behind a focus motor: Camera Module 3 (imx708), Arducam 16 MP / 64 MP autofocus boards.
+AF_SENSORS = ("imx708", "imx519", "arducam_64mp", "hawkeye")
 IDLE_SECONDS = 6   # the camera is switched off this long after the last request
 SOI = b"\xff\xd8\xff"
+
+
+def has_autofocus() -> bool:
+    """True when autofocus is wanted and the attached camera can do it."""
+    if AUTOFOCUS in ("off", "no", "false", "0"):
+        return False
+    if AUTOFOCUS == "continuous":
+        return True
+    try:  # auto: ask the camera tool what is plugged in
+        out = subprocess.run(VIDEO + ["--list-cameras"], capture_output=True, text=True, timeout=15).stdout.lower()
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return any(name in out for name in AF_SENSORS)
 
 
 class Camera:
@@ -94,12 +114,17 @@ class Camera:
         self.cond = threading.Condition()
         self.frame, self.seq, self.proc = None, 0, None
         self.last_use = 0.0
+        self.af = None  # worked out the first time the camera starts
 
     def _argv(self):
         if _override:
             return VIDEO
+        if self.af is None:
+            self.af = has_autofocus()
+        # "full" lets it focus on a box held close to the lens as well as on things further away.
+        focus = ["--autofocus-mode", "continuous", "--autofocus-range", "full"] if self.af else []
         return VIDEO + ["--nopreview", "-t", "0", "--codec", "mjpeg", "--width", WIDTH, "--height", HEIGHT,
-                        "--framerate", FPS, "--quality", "85", "-o", "-"]
+                        "--framerate", FPS, "--quality", "85", *focus, "-o", "-"]
 
     def _start(self):
         self.proc = subprocess.Popen(self._argv(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)

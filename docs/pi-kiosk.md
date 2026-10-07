@@ -25,7 +25,7 @@ It asks a few questions. Press Enter to accept the suggested answer in brackets.
 | **Server address** | Where Quartermaster runs, for example `http://192.168.1.50:8580` |
 | **Linux user** | The user you created (for example `kiosk`) |
 | **Rotation** | 0° for normal landscape; 90° or 270° if the screen is mounted upright (try the other if it's upside-down); 180° if mounted upside-down |
-| **Camera** | None, a USB webcam, or a Raspberry Pi camera |
+| **Camera** | None, a USB webcam, or a Raspberry Pi camera (Camera Module 3 and other autofocus cameras focus automatically; older fixed-focus modules need the box held at their set distance) |
 | **Hide the mouse arrow** | Yes |
 | **Screen off after** | Never, or after 15 minutes, 1 hour, or 4 hours without use. A touch wakes it |
 | **Start at boot** | Yes |
