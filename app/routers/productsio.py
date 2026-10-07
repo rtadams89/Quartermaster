@@ -44,57 +44,73 @@ def export_products(db: Session = Depends(get_db)):
 
 
 # ------------------------------------------------------------------- import
-class RowError(Exception):
-    pass
-
-
 def _num(text: str, kind, lo, hi, what: str):
+    """Returns (number, None), or (None, what is wrong with it)."""
     try:
         v = kind(text)
     except ValueError:
-        raise RowError(f"{what} must be a number")
+        return None, f"{what} must be a number"
     if not lo <= v <= hi:
-        raise RowError(f"{what} must be between {lo} and {hi}")
-    return v
+        return None, f"{what} must be between {lo} and {hi}"
+    return v, None
 
 
-def _parse_row(raw: dict, present: set[str]) -> dict:
-    """Validate one CSV row. Returns the fields to apply (only columns that are in the file)."""
+def _parse_row(raw: dict, present: set[str]) -> tuple[dict | None, str | None]:
+    """Validate one CSV row. Returns (the fields to apply, None) with only the columns that are in the file,
+    or (None, what is wrong). Problems are returned, not raised, so no exception text ever reaches a response."""
     g = {k: unsafe((raw.get(k) or "").strip()) for k in COLUMNS}
     caliber = g["caliber"]
     if not caliber or len(caliber) > 64:
-        raise RowError("caliber is required (64 characters at most)")
+        return None, "caliber is required (64 characters at most)"
     out: dict = {"caliber": caliber}
     for col, field, limit in (("manufacturer", "brand", 80), ("name", "name", 120), ("type", "bullet_type", 40)):
         if col in present:
             if len(g[col]) > limit:
-                raise RowError(f"{col} is too long ({limit} characters at most)")
+                return None, f"{col} is too long ({limit} characters at most)"
             out[field] = g[col]
     if "notes" in present:
         out["notes"] = g["notes"]
     if "indoor_safe" in present and g["indoor_safe"]:
         word = g["indoor_safe"].lower()
         if word not in ("yes", "y", "true", "1", "no", "n", "false", "0"):
-            raise RowError("indoor_safe must be yes or no")
+            return None, "indoor_safe must be yes or no"
         out["indoor_safe"] = word in ("yes", "y", "true", "1")
-    out["rounds_per_box"] = _num(g["rounds_per_box"], int, 1, 10000, "rounds_per_box")
+    out["rounds_per_box"], bad = _num(g["rounds_per_box"], int, 1, 10000, "rounds_per_box")
+    if bad:
+        return None, bad
     if "weight_gr" in present:
         w = g["weight_gr"]
-        out["bullet_weight_gr"] = 0.0 if w.upper() in ("N/A", "NA") else _num(w, float, 0, 5000, "weight_gr") if w else None
+        if w.upper() in ("N/A", "NA"):
+            out["bullet_weight_gr"] = 0.0
+        elif w:
+            out["bullet_weight_gr"], bad = _num(w, float, 0, 5000, "weight_gr")
+            if bad:
+                return None, bad
+        else:
+            out["bullet_weight_gr"] = None
     if "cost_per_box" in present:
         cost = g["cost_per_box"].replace("$", "").replace(",", "").strip()  # "$1,234.50" is fine
-        out["cost_per_box"] = round(_num(cost, float, 0, 1e9, "cost_per_box (US dollars)"), 2) if cost else None
+        out["cost_per_box"] = None
+        if cost:
+            v, bad = _num(cost, float, 0, 1e9, "cost_per_box (US dollars)")
+            if bad:
+                return None, bad
+            out["cost_per_box"] = round(v, 2)
     if "low_stock_rounds" in present:
-        out["min_rounds"] = _num(g["low_stock_rounds"], int, 0, 1_000_000, "low_stock_rounds") if g["low_stock_rounds"] else None
+        out["min_rounds"] = None
+        if g["low_stock_rounds"]:
+            out["min_rounds"], bad = _num(g["low_stock_rounds"], int, 0, 1_000_000, "low_stock_rounds")
+            if bad:
+                return None, bad
     codes = []
     if "codes" in present:
         for c in g["codes"].replace(";", " ").replace(",", " ").split():
             try:
                 codes.append(normalize_code(c))
             except ValueError:
-                raise RowError(f"'{c}' is not a valid barcode")
+                return None, f"'{c}' is not a valid barcode"
         out["codes"] = list(dict.fromkeys(codes))
-    return out
+    return out, None
 
 
 def _read(body: bytes) -> tuple[list[dict], set[str], list[str]]:
@@ -149,48 +165,55 @@ async def import_products(request: Request, apply: bool = False, db: Session = D
     seen_products: dict[int, int] = {}
     seen_new: dict[tuple, int] = {}
     seen_codes: dict[str, int] = {}
+
+    def plan_row(n: int, raw: dict) -> str | None:
+        """Adds the row to the plan, or returns what is wrong with it."""
+        data, bad = _parse_row(raw, present)
+        if bad:
+            return bad
+        if data.get("brand"):
+            data["brand"] = brands.setdefault(data["brand"].lower(), data["brand"])
+        owners = {code_owner[c] for c in data.get("codes", []) if c in code_owner}
+        if len(owners) > 1:
+            return "its barcodes already belong to different products"
+        for c in data.get("codes", []):
+            if c in seen_codes:
+                return f"barcode {c} is also on row {seen_codes[c]}"
+        match = None
+        if owners:
+            match = next(p for p in products if p.id in owners)
+        else:
+            cal = calibers.get(data["caliber"].lower())
+            for p in products:
+                if (cal and p.caliber_id == cal.id and _same(p.brand, data.get("brand", p.brand))
+                        and _same(p.name, data.get("name", p.name))
+                        and _same(p.bullet_type, data.get("bullet_type", p.bullet_type))
+                        and p.bullet_weight_gr == data.get("bullet_weight_gr", p.bullet_weight_gr)
+                        and p.rounds_per_box == data["rounds_per_box"]):
+                    match = p
+                    break
+        if match is not None:
+            if match.id in seen_products:
+                return f"it is the same product as row {seen_products[match.id]}"
+            seen_products[match.id] = n
+            for c in data.get("codes", []):
+                if code_owner.get(c, match.id) != match.id:
+                    return f"barcode {c} belongs to another product"
+        if match is None:
+            key = (data["caliber"].lower(), data.get("brand", "").lower(), data.get("name", "").lower(),
+                   data.get("bullet_weight_gr"), data.get("bullet_type", "").lower(), data["rounds_per_box"])
+            if key in seen_new:
+                return f"it is the same new product as row {seen_new[key]}; put all its barcodes on one row"
+            seen_new[key] = n
+        for c in data.get("codes", []):
+            seen_codes[c] = n
+        plan.append((match, data))
+        return None
+
     for n, raw in enumerate(rows, start=2):  # row 1 is the header
-        try:
-            data = _parse_row(raw, present)
-            if data.get("brand"):
-                data["brand"] = brands.setdefault(data["brand"].lower(), data["brand"])
-            owners = {code_owner[c] for c in data.get("codes", []) if c in code_owner}
-            if len(owners) > 1:
-                raise RowError("its barcodes already belong to different products")
-            for c in data.get("codes", []):
-                if c in seen_codes:
-                    raise RowError(f"barcode {c} is also on row {seen_codes[c]}")
-            match = None
-            if owners:
-                match = next(p for p in products if p.id in owners)
-            else:
-                cal = calibers.get(data["caliber"].lower())
-                for p in products:
-                    if (cal and p.caliber_id == cal.id and _same(p.brand, data.get("brand", p.brand))
-                            and _same(p.name, data.get("name", p.name))
-                            and _same(p.bullet_type, data.get("bullet_type", p.bullet_type))
-                            and p.bullet_weight_gr == data.get("bullet_weight_gr", p.bullet_weight_gr)
-                            and p.rounds_per_box == data["rounds_per_box"]):
-                        match = p
-                        break
-            if match is not None:
-                if match.id in seen_products:
-                    raise RowError(f"it is the same product as row {seen_products[match.id]}")
-                seen_products[match.id] = n
-                for c in data.get("codes", []):
-                    if code_owner.get(c, match.id) != match.id:
-                        raise RowError(f"barcode {c} belongs to another product")
-            if match is None:
-                key = (data["caliber"].lower(), data.get("brand", "").lower(), data.get("name", "").lower(),
-                       data.get("bullet_weight_gr"), data.get("bullet_type", "").lower(), data["rounds_per_box"])
-                if key in seen_new:
-                    raise RowError(f"it is the same new product as row {seen_new[key]}; put all its barcodes on one row")
-                seen_new[key] = n
-            for c in data.get("codes", []):
-                seen_codes[c] = n
-            plan.append((match, data))
-        except RowError as e:
-            errors.append({"row": n, "error": str(e)})
+        problem = plan_row(n, raw)
+        if problem:
+            errors.append({"row": n, "error": problem})
 
     def changed(p: Product, d: dict) -> bool:
         cal = calibers.get(d["caliber"].lower())

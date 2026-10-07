@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.2.2
+- Product CSV import: problems with a row are now reported without going through exception handling, which clears two GitHub code scanning alerts ("Information exposure through an exception"). The messages shown for bad rows are unchanged, and no stack trace was ever sent.
+
 ## 1.2.1
 - Pi camera: cameras with autofocus (Camera Module 3 and similar) now focus continuously on the box-photo screen, from close range out to far away. Fixed-focus cameras (Module 1 and 2) and USB webcams behave as before. To pick it up, run `sudo bash install.sh` again on the Pi. `QM_CAMERA_AUTOFOCUS=off` turns it off, or `continuous` forces it on.
 
