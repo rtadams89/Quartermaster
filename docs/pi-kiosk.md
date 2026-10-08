@@ -44,7 +44,7 @@ Connect with `ssh` and run `journalctl -u quartermaster-kiosk -b` to see what we
 
 ## Screen off button
 
-The 🌙 button at the top of the kiosk home screen turns the screen off straight away; touch the screen to wake it (that first touch is swallowed, so it never presses a button). It needs the installer's helper, which now goes in for every setup, so if you installed before this button existed, run `sudo bash install.sh` again. You can check with `curl http://127.0.0.1:8581/health`: it should say `"screen": true`. Without the helper the button still blacks out the page, but the display itself stays lit.
+The 🌙 button at the top of the kiosk home screen locks the kiosk and turns the screen off straight away; touch the screen to wake it (that first touch is swallowed, so it never presses a button) and enter your PIN. It needs the installer's helper, which now goes in for every setup, so if you installed before this button existed, run `sudo bash install.sh` again. You can check with `curl http://127.0.0.1:8581/health`: it should say `"screen": true`. Without the helper the button still blacks out the page, but the display itself stays lit.
 
 ## Camera tips
 

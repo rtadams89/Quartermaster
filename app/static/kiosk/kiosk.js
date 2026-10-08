@@ -240,8 +240,9 @@ function showHome() {
   }).catch(() => {});
 }
 
-/** Black out the page right away and ask the Pi to switch the real screen off. A touch brings it back. */
+/** Lock the kiosk, black out the page right away and ask the Pi to switch the real screen off. A touch brings back the PIN screen. */
 function screenOff() {
+  lockNow();
   sleepNow();
   // Best effort: without the Pi helper (or off the Pi) the black page alone is what you get.
   fetch('http://127.0.0.1:8581/sleep', { method: 'POST', signal: AbortSignal.timeout(3000) }).catch(() => {});
