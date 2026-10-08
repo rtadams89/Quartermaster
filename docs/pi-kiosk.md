@@ -41,3 +41,10 @@ Plug the scanner into any USB port. On the *Ammo In* or *Ammo Out* screen, just 
 ## If the screen stays black
 
 Connect with `ssh` and run `journalctl -u quartermaster-kiosk -b` to see what went wrong. The most common causes are a wrong server address or a server that isn't running.
+
+## Camera tips
+
+- **Image upside down?** In the admin site, *Settings → Box photos → Turn the camera image upside down*. It flips the live view and the saved photo.
+- **Is autofocus on?** On the Pi, run `curl http://127.0.0.1:8581/health`. It should say `"camera": true` and, for a Camera Module 3, `"autofocus": true`. If the answer is `false` or has no autofocus line, run `sudo bash install.sh` again with the latest `pi/install.sh` (it updates the camera helper), then reboot or run `sudo systemctl restart quartermaster-camera`.
+- **Out of focus up close?** The Camera Module 3 can't focus much closer than about 10 cm. Hold the box a little farther back.
+

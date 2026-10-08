@@ -2,6 +2,11 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.3.0
+- **Camera upside down.** *Settings → Box photos* has a new "Turn the camera image upside down" option. It turns the kiosk's live camera view and the photo that gets saved, for any camera (Pi module or USB).
+- **Autofocus check.** The Pi camera helper now says whether autofocus is on: `curl http://127.0.0.1:8581/health` shows `"autofocus": true` for a Camera Module 3, and the helper prints it when it starts. It also works out what camera is attached once at startup instead of on first use. Run `sudo bash install.sh` again to update the helper on the Pi.
+- *docs/pi-kiosk.md* has a short Camera tips section.
+
 ## 1.2.5
 - Inventory (All items view): the caliber filter is a type-to-search box like the one on Products. Clear it to see every caliber.
 

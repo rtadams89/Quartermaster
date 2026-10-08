@@ -57,6 +57,7 @@ const app = document.getElementById('app');
 
 const S = {
   sound: { enabled: true, volume: 50 }, // admin setting
+  cameraFlip: false,  // admin setting: camera mounted upside down
   photoPrompt: true,  // ask for a box photo when a brand-new barcode is scanned (admin setting)
   cam: null,          // { kind, at } cached camera detection
   warnedNoCam: false,
@@ -205,6 +206,7 @@ async function loadSettings() {
   if (!s) return;
   S.photoPrompt = s.photo_prompt;
   S.sound = s.sound;
+  S.cameraFlip = s.camera.flip;
 }
 
 // --------------------------------------------------------------------- home
@@ -355,7 +357,7 @@ async function takeBoxPhoto(code) {
     return false;
   }
   return new Promise((resolve) => {
-    const cam = createCamera(kind);
+    const cam = createCamera(kind, { flip: S.cameraFlip });
     let shot = null, shotUrl = null, busy = false, ready = false;
     const stage = h('div', { class: 'cam-stage' });
     const msg = h('div', { class: 'cam-msg' });

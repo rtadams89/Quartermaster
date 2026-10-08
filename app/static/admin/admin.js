@@ -971,6 +971,9 @@ async function settings(restored) {
   const photoToggle = h('input', { type: 'checkbox', checked: prefs.photo_prompt, onchange: async (e) => {
     try { await put('/api/settings', { photo_prompt: e.target.checked }); toast('Saved', 'ok'); } catch (er) { toast(er.message, 'error'); e.target.checked = !e.target.checked; }
   } });
+  const flipToggle = h('input', { type: 'checkbox', checked: prefs.camera.flip, onchange: async (e) => {
+    try { await put('/api/settings/camera', { flip: e.target.checked }); toast('Saved', 'ok'); } catch (er) { toast(er.message, 'error'); e.target.checked = !e.target.checked; }
+  } });
   const restoreFile = h('input', { type: 'file', accept: '.db,application/octet-stream', style: { display: 'none' }, onchange: () => {
     const f = restoreFile.files[0];
     restoreFile.value = '';
@@ -984,6 +987,8 @@ async function settings(restored) {
     h('h2', {}, 'Box photos'),
     h('label', { class: 'chk', style: { fontSize: '15px', color: 'var(--text)' } }, photoToggle,
       'Ask for a photo of the box at the kiosk when a brand-new barcode is scanned (needs a camera on the Pi)'),
+    h('div', {}, h('label', { class: 'chk', style: { fontSize: '15px', color: 'var(--text)' } }, flipToggle,
+      'Turn the camera image upside down (for a camera mounted the other way up; it applies to the live view and the saved photo)')),
     h('h2', {}, 'Kiosk sounds'),
     h('p', { class: 'sub' }, 'Beeps when the kiosk scans an item, hits an error, or finishes a batch. The kiosk picks up changes the next time it returns to the home screen. Test sound plays on this device, so the kiosk\'s speaker may sound different.'),
     soundForm(prefs.sound),

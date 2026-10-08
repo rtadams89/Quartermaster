@@ -54,7 +54,7 @@ def _get(url):
 
 
 def test_health_reports_camera(helper):
-    assert json.loads(_get(helper + "/health")[0]) == {"ok": True, "camera": True}
+    assert json.loads(_get(helper + "/health")[0]) == {"ok": True, "camera": True, "autofocus": False}
 
 
 def test_frames_are_jpegs_and_the_counter_moves_on(helper):

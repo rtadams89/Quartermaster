@@ -109,3 +109,10 @@ def test_sound_can_be_changed(authed):
 def test_sound_volume_is_validated(authed):
     for v in (-1, 101):
         assert authed.put("/api/settings/sound", json={"enabled": True, "volume": v}).status_code == 422
+
+
+# ------------------------------------------------------------------ camera flip
+def test_camera_flip_defaults_off_and_can_be_turned_on(authed):
+    assert authed.get("/api/settings").json()["camera"] == {"flip": False}
+    assert authed.put("/api/settings/camera", json={"flip": True}).json() == {"flip": True}
+    assert authed.get("/api/settings").json()["camera"] == {"flip": True}

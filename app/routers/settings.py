@@ -12,10 +12,20 @@ router = APIRouter(prefix="/api/settings", dependencies=[Depends(security.requir
 PHOTO_PROMPT = "kiosk_photo_prompt"
 SOUND_ON = "kiosk_sound"
 SOUND_VOLUME = "kiosk_volume"
+CAMERA_FLIP = "kiosk_camera_flip"
 
 
 class SettingsIn(BaseModel):
     photo_prompt: bool
+
+
+class CameraIn(BaseModel):
+    flip: bool
+
+
+def camera_settings(db: Session) -> dict:
+    row = db.get(Setting, CAMERA_FLIP)
+    return {"flip": row is not None and row.value == "1"}  # off by default
 
 
 class SoundIn(BaseModel):
@@ -53,8 +63,16 @@ def photo_prompt_enabled(db: Session) -> bool:
 @router.get("")
 def get_settings(db: Session = Depends(get_db)):
     threshold, seconds, longest = security.lockout_policy(db)
-    return {"photo_prompt": photo_prompt_enabled(db), "sound": sound_settings(db),
+    return {"photo_prompt": photo_prompt_enabled(db), "sound": sound_settings(db), "camera": camera_settings(db),
             "lockout": {"threshold": threshold, "seconds": seconds, "longest": longest}}
+
+
+@router.put("/camera")
+def put_camera(body: CameraIn, db: Session = Depends(get_db)):
+    """Turn the kiosk camera image upside down (for a camera that is mounted the other way up)."""
+    _put(db, CAMERA_FLIP, "1" if body.flip else "0")
+    db.commit()
+    return camera_settings(db)
 
 
 @router.put("/sound")

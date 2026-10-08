@@ -27,12 +27,26 @@ export async function detectCamera() {
 }
 
 /** Returns { el, start(), snapshot(), stop() }. `el` is what to show while framing the shot. */
-export function createCamera(kind) {
-  return kind === 'helper' ? helperCamera() : browserCamera();
+export function createCamera(kind, { flip = false } = {}) {
+  return kind === 'helper' ? helperCamera(flip) : browserCamera(flip);
 }
 
-function browserCamera() {
+/** Draw a picture onto a canvas no bigger than MAX_SIDE, turned half a turn when `flip` is set. */
+function toJpeg(source, w, hh, flip) {
+  const scale = Math.min(1, MAX_SIDE / Math.max(w, hh));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(w * scale);
+  canvas.height = Math.round(hh * scale);
+  const ctx = canvas.getContext('2d');
+  if (flip) { ctx.translate(canvas.width, canvas.height); ctx.rotate(Math.PI); }
+  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not capture image'))), 'image/jpeg', 0.85));
+}
+
+function browserCamera(flip) {
   const video = h('video', { class: 'cam-video', autoplay: true, muted: true, playsinline: true });
+  if (flip) video.style.transform = 'rotate(180deg)';
   video.muted = true;
   let stream = null;
   return {
@@ -49,13 +63,7 @@ function browserCamera() {
     snapshot() {
       const w = video.videoWidth, hh = video.videoHeight;
       if (!w || !hh) throw new Error('Camera is not ready yet');
-      const scale = Math.min(1, MAX_SIDE / Math.max(w, hh));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(w * scale);
-      canvas.height = Math.round(hh * scale);
-      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-      return new Promise((resolve, reject) =>
-        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not capture image'))), 'image/jpeg', 0.85));
+      return toJpeg(video, w, hh, flip);
     },
     stop() {
       stream?.getTracks().forEach((t) => t.stop());
@@ -66,8 +74,9 @@ function browserCamera() {
 
 /** Live preview from the Pi helper: fetch the newest frame over and over (long-polling, so each
  *  request returns as soon as there is a new picture). The photo is simply the frame on screen. */
-function helperCamera() {
+function helperCamera(flip) {
   const img = h('img', { class: 'cam-video', alt: '' });
+  if (flip) img.style.transform = 'rotate(180deg)';
   let running = false, last = null, lastUrl = null;
   const loop = async (onFirst, onFail) => {
     let seq = 0, failures = 0, got = false;
@@ -98,7 +107,9 @@ function helperCamera() {
     },
     async snapshot() {
       if (!last) throw new Error('Camera is not ready yet');
-      return last;
+      if (!flip) return last;
+      const bitmap = await createImageBitmap(last);
+      try { return await toJpeg(bitmap, bitmap.width, bitmap.height, true); } finally { bitmap.close(); }
     },
     stop() {
       running = false;

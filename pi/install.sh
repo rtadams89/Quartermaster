@@ -54,7 +54,7 @@ switched on while the photo screen is open (and for a few seconds after).
 
 USB webcams do NOT need this: the kiosk uses them directly through the browser (see docs/pi-kiosk.md).
 
-    GET /health                 -> {"ok": true, "camera": true|false}
+    GET /health                 -> {"ok": true, "camera": true|false, "autofocus": true|false}
     GET /frame.jpg?after=N      -> the newest preview frame (waits briefly for one newer than frame N);
                                    the frame number comes back in the X-Frame header
 
@@ -94,8 +94,19 @@ IDLE_SECONDS = 6   # the camera is switched off this long after the last request
 SOI = b"\xff\xd8\xff"
 
 
+_af_cache = []
+
+
 def has_autofocus() -> bool:
-    """True when autofocus is wanted and the attached camera can do it."""
+    """True when autofocus is wanted and the attached camera can do it. Worked out once, then remembered."""
+    if not _af_cache:
+        _af_cache.append(_work_out_autofocus())
+    return _af_cache[0]
+
+
+def _work_out_autofocus() -> bool:
+    if _override:
+        return False  # with QM_CAMERA_COMMAND you set every option yourself
     if AUTOFOCUS in ("off", "no", "false", "0"):
         return False
     if AUTOFOCUS == "continuous":
@@ -114,15 +125,12 @@ class Camera:
         self.cond = threading.Condition()
         self.frame, self.seq, self.proc = None, 0, None
         self.last_use = 0.0
-        self.af = None  # worked out the first time the camera starts
 
     def _argv(self):
         if _override:
             return VIDEO
-        if self.af is None:
-            self.af = has_autofocus()
         # "full" lets it focus on a box held close to the lens as well as on things further away.
-        focus = ["--autofocus-mode", "continuous", "--autofocus-range", "full"] if self.af else []
+        focus = ["--autofocus-mode", "continuous", "--autofocus-range", "full"] if has_autofocus() else []
         return VIDEO + ["--nopreview", "-t", "0", "--codec", "mjpeg", "--width", WIDTH, "--height", HEIGHT,
                         "--framerate", FPS, "--quality", "85", *focus, "-o", "-"]
 
@@ -226,7 +234,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(403, "origin not allowed")
         path, _, query = self.path.partition("?")
         if path == "/health":
-            body = {"ok": True, "camera": bool(VIDEO)}
+            body = {"ok": True, "camera": bool(VIDEO), "autofocus": has_autofocus() if VIDEO else False}
             return self._send(200, json.dumps(body).encode(), "application/json")
         try:
             if path == "/frame.jpg" and VIDEO:
@@ -244,9 +252,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
+    has_autofocus()  # ask the camera once now, so the kiosk's first /health check is quick
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     threading.Thread(target=camera.watchdog, daemon=True).start()
-    print(f"Quartermaster camera helper on 127.0.0.1:{PORT} (video: {' '.join(VIDEO) or 'NOT FOUND'}, origin: {ORIGIN or 'any'})", flush=True)
+    print(f"Quartermaster camera helper on 127.0.0.1:{PORT} (video: {' '.join(VIDEO) or 'NOT FOUND'}, autofocus: {'on' if has_autofocus() else 'off'}, origin: {ORIGIN or 'any'})", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -575,7 +584,7 @@ say "  Start it now:    sudo systemctl start $UNIT      (or just reboot)"
 say "  Watch the log:   journalctl -u $UNIT -b"
 say "  Change a choice: run this installer again"
 say "  Remove it all:   sudo bash install.sh --uninstall"
-[ "$CAMERA" = csi ] && say "  Camera check:    curl http://127.0.0.1:8581/health    (should say \"camera\": true)"
+[ "$CAMERA" = csi ] && say "  Camera check:    curl http://127.0.0.1:8581/health    (should say \"camera\": true, and \"autofocus\": true for Camera Module 3)"
 [ "$ROTATION" != 0 ] && say "  Wrong way up?    run the installer again and pick the opposite angle (90 <-> 270)"
 if [ "$DRY" = 0 ] && [ "$YES" = 0 ]; then
   yesno "Reboot now to start the kiosk?" y && { say "Rebooting..."; sleep 2; reboot; }
