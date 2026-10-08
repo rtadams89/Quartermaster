@@ -2,6 +2,14 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.2.5
+- Inventory (All items view): the caliber filter is a type-to-search box like the one on Products. Clear it to see every caliber.
+
+## 1.2.4
+- Product form: the cost per round is worked out and shown under *Cost per box* as you type the cost or the rounds per box. It can't be edited, and it is left out for ammo counted by the round.
+- Product form: *Indoor range safe* is now a tidy checkbox row with its explanation beside it, and the form's fields no longer stretch when a neighbour has a long hint.
+- Products page: the caliber filter is a type-to-search box like the other caliber pickers. Clear it to see every caliber.
+
 ## 1.2.3
 - Barcode lookup: the message shown when a lookup fails now comes from a fixed list instead of from the error itself, so nothing from an error can ever reach the screen. The wording is the same, except the lookup service's error code is no longer shown. This heads off a code scanning alert like the two cleared in 1.2.2.
 

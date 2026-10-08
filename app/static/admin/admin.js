@@ -223,6 +223,17 @@ function caliberPicker(calibers, selectedId) {
   });
 }
 
+/** The caliber filter above a list: a type-to-search box. Empty means every caliber; half-typed text leaves the list as it is.
+ *  Read it with filter.id() (null for all, or undefined while the text is not yet a caliber). */
+function caliberFilter(calibers, onChange) {
+  const pick = searchPicker(calibers, null, {
+    placeholder: 'All calibers (type to search)', none: 'No matching caliber', empty: 'No calibers yet.', optional: true,
+    bad: () => '', missing: '', onChange,
+  });
+  pick.el.style.width = '230px';
+  return { el: pick.el, id() { try { return pick.value(); } catch { return undefined; } } };
+}
+
 /** Free-text box that suggests values already used (manufacturers). Anything can still be typed. */
 function suggestInput({ value = '', placeholder = '', maxlength }) {
   let options = [], shown = [], active = -1;
@@ -298,17 +309,33 @@ function productFields(calibers, p = {}) {
   const cost = moneyInput(p.cost_per_box);
   const minr = h('input', { type: 'number', min: 0, step: 1, value: p.min_rounds ?? '', placeholder: 'blank = no alert' });
   const indoor = h('input', { type: 'checkbox', checked: p.indoor_safe !== false });
+  // Cost per round is worked out from the two boxes above it. It is shown, never typed. Ammo counted by the round has no box to divide.
+  const perRound = h('output', { class: 'calc', 'aria-live': 'polite' });
+  const showPerRound = () => {
+    let text = '';
+    try {
+      const box = cost.value(), n = Number(rpb.value);
+      if (box != null && Number.isInteger(n) && n > 1) text = `${fmtPerRound(box / n)} per round`;
+    } catch { /* the cost box is not a number yet; save reports it */ }
+    perRound.textContent = text;
+    perRound.hidden = !text;
+  };
   const notes = h('textarea', { rows: 2 }, p.notes ?? '');
   const el = h('div', { class: 'form' },
     labeled('Caliber', cal.el, '', 'Start typing to search; pick one from the list.'),
     labeled('Rounds per box', rpb, '', 'Use 1 for ammo you count by the individual round; it then shows round counts instead of boxes.'),
     labeled('Manufacturer', brandBox.el), labeled('Product / line', name),
     labeled('Bullet weight (gr)', weight, '', '0 or N/A means no traditional bullet weight (shot, slugs, flares…).'), labeled('Bullet type', type),
-    labeled('Cost per box (US dollars)', cost.el, '', 'Optional. The $ is optional when typing; it is shown as $0.00.'),
+    labeled('Cost per box (US dollars)', [cost.el, perRound], '', 'Optional. The $ is optional when typing; it is shown as $0.00.'),
     labeled('Alert when below (rounds)', minr, '', 'Optional. Leave blank for no alert. Otherwise this product is flagged as low when its rounds on hand drop under this number.'),
-    labeled('Indoor range safe', h('label', { class: 'chk' }, indoor, 'Safe to shoot at an indoor range'), '', 'Uncheck for ammo that indoor ranges do not allow (steel core, tracer, incendiary, some shot…). The kiosk asks for confirmation when it is checked out.'),
+    h('label', { class: 'check full' }, indoor, h('span', {}, h('b', {}, 'Indoor range safe'),
+      h('small', { class: 'hint' }, 'Uncheck for ammo that indoor ranges do not allow (steel core, bimetal, tracer, incendiary, some shot…). The kiosk asks for confirmation when it is checked out.'))),
     labeled('Notes', notes, 'full'),
     h('datalist', { id: 'bullet-types' }, ['FMJ', 'TMJ', 'JHP', 'HP', 'SP', 'LRN', 'LSWC', 'BTHP', 'SMK', 'Birdshot', 'Buckshot', 'Slug'].map((t) => h('option', { value: t }))));
+  cost.el.addEventListener('input', showPerRound);
+  cost.el.addEventListener('blur', showPerRound);
+  rpb.addEventListener('input', showPerRound);
+  showPerRound();
   const value = () => {
     const caliberId = cal.value();
     if (!rpb.value || Number(rpb.value) < 1) throw new Error('Rounds per box is required');
@@ -327,6 +354,7 @@ function productFields(calibers, p = {}) {
     if (s.name) name.value = s.name;
     if (s.bullet_weight_gr) weight.value = s.bullet_weight_gr;
     if (s.bullet_type) type.value = s.bullet_type;
+    showPerRound();
   };
   return { el, value, fill };
 }
@@ -530,13 +558,15 @@ async function inventoryBrowse(holder) {
 
 /** Every product in one searchable table. */
 async function inventoryList(calibers, holder) {
-  const calSel = h('select', {}, h('option', { value: '' }, 'All calibers'), calibers.map((c) => h('option', { value: c.id }, c.name)));
+  const calPick = caliberFilter(calibers, () => load());
   const q = h('input', { type: 'search', placeholder: 'Search manufacturer, product, code…', size: 28 });
   const zero = h('input', { type: 'checkbox' });
   const results = h('div');
   const load = async () => {
+    const caliberId = calPick.id();
+    if (caliberId === undefined) return;
     const qs = new URLSearchParams();
-    if (calSel.value) qs.set('caliber_id', calSel.value);
+    if (caliberId) qs.set('caliber_id', caliberId);
     if (q.value.trim()) qs.set('q', q.value.trim());
     if (zero.checked) qs.set('include_zero', 'true');
     const d = await get('/api/inventory/items?' + qs);
@@ -547,9 +577,8 @@ async function inventoryList(calibers, holder) {
   };
   let t;
   q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 200); });
-  calSel.addEventListener('change', load);
   zero.addEventListener('change', load);
-  clear(holder, h('div', { class: 'toolbar' }, calSel, q, h('label', { class: 'chk' }, zero, 'Show zero stock')), results);
+  clear(holder, h('div', { class: 'toolbar' }, calPick.el, q, h('label', { class: 'chk' }, zero, 'Show zero stock')), results);
   await load();
 }
 
@@ -686,12 +715,14 @@ async function needsDetails() {
 
 async function products() {
   const calibers = await get('/api/calibers');
-  const calSel = h('select', {}, h('option', { value: '' }, 'All calibers'), calibers.map((c) => h('option', { value: c.id }, c.name)));
+  const calPick = caliberFilter(calibers, () => load());
   const q = h('input', { type: 'search', placeholder: 'Search…', size: 24 });
   const holder = h('div');
   const load = async () => {
+    const caliberId = calPick.id();
+    if (caliberId === undefined) return;
     const qs = new URLSearchParams();
-    if (calSel.value) qs.set('caliber_id', calSel.value);
+    if (caliberId) qs.set('caliber_id', caliberId);
     if (q.value.trim()) qs.set('q', q.value.trim());
     const list = await get('/api/products?' + qs);
     clear(holder, list.length ? table(['', 'Caliber', 'Product', 'Details', ['Cost per round', 'num'], 'Codes', ''], list.map((p) =>
@@ -702,8 +733,7 @@ async function products() {
   };
   let t;
   q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 200); });
-  calSel.addEventListener('change', load);
-  clear(main, h('h1', {}, 'Products'), h('div', { class: 'toolbar' }, calSel, q, h('span', { class: 'grow' }),
+  clear(main, h('h1', {}, 'Products'), h('div', { class: 'toolbar' }, calPick.el, q, h('span', { class: 'grow' }),
     h('a', { class: 'btn', href: '/api/export/products.csv' }, 'Export CSV'),
     h('button', { class: 'btn', onclick: () => importProducts(load) }, 'Import CSV'),
     h('button', { class: 'btn primary', onclick: () => productDialog(calibers, null, load) }, '+ New product')), holder);

@@ -76,7 +76,7 @@ tr.total td { font-weight: 700; background: var(--panel-2); border-top: 2px soli
 .modal .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
 .form { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
 .form .full { grid-column: 1 / -1; }
-.form label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.form label { display: grid; gap: 4px; align-content: start; font-size: 13px; color: var(--muted); }
 .form label input, .form label select, .form label textarea { color: var(--text); width: 100%; }
 .err { color: var(--danger); font-size: 14px; min-height: 18px; margin-top: 8px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
@@ -192,6 +192,11 @@ td:first-child:has(.thumb-btn) { width: 60px; padding-right: 0; }
 .low-tag { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .04em; background: color-mix(in srgb, var(--warn, #c77700) 18%, transparent); color: var(--warn, #c77700); vertical-align: middle; }
 .import-errors { margin: 0; padding-left: 20px; max-height: 220px; overflow: auto; font-size: 14px; }
 
+.form label.check { display: flex; align-items: flex-start; gap: 10px; color: var(--text); font-size: 14px; }
+.form label.check input { width: auto; margin-top: 3px; flex: none; }
+.form label.check span { display: grid; gap: 2px; }
+.form .calc { font-size: 13px; color: var(--text); }
+.form .calc[hidden] { display: none; }
 .form .hint { font-size: 12px; line-height: 1.3; color: var(--muted); opacity: .85; }
 .combo { position: relative; }
 .combo-list { position: absolute; left: 0; right: 0; top: calc(100% + 2px); z-index: 20; max-height: 230px; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .3); }
