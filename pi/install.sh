@@ -52,9 +52,12 @@ a plain webcam interface). This small service runs on the Pi, reads video from t
 It listens on 127.0.0.1 only, so nothing else on your network can reach the camera. The camera is only
 switched on while the photo screen is open (and for a few seconds after).
 
+It also has one job that is not about the camera: POST /sleep switches the screen off straight away (the kiosk's
+"Screen off" button). It does that by telling the kiosk's `swayidle` to go idle now; the next touch wakes the screen.
+
 USB webcams do NOT need this: the kiosk uses them directly through the browser (see docs/pi-kiosk.md).
 
-    GET /health                 -> {"ok": true, "camera": true|false, "autofocus": true|false}
+    GET /health                 -> {"ok": true, "camera": true|false, "autofocus": true|false, "screen": true|false}
     GET /frame.jpg?after=N      -> the newest preview frame (waits briefly for one newer than frame N);
                                    the frame number comes back in the X-Frame header
 
@@ -67,6 +70,8 @@ Configuration (environment variables):
     QM_CAMERA_AUTOFOCUS  continuous | off | auto                 (default auto: continuous autofocus is
                        switched on when the camera has a focus motor, i.e. Camera Module 3 and
                        similar, and left alone for fixed-focus cameras such as Module 1 / 2)
+    QM_CAMERA_ENABLED  yes | no                                 (default yes; the installer sets no when you
+                       are not using a Pi camera module, so the helper only does the screen button)
     QM_CAMERA_COMMAND  override the video program                (default: rpicam-vid, else libcamera-vid;
                        when you set this, you choose every option yourself, autofocus included)
 """
@@ -74,6 +79,7 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -86,12 +92,30 @@ WIDTH = os.environ.get("QM_CAMERA_WIDTH", "1280")
 HEIGHT = os.environ.get("QM_CAMERA_HEIGHT", "960")
 FPS = os.environ.get("QM_CAMERA_FPS", "15")
 _override = os.environ.get("QM_CAMERA_COMMAND")
-VIDEO = shlex.split(_override) if _override else [p for p in (shutil.which("rpicam-vid") or shutil.which("libcamera-vid"),) if p]
+_camera_on = os.environ.get("QM_CAMERA_ENABLED", "yes").strip().lower() not in ("no", "false", "0", "off")
+VIDEO = [] if not _camera_on else shlex.split(_override) if _override else [p for p in (shutil.which("rpicam-vid") or shutil.which("libcamera-vid"),) if p]
 AUTOFOCUS = os.environ.get("QM_CAMERA_AUTOFOCUS", "auto").strip().lower()
 # Sensors that sit behind a focus motor: Camera Module 3 (imx708), Arducam 16 MP / 64 MP autofocus boards.
 AF_SENSORS = ("imx708", "imx519", "arducam_64mp", "hawkeye")
 IDLE_SECONDS = 6   # the camera is switched off this long after the last request
 SOI = b"\xff\xd8\xff"
+
+
+def swayidle_pids() -> list[int]:
+    """The kiosk user's swayidle processes (it is what switches the screen off and back on)."""
+    found = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/comm") as f:
+                if f.read().strip() != "swayidle":
+                    continue
+            if os.stat(f"/proc/{entry}").st_uid == os.getuid():
+                found.append(int(entry))
+        except OSError:
+            continue
+    return found
 
 
 _af_cache = []
@@ -221,7 +245,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):  # CORS preflight
         self.send_response(204 if self._allowed() else 403)
         self._cors()
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "*")
         self.send_header("Content-Length", "0")
         self.end_headers()
@@ -234,7 +258,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(403, "origin not allowed")
         path, _, query = self.path.partition("?")
         if path == "/health":
-            body = {"ok": True, "camera": bool(VIDEO), "autofocus": has_autofocus() if VIDEO else False}
+            body = {"ok": True, "camera": bool(VIDEO), "autofocus": has_autofocus() if VIDEO else False,
+                    "screen": bool(swayidle_pids())}
             return self._send(200, json.dumps(body).encode(), "application/json")
         try:
             if path == "/frame.jpg" and VIDEO:
@@ -246,6 +271,23 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001 - report anything to the kiosk, which shows it
             return self._error(500, str(e))
         self._error(404, "not found")
+
+    def do_POST(self):
+        # A POST changes something, so it must come from the kiosk page itself: with an origin configured, no
+        # other website (and no request without an Origin header) is accepted.
+        if ORIGIN and self.headers.get("Origin") != ORIGIN:
+            return self._error(403, "origin not allowed")
+        if self.path.partition("?")[0] != "/sleep":
+            return self._error(404, "not found")
+        pids = swayidle_pids()
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGUSR1)  # swayidle: "go idle now", which runs its screen-off command
+            except OSError:
+                pass
+        if not pids:
+            return self._error(503, "screen control is not set up on this Pi")
+        self._send(200, json.dumps({"ok": True}).encode(), "application/json")
 
     def log_message(self, fmt, *args):  # quiet; journald has the service's own start/stop lines
         pass
@@ -442,7 +484,7 @@ PKGS=(cage fonts-dejavu-core fonts-noto-color-emoji curl)
 if [ "$DRY" = 1 ]; then CHROMIUM_PKG=chromium
 elif apt-cache show chromium >/dev/null 2>&1; then CHROMIUM_PKG=chromium; else CHROMIUM_PKG=chromium-browser; fi
 PKGS+=("$CHROMIUM_PKG")
-[ "$BLANK_AFTER" = 0 ] || PKGS+=(swayidle wlr-randr)
+PKGS+=(swayidle wlr-randr)  # the idle timeout, and the kiosk's Screen off button
 if [ "$CAMERA" = csi ]; then
   if [ "$DRY" = 0 ] && ! apt-cache show rpicam-apps-lite >/dev/null 2>&1; then PKGS+=(libcamera-apps-lite); else PKGS+=(rpicam-apps-lite); fi
 fi
@@ -474,11 +516,12 @@ put "$LAUNCHER" 755 <<'EOF'
 . /etc/quartermaster-kiosk.conf
 
 # Turn the screen off after BLANK_AFTER seconds without a touch or scan, and back on at the next one.
-if [ "${BLANK_AFTER:-0}" -gt 0 ] 2>/dev/null; then
-  out="$(wlr-randr 2>/dev/null | awk 'NR==1 {print $1}')"
-  if [ -n "$out" ]; then
-    swayidle -w timeout "$BLANK_AFTER" "wlr-randr --output $out --off" resume "wlr-randr --output $out --on" &
-  fi
+# With "never", swayidle still runs (with a timeout that never arrives) so the kiosk's Screen off button can use it.
+IDLE="${BLANK_AFTER:-0}"
+[ "$IDLE" -gt 0 ] 2>/dev/null || IDLE=100000000
+out="$(wlr-randr 2>/dev/null | awk 'NR==1 {print $1}')"
+if [ -n "$out" ]; then
+  swayidle -w timeout "$IDLE" "wlr-randr --output $out --off" resume "wlr-randr --output $out --on" &
 fi
 
 # Settings the page needs go on the URL: its rotation, and the blank period so it can swallow the wake-up touch.
@@ -542,18 +585,17 @@ elif [ -e "$(path "$RULES")" ]; then
   rm -f "$(path "$RULES")"; say "   removed the pointer rule"
 fi
 
-if [ "$CAMERA" = csi ]; then
-  step "Installing the Pi camera helper"
-  if [ "$DRY" = 1 ] && [ -z "$ROOT" ]; then
-    say "   [dry-run] would write camera_helper.py to $HELPER_DIR"
-  else
-    mkdir -p "$(path "$HELPER_DIR")"
-    emit_helper >"$(path "$HELPER_DIR")/camera_helper.py"; chmod 755 "$(path "$HELPER_DIR")/camera_helper.py"
-    say "   wrote $HELPER_DIR/camera_helper.py"
-  fi
-  put "/etc/systemd/system/quartermaster-camera.service" 644 <<EOF
+step "Installing the Pi helper (camera and Screen off button)"
+if [ "$DRY" = 1 ] && [ -z "$ROOT" ]; then
+  say "   [dry-run] would write camera_helper.py to $HELPER_DIR"
+else
+  mkdir -p "$(path "$HELPER_DIR")"
+  emit_helper >"$(path "$HELPER_DIR")/camera_helper.py"; chmod 755 "$(path "$HELPER_DIR")/camera_helper.py"
+  say "   wrote $HELPER_DIR/camera_helper.py"
+fi
+put "/etc/systemd/system/quartermaster-camera.service" 644 <<EOF
 [Unit]
-Description=Quartermaster camera helper (Pi camera module -> kiosk)
+Description=Quartermaster Pi helper (camera module and screen off button for the kiosk)
 After=local-fs.target
 
 [Service]
@@ -561,6 +603,7 @@ User=$KIOSK_USER
 SupplementaryGroups=video
 # Exactly the address the kiosk loads, so no other website can ask for photos.
 Environment=QM_CAMERA_ORIGIN=$KIOSK_URL
+Environment=QM_CAMERA_ENABLED=$([ "$CAMERA" = csi ] && echo yes || echo no)
 ExecStart=/usr/bin/python3 $HELPER_DIR/camera_helper.py
 Restart=always
 RestartSec=3
@@ -568,16 +611,13 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 EOF
-else
-  run systemctl disable --now quartermaster-camera.service 2>/dev/null || true
-  [ -e "$(path /etc/systemd/system/quartermaster-camera.service)" ] && rm -f "$(path /etc/systemd/system/quartermaster-camera.service)"
-fi
 
 step "Enabling services"
 run systemctl daemon-reload
 run systemctl set-default graphical.target
 if [ "$AUTOSTART" = yes ]; then run systemctl enable "$UNIT.service"; else run systemctl disable "$UNIT.service" 2>/dev/null || true; fi
-[ "$CAMERA" = csi ] && run systemctl enable --now quartermaster-camera.service
+run systemctl enable --now quartermaster-camera.service
+run systemctl restart quartermaster-camera.service  # pick up a newer helper when this is a re-run
 
 printf '\n=============================================\nDone.\n'
 say "  Start it now:    sudo systemctl start $UNIT      (or just reboot)"

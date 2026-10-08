@@ -1,13 +1,13 @@
 """Calibers, products, and barcode <-> product assignment (admin site)."""
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from .. import config, lookup, security
 from ..codes import normalize_code
 from ..db import get_db
-from ..models import Barcode, BarcodePhoto, Caliber, Product, Transaction, UpcLookup
+from ..models import Barcode, BarcodePhoto, BatchItem, Caliber, Product, Transaction, UpcLookup
 from .photos import process_image, store_photo
 from ..services import (brand_spellings, canonical_brand, inventory_by_product, minimums, missing_details, photo_codes,
                         product_dict, set_minimum, spec_text)
@@ -318,13 +318,20 @@ def lookup_photo(code: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/barcodes/{code}")
-def delete_barcode(code: str, db: Session = Depends(get_db)):
+def delete_barcode(code: str, erase_history: bool = False, db: Session = Depends(get_db)):
+    """Remove a code. One that has history is only removed when erase_history is set, and only while it has no
+    product (a code that belongs to a product is unassigned from it first, which keeps its history)."""
     code = _norm(code)
     bc = db.get(Barcode, code)
     if not bc:
         raise HTTPException(404, "Code not found")
     if db.scalar(select(func.count(Transaction.id)).where(Transaction.code == code)):
-        raise HTTPException(409, "This code has history. Unassign it from the product instead.")
+        if bc.product_id is not None:
+            raise HTTPException(409, "This code has history. Unassign it from the product instead.")
+        if not erase_history:
+            raise HTTPException(409, "This code has history. Removing it also erases that history.")
+        db.execute(delete(Transaction).where(Transaction.code == code))
+    db.execute(delete(BatchItem).where(BatchItem.code == code))  # a half-built batch that scanned it
     photo = db.get(BarcodePhoto, code)
     if photo:
         db.delete(photo)

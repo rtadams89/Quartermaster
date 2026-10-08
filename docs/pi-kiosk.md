@@ -27,7 +27,7 @@ It asks a few questions. Press Enter to accept the suggested answer in brackets.
 | **Rotation** | 0° for normal landscape; 90° or 270° if the screen is mounted upright (try the other if it's upside-down); 180° if mounted upside-down |
 | **Camera** | None, a USB webcam, or a Raspberry Pi camera (Camera Module 3 and other autofocus cameras focus automatically; older fixed-focus modules need the box held at their set distance) |
 | **Hide the mouse arrow** | Yes |
-| **Screen off after** | Never, or after 15 minutes, 1 hour, or 4 hours without use. A touch wakes it |
+| **Screen off after** | Never, or after 15 minutes, 1 hour, or 4 hours without use. A touch wakes it. Even with *Never*, the 🌙 button on the home screen switches the screen off on demand |
 | **Start at boot** | Yes |
 
 At the end, let it reboot. The Pi will start straight into Quartermaster and ask for your PIN.
@@ -41,6 +41,10 @@ Plug the scanner into any USB port. On the *Ammo In* or *Ammo Out* screen, just 
 ## If the screen stays black
 
 Connect with `ssh` and run `journalctl -u quartermaster-kiosk -b` to see what went wrong. The most common causes are a wrong server address or a server that isn't running.
+
+## Screen off button
+
+The 🌙 button at the top of the kiosk home screen turns the screen off straight away; touch the screen to wake it (that first touch is swallowed, so it never presses a button). It needs the installer's helper, which now goes in for every setup, so if you installed before this button existed, run `sudo bash install.sh` again. You can check with `curl http://127.0.0.1:8581/health`: it should say `"screen": true`. Without the helper the button still blacks out the page, but the display itself stays lit.
 
 ## Camera tips
 

@@ -1,6 +1,7 @@
 """The Pi camera helper (built into pi/install.sh), run against a fake camera program."""
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -25,8 +26,7 @@ FAKE = textwrap.dedent("""
 """)
 
 
-@pytest.fixture()
-def helper(tmp_path):
+def _start_helper(tmp_path, **extra_env):
     script = tmp_path / "helper.py"
     script.write_text(subprocess.run(["bash", str(INSTALL), "--print-helper"], capture_output=True, text=True, check=True).stdout)
     fake = tmp_path / "fakevid.py"
@@ -34,7 +34,7 @@ def helper(tmp_path):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
-    env = dict(os.environ, QM_CAMERA_PORT=str(port), QM_CAMERA_COMMAND=f"{sys.executable} {fake}")
+    env = dict(os.environ, QM_CAMERA_PORT=str(port), QM_CAMERA_COMMAND=f"{sys.executable} {fake}", **extra_env)
     proc = subprocess.Popen([sys.executable, str(script)], env=env, stdout=subprocess.DEVNULL)
     base = f"http://127.0.0.1:{port}"
     for _ in range(50):
@@ -43,8 +43,35 @@ def helper(tmp_path):
             break
         except OSError:
             time.sleep(0.1)
+    return proc, base
+
+
+@pytest.fixture()
+def helper(tmp_path):
+    proc, base = _start_helper(tmp_path)
     yield base
     proc.terminate()
+    proc.wait(5)
+
+
+@pytest.fixture()
+def helper_with_origin(tmp_path):
+    proc, base = _start_helper(tmp_path, QM_CAMERA_ORIGIN="http://kiosk.example:8580")
+    yield base
+    proc.terminate()
+    proc.wait(5)
+
+
+@pytest.fixture()
+def fake_swayidle(tmp_path):
+    """A process the helper will take for swayidle (a copy of `sleep` with that name). SIGUSR1 ends it, as a stand-in for 'go idle'."""
+    exe = tmp_path / "swayidle"
+    shutil.copy(shutil.which("sleep"), exe)
+    proc = subprocess.Popen([str(exe), "600"])
+    time.sleep(0.2)
+    yield proc
+    if proc.poll() is None:
+        proc.kill()
     proc.wait(5)
 
 
@@ -54,7 +81,7 @@ def _get(url):
 
 
 def test_health_reports_camera(helper):
-    assert json.loads(_get(helper + "/health")[0]) == {"ok": True, "camera": True, "autofocus": False}
+    assert json.loads(_get(helper + "/health")[0]) == {"ok": True, "camera": True, "autofocus": False, "screen": False}
 
 
 def test_frames_are_jpegs_and_the_counter_moves_on(helper):
@@ -124,3 +151,40 @@ def test_a_failed_camera_listing_means_no_autofocus_options(tmp_path, monkeypatc
         raise FileNotFoundError
     monkeypatch.setattr(mod.subprocess, "run", boom)
     assert "--autofocus-mode" not in mod.Camera()._argv()
+
+
+# ------------------------------------------------------------------ the kiosk's Screen off button
+def _post(url, origin=None):
+    req = urllib.request.Request(url, data=b"", method="POST", headers={"Origin": origin} if origin else {})
+    return urllib.request.urlopen(req, timeout=10)
+
+
+def test_sleep_tells_swayidle_to_go_idle(helper, fake_swayidle):
+    assert json.loads(_get(helper + "/health")[0])["screen"] is True
+    assert json.loads(_post(helper + "/sleep").read()) == {"ok": True}
+    assert fake_swayidle.wait(5) == -10  # SIGUSR1
+
+
+def test_sleep_without_swayidle_says_so(helper):
+    with pytest.raises(urllib.error.HTTPError) as e:
+        _post(helper + "/sleep")
+    assert e.value.code == 503
+
+
+def test_sleep_only_from_the_kiosk_page(helper_with_origin, fake_swayidle):
+    base = helper_with_origin
+    for origin in (None, "http://evil.example"):
+        with pytest.raises(urllib.error.HTTPError) as e:
+            _post(base + "/sleep", origin)
+        assert e.value.code == 403
+    assert fake_swayidle.poll() is None  # nothing was signalled
+    assert _post(base + "/sleep", "http://kiosk.example:8580").status == 200
+
+
+def test_the_camera_can_be_switched_off_for_screen_only_setups(tmp_path):
+    proc, base = _start_helper(tmp_path, QM_CAMERA_ENABLED="no")
+    try:
+        assert json.loads(_get(base + "/health")[0])["camera"] is False
+    finally:
+        proc.terminate()
+        proc.wait(5)

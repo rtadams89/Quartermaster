@@ -116,3 +116,35 @@ def test_camera_flip_defaults_off_and_can_be_turned_on(authed):
     assert authed.get("/api/settings").json()["camera"] == {"flip": False}
     assert authed.put("/api/settings/camera", json={"flip": True}).json() == {"flip": True}
     assert authed.get("/api/settings").json()["camera"] == {"flip": True}
+
+
+# ------------------------------------------------------------------ deleting a code that was only a test scan
+def test_unidentified_code_with_history_needs_the_erase_flag(authed):
+    run_batch(authed, "in", [("012345678905", 3)])
+    r = authed.delete("/api/barcodes/012345678905")
+    assert r.status_code == 409 and "erases" in r.json()["detail"]
+    assert authed.get("/api/needs-details").json()["unidentified"][0]["boxes"] == 3
+
+
+def test_erasing_an_unidentified_code_removes_it_its_history_and_its_boxes(authed):
+    run_batch(authed, "in", [("012345678905", 3)])
+    assert authed.delete("/api/barcodes/012345678905?erase_history=true").status_code == 200
+    assert authed.get("/api/needs-details").json()["unidentified"] == []
+    assert authed.get("/api/inventory/items?include_zero=true").json()["unidentified"] == []
+    assert authed.get("/api/transactions").json() == []
+
+
+def test_erasing_also_clears_it_from_a_half_built_batch(authed):
+    run_batch(authed, "in", [("012345678905", 1)])
+    b = authed.post("/api/batches", json={"kind": "out"}).json()
+    authed.post(f"/api/batches/{b['id']}/scan", json={"code": "012345678905"})
+    assert authed.delete("/api/barcodes/012345678905?erase_history=true").status_code == 200
+    assert authed.get("/api/batches/current").json()["items"] == []
+
+
+def test_a_code_that_belongs_to_a_product_is_never_erased(authed):
+    p = make_product(authed)
+    authed.post(f"/api/products/{p['id']}/barcodes", json={"code": "012345678905"})
+    run_batch(authed, "in", [("012345678905", 2)])
+    r = authed.delete("/api/barcodes/012345678905?erase_history=true")
+    assert r.status_code == 409 and "Unassign" in r.json()["detail"]

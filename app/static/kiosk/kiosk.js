@@ -21,16 +21,19 @@ const app = document.getElementById('app');
 // Sleep veil. When the Pi blanks its screen after N seconds without input (see the installer), the first touch
 // that wakes the screen would also press whatever is under the finger. The installer passes the same period as
 // ?blank=N; the page goes black a few seconds before the screen does, and swallows the first touch or scan.
+// The home screen's Screen off button uses the same veil straight away (sleepNow), whether or not a timeout is set.
+let sleepNow = () => {};
 (() => {
   const secs = Number(new URLSearchParams(location.search).get('blank'));
-  if (!(secs >= 11)) return;
+  const timed = secs >= 11;
   const after = (secs - 10) * 1000;
   const veil = h('div', { id: 'veil', 'aria-hidden': 'true' });
   const eaten = ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'click', 'keydown', 'keyup', 'keypress'];
   const activity = ['pointerdown', 'pointermove', 'touchstart', 'keydown'];
   let timer, state = 'awake'; // awake -> asleep -> waking -> awake
-  const arm = () => { clearTimeout(timer); timer = setTimeout(sleep, after); };
+  const arm = () => { clearTimeout(timer); if (timed) timer = setTimeout(sleep, after); };
   function sleep() {
+    clearTimeout(timer);
     state = 'asleep';
     document.body.append(veil);
     veil.className = '';
@@ -52,6 +55,7 @@ const app = document.getElementById('app');
     }, { capture: true, passive: false });
   }
   for (const type of activity) window.addEventListener(type, () => { if (state === 'awake') arm(); }, { capture: true, passive: true });
+  sleepNow = sleep;
   arm();
 })();
 
@@ -220,7 +224,8 @@ function showHome() {
     bar({
       title: ['Quartermaster', S.version && h('span', { class: 'ver' }, 'v' + S.version)],
       left: null,
-      right: [clock(), h('button', { class: 'btn', 'aria-label': 'Lock', onclick: lockNow }, '🔒')],
+      right: [clock(), h('button', { class: 'btn', 'aria-label': 'Screen off', title: 'Screen off', onclick: screenOff }, '🌙'),
+        h('button', { class: 'btn', 'aria-label': 'Lock', onclick: lockNow }, '🔒')],
     }),
     b && h('div', { class: 'resume' },
       h('div', { class: 'grow' }, `Unfinished ammo ${b.kind}: ${plural(b.items.length, 'item')}, ${qtyText(b)}`),
@@ -233,6 +238,13 @@ function showHome() {
   get('/api/low-stock').then((l) => {
     if (l.count && S.screen === 'home') { invSub.textContent = `${l.count} running low`; invSub.classList.add('warn'); }
   }).catch(() => {});
+}
+
+/** Black out the page right away and ask the Pi to switch the real screen off. A touch brings it back. */
+function screenOff() {
+  sleepNow();
+  // Best effort: without the Pi helper (or off the Pi) the black page alone is what you get.
+  fetch('http://127.0.0.1:8581/sleep', { method: 'POST', signal: AbortSignal.timeout(3000) }).catch(() => {});
 }
 
 async function lockNow() {

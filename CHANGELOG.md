@@ -2,6 +2,14 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.4.0
+- **Screen off button.** The kiosk home screen has a 🌙 button that switches the screen off at once. A touch wakes it, and that first touch is swallowed so it never presses anything. It works with or without an idle timeout.
+- The Pi helper (installed by `pi/install.sh`) now goes in for every setup, not just Pi camera modules, because it is what switches the display off for the button. It only touches the camera when you chose a Pi camera module. **Run `sudo bash install.sh` again on the Pi to get the button's screen-off part**; until then the button only blacks out the page.
+- The helper's `/health` now also says `"screen": true` when screen control is working. Its new `/sleep` request is only accepted from the kiosk page.
+
+## 1.3.1
+- **Deleting a code that was only a test scan.** Codes with no product now have a *Delete* button on *Needs details* and on the Inventory list, even when they have history. The confirmation says how many history entries and boxes go with it, and a half-built kiosk batch that scanned the code is cleaned up too. A code that belongs to a product still can't be erased this way; unassign it first. Before this, *Remove* only showed for codes with no history at all, so a scanned test code could not be removed.
+
 ## 1.3.0
 - **Camera upside down.** *Settings → Box photos* has a new "Turn the camera image upside down" option. It turns the kiosk's live camera view and the photo that gets saved, for any camera (Pi module or USB).
 - **Autofocus check.** The Pi camera helper now says whether autofocus is on: `curl http://127.0.0.1:8581/health` shows `"autofocus": true` for a Camera Module 3, and the helper prints it when it starts. It also works out what camera is attached once at startup instead of on first use. Run `sudo bash install.sh` again to update the helper on the Pi.

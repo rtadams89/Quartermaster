@@ -481,7 +481,20 @@ function unidentifiedRow(u, load) {
     td(thumb(u.code, u.has_photo, load)),
     td(h('em', { class: 'muted' }, '—')), td(h('em', {}, 'Unidentified')), td(codesOf([u.code])),
     boxesCell(u.boxes), td('—', 'num'), td('—', 'num'), td('—', 'num'), td(fmtWhen(u.last_activity)),
-    td(h('button', { class: 'btn sm primary', onclick: () => identifyDialog(u.code, load, u.has_photo) }, 'Identify'), 'actions'));
+    td([h('button', { class: 'btn sm primary', onclick: () => identifyDialog(u.code, load, u.has_photo) }, 'Identify'), ' ', deleteCodeButton(u, load)], 'actions'));
+}
+
+/** Delete button for a code that has no product. Says what goes with it (its history, and so its boxes). */
+function deleteCodeButton(u, done) {
+  const n = u.transactions;
+  const text = n
+    ? `Delete ${u.code}? This also erases its ${n} history ${n === 1 ? 'entry' : 'entries'}, so its ${fmtInt(u.boxes)} ${u.boxes === 1 ? 'box' : 'boxes'} on hand ${u.boxes === 1 ? 'is' : 'are'} removed from your counts. This cannot be undone. If it is real ammo, use Identify instead.`
+    : `Delete ${u.code}? It has no history.`;
+  return h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete code?', text, 'Delete', async () => {
+    await del(`/api/barcodes/${encodeURIComponent(u.code)}?erase_history=true`);
+    done();
+    refreshBadge();
+  }) }, 'Delete');
 }
 
 /** "412 boxes · 9,800 rounds · $1,234.50 · $0.25–$0.40 per round" */
@@ -702,7 +715,7 @@ async function needsDetails() {
       table(['Photo', 'Code', ['Boxes on hand', 'num'], ['Entries', 'num'], 'First seen', 'Last activity', ''], d.unidentified.map((u) =>
         h('tr', {}, td(thumb(u.code, u.has_photo, reload)), td(h('b', { class: 'code', style: { display: 'inline', color: 'inherit' } }, u.code)), boxesCell(u.boxes), td(u.transactions, 'num'), td(fmtWhen(u.first_seen_at)), td(fmtWhen(u.last_activity)),
           td([h('button', { class: 'btn sm primary', onclick: () => identifyDialog(u.code, reload, u.has_photo) }, 'Identify'), ' ',
-            !u.transactions && h('button', { class: 'btn sm danger', onclick: () => confirmBox('Remove code?', `Remove ${u.code}? It has no history.`, 'Remove', async () => { await del(`/api/barcodes/${encodeURIComponent(u.code)}`); reload(); }) }, 'Remove')], 'actions')))),
+            deleteCodeButton(u, reload)], 'actions')))),
     ] : null,
     d.products.length ? [
       h('h2', {}, `Products missing details (${fmtInt(d.products.length)})`),
