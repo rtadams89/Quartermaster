@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.4.1
+- The kiosk's Screen off button now locks the kiosk as well: waking the screen shows the PIN screen.
+
 ## 1.4.0
 - **Screen off button.** The kiosk home screen has a 🌙 button that switches the screen off at once. A touch wakes it, and that first touch is swallowed so it never presses anything. It works with or without an idle timeout.
 - The Pi helper (installed by `pi/install.sh`) now goes in for every setup, not just Pi camera modules, because it is what switches the display off for the button. It only touches the camera when you chose a Pi camera module. **Run `sudo bash install.sh` again on the Pi to get the button's screen-off part**; until then the button only blacks out the page.
