@@ -2,6 +2,7 @@ services:
   quartermaster:
     build: .
     image: quartermaster:latest
+    pull_policy: build
     container_name: quartermaster
     restart: unless-stopped
     ports:
