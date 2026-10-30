@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.4.4
+- The README now has screenshots of the kiosk and the admin site.
+
 ## 1.4.3
 - **Security update.** Pillow (the image library) is now version 13, which fixes all 17 open Dependabot alerts. Photos are also only opened if they are JPEG, PNG, WebP, GIF or BMP, so a TIFF, PDF or similar file can no longer reach the image decoders, whether it is uploaded or comes from an online listing. **Rebuild the container to get the new library:** `docker compose up -d --build`.
 

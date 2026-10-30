@@ -2,6 +2,8 @@
 
 Keep track of your ammunition by scanning boxes in and out.
 
+![The Quartermaster admin dashboard, with the kiosk home screen in front](docs/images/overview.png)
+
 - **Kiosk:** a small touchscreen with a barcode scanner. Tap *Ammo In* or *Ammo Out*, scan boxes, check the list, tap *Finish*. A quick *Inventory* view shows what you have by caliber, bullet weight and product.
 - **Admin site:** a website for your computer to name unknown barcodes, manage products and calibers, fix counts, see history, print labels, and make backups.
 
@@ -39,9 +41,15 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 
 **Ammo In / Ammo Out.** Tap one, then scan boxes. Each scan adds one box to the list; scan the same box again to add another, or tap the number to type a quantity. Tap *Review & Finish* to check the list, then *Finish* to save it. Nothing is recorded until you finish.
 
+![Kiosk review screen, and the warning shown for outdoor-only ammo](docs/images/kiosk-checkout.png)
+
 **Unknown barcodes.** A barcode the system hasn't seen is still recorded, as "Unknown item". When it is new, the kiosk offers to take a photo of the box (if you have a camera). Later, open **Needs details** in the admin site and name it, and everything already scanned picks up the details. The server looks the barcode up online (only the number is sent) and offers to fill in the form for you (and keeps the listing's photo if the box has none yet); set `QM_UPC_LOOKUP=false` in `.env` to turn that off.
 
 **Inventory.** On the kiosk, tap *Inventory* and drill down by caliber, then bullet weight, then product, or scan a box to jump straight to it and see how many are in stock. In the admin site, *Inventory* opens the same drill-down (caliber, then bullet weight, then manufacturer, then the product) with clickable breadcrumbs to jump back; *All items* shows every product in one searchable table. *+ Add stock* adds boxes without scanning, and *Adjust* corrects a count.
+
+![Admin Inventory page with LOW and OUT tags](docs/images/admin-inventory.png)
+
+![Kiosk Inventory screen](docs/images/kiosk-inventory.png)
 
 **Needs details.** The admin dashboard's *Needs details* box counts barcodes that have no product yet plus products still missing a cost, manufacturer, bullet type or bullet weight (shotshells don't need a weight). Click it, or *Needs details* in the menu, to see them all and fix each one in place.
 
@@ -58,6 +66,8 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 **Bullet weight N/A and ammo counted by the round.** For ammo with no traditional bullet weight (shot, slugs, flares), enter *0* (or *N/A*) as the bullet weight on the product form; it is shown as N/A. For ammo you count loose, set *Rounds per box* to 1: it is then shown and counted in rounds everywhere (the kiosk asks "How many rounds?") and is left out of box totals.
 
 **Indoor range safe.** Each product has an *Indoor range safe* checkbox, on by default. Uncheck it for ammo that indoor ranges do not allow (steel core, tracer, some shot loads). If an Ammo Out batch includes anything unchecked, the kiosk shows a warning naming it when you tap *Finish*, and you choose *Go back* or *Take it anyway*.
+
+![Editing a product: cost per round is worked out for you, and Indoor range safe is unchecked](docs/images/admin-product.png)
 
 **Kiosk sounds.** *Settings → Kiosk sounds* switches the beeps on or off and sets the volume. *Test sound* plays on the device you are using, so the kiosk's speaker may sound different.
 
