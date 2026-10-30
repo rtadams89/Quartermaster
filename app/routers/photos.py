@@ -17,7 +17,7 @@ MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 FULL_SIZE = 1280
 THUMB_SIZE = 240
 ALLOWED_FORMATS = {"JPEG", "PNG", "WEBP", "GIF", "BMP"}
-Image.MAX_IMAGE_PIXELS = 60_000_000  # refuse decompression bombs
+Image.MAX_IMAGE_PIXELS = 60_000_000  # maximum image size in pixels
 
 
 def process_image(data: bytes) -> tuple[bytes, bytes]:
@@ -87,7 +87,7 @@ def get_photo(code: str, request: Request, thumb: bool = False, db: Session = De
     if not p:
         raise HTTPException(404, "No photo")
     etag = f'"{p.etag}{"-t" if thumb else ""}"'
-    headers = {"ETag": etag, "Cache-Control": "private, no-cache"}  # always revalidate, cheap via ETag
+    headers = {"ETag": etag, "Cache-Control": "private, no-cache"}  # revalidate on every request
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
     return Response(p.thumb if thumb else p.image, media_type="image/jpeg", headers=headers)

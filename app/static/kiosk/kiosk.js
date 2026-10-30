@@ -18,10 +18,9 @@ const app = document.getElementById('app');
   apply();
 })();
 
-// Sleep veil. When the Pi blanks its screen after N seconds without input (see the installer), the first touch
-// that wakes the screen would also press whatever is under the finger. The installer passes the same period as
-// ?blank=N; the page goes black a few seconds before the screen does, and swallows the first touch or scan.
-// The home screen's Screen off button uses the same veil straight away (sleepNow), whether or not a timeout is set.
+// Sleep veil. With ?blank=N (set by the installer) the page goes black a few seconds before the Pi blanks its
+// screen, and swallows the first touch or scan that wakes it. The home screen's Screen off button uses the same
+// veil straight away (sleepNow).
 let sleepNow = () => {};
 (() => {
   const secs = Number(new URLSearchParams(location.search).get('blank'));
@@ -84,10 +83,10 @@ function beep(freq = 880, ms = 90) {
     const o = audio.createOscillator(), g = audio.createGain();
     o.frequency.value = freq;
     const v = S.sound.volume / 100;
-    g.gain.value = 0.32 * v * v; // squared so the slider feels even
+    g.gain.value = 0.32 * v * v;
     o.connect(g); g.connect(audio.destination);
     o.start(); o.stop(audio.currentTime + ms / 1000);
-  } catch { /* no audio available: fine */ }
+  } catch { /* no audio */ }
 }
 
 function clock() {
@@ -244,7 +243,7 @@ function showHome() {
 function screenOff() {
   lockNow();
   sleepNow();
-  // Best effort: without the Pi helper (or off the Pi) the black page alone is what you get.
+  // Ask the Pi helper to switch the screen off.
   fetch('http://127.0.0.1:8581/sleep', { method: 'POST', signal: AbortSignal.timeout(3000) }).catch(() => {});
 }
 
@@ -272,8 +271,7 @@ async function startBatch(kind) {
 
 // --------------------------------------------------------------------- scan
 // The scanner is a USB keyboard: it "types" the code very fast, then presses Enter.
-// A burst only counts if the scan screen was showing for ALL of it, so a scan that
-// starts while the screen is still loading can never be recorded as a truncated code.
+// A burst only counts if the scan screen was showing for all of it.
 let buf = '', lastKeyAt = 0, burstOk = false;
 let scanChain = Promise.resolve();
 
@@ -354,7 +352,7 @@ const thumbUrl = (code) => `/api/barcodes/${encodeURIComponent(code)}/photo?thum
 const thumbEl = (it, cls = 'thumb') => (it.has_photo ? h('img', { class: cls, src: thumbUrl(it.code), alt: '' }) : null);
 
 async function cameraKind() {
-  // Re-check now and then, so plugging in the camera or starting the helper later just works.
+  // Re-check every 30 s while no camera is found.
   if (!S.cam || (!S.cam.kind && Date.now() - S.cam.at > 30_000)) S.cam = { kind: await detectCamera(), at: Date.now() };
   return S.cam.kind;
 }

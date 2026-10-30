@@ -215,7 +215,7 @@ def update_product(pid: int, body: ProductIn, db: Session = Depends(get_db)):
 
 @router.delete("/products/{pid}")
 def delete_product(pid: int, db: Session = Depends(get_db)):
-    """Deleting a product does not lose history: its codes simply become unidentified again."""
+    """Delete a product; its codes become unidentified and keep their history."""
     p = db.get(Product, pid)
     if not p:
         raise HTTPException(404, "Product not found")
@@ -294,8 +294,8 @@ def lookup_code(code: str, db: Session = Depends(get_db)):
 
 @router.post("/lookup/{code}/photo")
 def lookup_photo(code: str, db: Session = Depends(get_db)):
-    """Keep the online listing's photo as this code's box photo, but only when it is a real
-    product photo and the code has no photo yet. An existing (your own) photo is never replaced."""
+    """Save the online listing's photo as this code's box photo when it is a real product photo
+    and the code has no photo yet."""
     code = _norm(code)
     if not config.UPC_LOOKUP:
         return {"saved": False, "reason": "disabled"}

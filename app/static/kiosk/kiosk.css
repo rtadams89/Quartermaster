@@ -1,6 +1,6 @@
-/* Touch UI, designed for a 7" 800x480 screen. Everything is flex-sized, so other sizes work too. */
+/* Touch UI, designed for a 7" 800x480 screen. */
 html, body { overflow: hidden; overscroll-behavior: none; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
-/* This is a touchscreen: never draw a mouse pointer (the compositor parks one mid-screen). */
+/* Hide the mouse pointer. */
 *, *::before, *::after { cursor: none !important; }
 #stage { position: fixed; inset: 0; }
 #veil { position: fixed; inset: 0; z-index: 9999; background: #000; }
@@ -9,7 +9,7 @@ html, body { overflow: hidden; overscroll-behavior: none; user-select: none; -we
 button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 button:disabled { opacity: .35; }
 
-/* Version tag next to the home title: present but quiet. */
+/* Version tag next to the home title. */
 .bar h1 .ver { margin-left: 8px; font-size: 11px; font-weight: 500; letter-spacing: 0; color: var(--muted); opacity: .6; vertical-align: middle; }
 
 /* ------------------------------------------------------------- rotation

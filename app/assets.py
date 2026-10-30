@@ -1,13 +1,7 @@
-"""Serving the two web UIs so that an update is always picked up, without a forced refresh.
+"""Serves the two web UIs with content-hash ETags.
 
-Two things used to go wrong:
-
-* Files were revalidated with an ETag built from modification time + size. Copying files around (Docker
-  layers, synced folders) can leave two different versions with the same pair, so a browser was told
-  "unchanged" and kept the old one. The ETag here is a hash of the file's *content*.
-* A page that was already open never noticed a new version at all. Every script is served with a
-  ``BUILD`` constant (a hash of all UI files + the version) filled in, and ``/api/health`` reports the
-  server's current build; the pages compare the two and reload themselves when they differ.
+Every script is served with a ``BUILD`` constant (a hash of all UI files + the version) filled in.
+``/api/health`` reports the server's current build; the pages compare the two and reload when they differ.
 """
 import hashlib
 import mimetypes

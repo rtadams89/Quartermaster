@@ -70,7 +70,7 @@ def render(code: str, type: str = Query(default="code128", pattern="^(code128|qr
         raise HTTPException(400, "Invalid code")
     buf = io.BytesIO()
     if type == "qr":
-        # micro=False: segno would otherwise pick Micro QR for short strings, which many scanners can't read.
+        # micro=False: always a regular QR code
         segno.make(code, error="m", micro=False).save(buf, kind="svg", scale=4, border=1, xmldecl=False)
     else:
         pybarcode.get("code128", code, writer=SVGWriter()).write(

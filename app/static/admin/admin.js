@@ -74,7 +74,7 @@ function makeSortable(tbl, ths, labels) {
       body.splice(0, body.length, ...keyed.map((k) => k.r));
     }
     tbody.append(...body, ...total);
-    watcher.takeRecords(); // our own reordering is not news
+    watcher.takeRecords(); // discard changes made by the sort itself
     ths.forEach((t, i) => {
       if (t.dataset.sortable) t.setAttribute('aria-sort', pick && pick.col === i ? (pick.dir === 'asc' ? 'ascending' : 'descending') : 'none');
     });
@@ -177,7 +177,7 @@ function searchPicker(items, selectedId, o) {
     box.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
   };
   input.addEventListener('input', () => { chosen = list.find((c) => c.key === squash(input.value)) || null; active = -1; paint(); o.onChange?.(); });
-  input.addEventListener('focus', () => { if (chosen) input.select(); }); // the list opens on click, typing or arrow keys, not on the dialog's own autofocus
+  input.addEventListener('focus', () => { if (chosen) input.select(); });
   input.addEventListener('click', () => { if (box.hidden) paint(); });
   input.addEventListener('blur', () => {
     if (!chosen && input.value.trim() && shown.length === 1) pick(shown[0]); // one match left: take it
@@ -234,7 +234,7 @@ function caliberFilter(calibers, onChange) {
   return { el: pick.el, id() { try { return pick.value(); } catch { return undefined; } } };
 }
 
-/** Free-text box that suggests values already used (manufacturers). Anything can still be typed. */
+/** Free-text box that suggests values already used (manufacturers). */
 function suggestInput({ value = '', placeholder = '', maxlength }) {
   let options = [], shown = [], active = -1;
   const input = h('input', { type: 'text', value, placeholder, maxlength, autocomplete: 'off', role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false' });
@@ -283,7 +283,7 @@ const parseMoney = (text) => {
 };
 function moneyInput(initial) {
   const input = h('input', { type: 'text', inputmode: 'decimal', placeholder: '$0.00', autocomplete: 'off', value: fmtMoney(initial) });
-  input.addEventListener('blur', () => { try { input.value = fmtMoney(parseMoney(input.value)); } catch { /* left as typed; save reports it */ } });
+  input.addEventListener('blur', () => { try { input.value = fmtMoney(parseMoney(input.value)); } catch { /* left as typed */ } });
   return { el: input, value: () => parseMoney(input.value) };
 }
 
@@ -291,7 +291,7 @@ function productFields(calibers, p = {}) {
   const cal = caliberPicker(calibers.filter((c) => c.active || c.id === p.caliber_id), p.caliber_id);
   const brandBox = suggestInput({ value: p.brand ?? '', placeholder: 'e.g. Federal', maxlength: 80 });
   const brand = brandBox.input;
-  get('/api/brands').then((list) => brandBox.setOptions(list), () => {}); // suggestions are a nicety; the box works without
+  get('/api/brands').then((list) => brandBox.setOptions(list), () => {}); // on failure the box has no suggestions
   const name = h('input', { value: p.name ?? '', placeholder: 'e.g. American Eagle', maxlength: 120 });
   // 0 means N/A (no traditional bullet weight). The box shows it as "N/A" and accepts "N/A", "NA" or 0.
   const weight = h('input', { type: 'text', inputmode: 'decimal', autocomplete: 'off', maxlength: 8, placeholder: 'grains, or 0 / N/A', value: p.bullet_weight_gr === 0 ? 'N/A' : p.bullet_weight_gr ?? '' });
@@ -316,7 +316,7 @@ function productFields(calibers, p = {}) {
     try {
       const box = cost.value(), n = Number(rpb.value);
       if (box != null && Number.isInteger(n) && n > 1) text = `${fmtPerRound(box / n)} per round`;
-    } catch { /* the cost box is not a number yet; save reports it */ }
+    } catch { /* the cost box is not a number yet */ }
     perRound.textContent = text;
     perRound.hidden = !text;
   };
@@ -668,7 +668,7 @@ async function identifyDialog(code, done, hasPhoto = false) {
     clear(wrap, mode === 'existing' ? h('div', { class: 'form' }, existingBox) : newForm.el);
   };
   paint();
-  // Ask the online UPC database what this code is; the answer only ever pre-fills the new-product form.
+  // Ask the online UPC database what this code is and pre-fill the new-product form.
   const hint = h('div', { class: 'lookup-hint', hidden: true });
   let listingPhoto = false;
   get(`/api/lookup/${encodeURIComponent(code)}`).then((r) => {
@@ -694,7 +694,7 @@ async function identifyDialog(code, done, hasPhoto = false) {
       if (mode === 'existing') pid = pick.value();
       else pid = (await post('/api/products', newForm.value())).id;
       await put(`/api/barcodes/${encodeURIComponent(code)}`, { product_id: pid });
-      // Best effort. The server never replaces a photo you already have.
+      // Save the listing photo (best effort).
       if (listingPhoto) await post(`/api/lookup/${encodeURIComponent(code)}/photo`).catch(() => {});
       toast('Saved', 'ok');
       await done();

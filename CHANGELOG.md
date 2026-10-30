@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.4.2
+- Code comments tidied up. No change in behavior.
+
 ## 1.4.1
 - The kiosk's Screen off button now locks the kiosk as well: waking the screen shows the PIN screen.
 

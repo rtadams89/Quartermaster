@@ -12,8 +12,7 @@ services:
       QM_LOCKOUT_THRESHOLD: ${QM_LOCKOUT_THRESHOLD:-5}
       QM_LOCKOUT_BASE_SECONDS: ${QM_LOCKOUT_BASE_SECONDS:-60}
       QM_LOCKOUT_MAX_SECONDS: ${QM_LOCKOUT_MAX_SECONDS:-3600}
-      # Only set these to true if a reverse proxy in front of this container terminates
-      # the connection (TRUST_PROXY) and/or serves HTTPS (COOKIE_SECURE).
+      # TRUST_PROXY: behind a reverse proxy. COOKIE_SECURE: served over HTTPS.
       QM_TRUST_PROXY: ${QM_TRUST_PROXY:-false}
       QM_COOKIE_SECURE: ${QM_COOKIE_SECURE:-false}
       QM_UPC_LOOKUP: ${QM_UPC_LOOKUP:-true}

@@ -1,15 +1,14 @@
 """Barcode normalisation.
 
 A UPC-A (12 digits) and the same product's EAN-13 (a leading 0 added) are the
-same code. Different scanners and different firmware settings emit either, so
-we canonicalise: digit-only codes longer than 12 characters lose leading zeros
+same code: digit-only codes longer than 12 characters lose leading zeros
 until they are 12 long (or no longer start with 0). Everything else (our own
 QM000123 labels, odd symbologies) is only trimmed and upper-cased.
 """
 import re
 
 MAX_LEN = 64
-# Visible ASCII, no spaces. '/' is excluded because codes appear in URL paths.
+# Visible ASCII, no spaces or '/'.
 _PRINTABLE = re.compile(r"^[\x21-\x2e\x30-\x7e]+$")
 
 

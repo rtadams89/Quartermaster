@@ -22,7 +22,7 @@ app = FastAPI(title="Quartermaster", version=__version__, docs_url=None, redoc_u
 
 
 class NoStore(BaseHTTPMiddleware):
-    """The UIs are tiny; never let a kiosk keep a stale copy after an update."""
+    """Sets Cache-Control on UI and API responses so browsers revalidate or do not store them."""
 
     async def dispatch(self, request: Request, call_next):
         resp = await call_next(request)
@@ -36,8 +36,7 @@ class NoStore(BaseHTTPMiddleware):
 
 app.add_middleware(NoStore)
 
-# Everything the pages load comes from this server. Scripts must be files (no inline script), so a
-# stray bit of markup in a product name or an online listing can never run as code.
+# Everything the pages load comes from this server. Scripts must be files (no inline script).
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
        "img-src 'self' data: blob: https:; media-src 'self' blob:; "
        "connect-src 'self' http://127.0.0.1:8581; "  # 8581 = the Pi camera helper
@@ -46,8 +45,7 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
 class Hardening(BaseHTTPMiddleware):
-    """Security headers on every response, and a refusal of state-changing requests that a different
-    website caused the browser to send (the session cookie is SameSite=Strict as well)."""
+    """Adds security headers to every response and refuses state-changing requests from other websites."""
 
     async def dispatch(self, request: Request, call_next):
         if request.method not in SAFE_METHODS:
@@ -85,7 +83,7 @@ app.mount("/kiosk", FreshStatic(directory=STATIC / "kiosk", html=True), name="ki
 app.mount("/admin", FreshStatic(directory=STATIC / "admin", html=True), name="admin")
 
 
-# Browsers ask for icons at the site root regardless of which page they are on.
+# Icons at the site root.
 for _name, _type in (("favicon.svg", "image/svg+xml"), ("favicon.ico", "image/x-icon"), ("apple-touch-icon.png", "image/png")):
     def _icon(_name=_name, _type=_type):
         return FileResponse(STATIC / "shared" / _name, media_type=_type)

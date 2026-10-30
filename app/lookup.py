@@ -1,7 +1,6 @@
 """Online UPC lookup (UPCitemdb free "trial" endpoint) plus a guess at the product details.
 
-Only the barcode number leaves the server. The result is a suggestion for the admin to
-confirm; nothing is saved from it automatically.
+Only the barcode number is sent. The result is a suggestion for the admin to confirm.
 """
 import io
 import ipaddress
@@ -21,11 +20,10 @@ from .models import Caliber, UpcLookup
 
 URL = "https://api.upcitemdb.com/prod/trial/lookup?upc="
 TIMEOUT = 8
-NOT_FOUND_RETRY = timedelta(days=7)  # a miss is asked again after this long; hits are kept
+NOT_FOUND_RETRY = timedelta(days=7)  # a miss is looked up again after this long
 
 
-# What the user is told for each way a lookup can fail. The exception carries only a key into this table,
-# so no text from an exception (or a stack trace) can ever reach a response.
+# The message shown for each way a lookup can fail, keyed by LookupFailed.reason.
 MESSAGES = {
     "limit": "The daily lookup limit was reached. Try again tomorrow, or fill the details in by hand.",
     "service_error": "The lookup service answered with an error.",
@@ -39,7 +37,7 @@ MESSAGES = {
 
 
 class LookupFailed(Exception):
-    """The service could not be asked (offline, rate limited, bad reply). Never cached.
+    """The service could not be queried (offline, rate limited, bad reply).
 
     `reason` is a key of MESSAGES."""
 
@@ -49,7 +47,7 @@ class LookupFailed(Exception):
 
 
 def is_lookupable(code: str) -> bool:
-    """Only real retail barcodes (UPC-E/EAN-8, UPC-A, EAN-13) are worth asking about."""
+    """True for retail barcodes (UPC-E/EAN-8, UPC-A, EAN-13)."""
     return code.isdigit() and len(code) in (8, 12, 13)
 
 
@@ -183,13 +181,13 @@ def guess(db: Session, row: UpcLookup) -> dict:
 
 # ---------------------------------------------------------------- listing photo
 MAX_IMAGE_BYTES = 4 * 1024 * 1024
-MIN_SIDE = 200          # smaller than this is a thumbnail or an icon, not a product photo
-MIN_DETAIL = 12         # grayscale spread below this is a blank or flat-colour placeholder
+MIN_SIDE = 200          # minimum image side, in pixels
+MIN_DETAIL = 12         # minimum grayscale spread
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *a, **k):  # noqa: ANN002, ANN003
-        return None  # we follow redirects ourselves so every hop is checked
+        return None
 
 
 def _public_host(host: str) -> bool:

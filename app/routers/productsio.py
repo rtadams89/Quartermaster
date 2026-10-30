@@ -57,7 +57,7 @@ def _num(text: str, kind, lo, hi, what: str):
 
 def _parse_row(raw: dict, present: set[str]) -> tuple[dict | None, str | None]:
     """Validate one CSV row. Returns (the fields to apply, None) with only the columns that are in the file,
-    or (None, what is wrong). Problems are returned, not raised, so no exception text ever reaches a response."""
+    or (None, what is wrong)."""
     g = {k: unsafe((raw.get(k) or "").strip()) for k in COLUMNS}
     caliber = g["caliber"]
     if not caliber or len(caliber) > 64:
@@ -141,7 +141,7 @@ def _same(a: str | None, b: str | None) -> bool:
 @router.post("/import/products")
 async def import_products(request: Request, apply: bool = False, db: Session = Depends(get_db)):
     """Body is the raw CSV. Without apply=true nothing changes: it only reports what would happen.
-    A file with any problem rows is refused as a whole, so an import never half-applies."""
+    A file with any problem row is refused as a whole."""
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > MAX_BYTES:
         raise HTTPException(400, "Send a CSV file under 2 MB")

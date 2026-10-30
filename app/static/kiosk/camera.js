@@ -1,11 +1,9 @@
 // Camera access for the kiosk. Two back ends, picked automatically:
 //
-//  'helper'  – a tiny local service on the Pi (built into pi/install.sh) that reads the camera with
-//              rpicam-vid. This is the route for Raspberry Pi *CSI* camera modules, which Chromium
-//              cannot open directly. The page polls it for the newest frame, so there is a live
-//              preview too.
-//  'browser' – the browser's own camera access (getUserMedia). Works with USB webcams and gives a
-//              live preview. Needs a secure context: see docs/pi-kiosk.md for the Chromium flag.
+//  'helper'  – a local service on the Pi (built into pi/install.sh) that reads the camera with
+//              rpicam-vid. The page polls it for the newest frame to show a live preview.
+//  'browser' – the browser's own camera access (getUserMedia), for USB webcams. Needs a secure
+//              context: see docs/pi-kiosk.md.
 
 import { h } from '/shared/dom.js';
 
@@ -16,7 +14,7 @@ export async function detectCamera() {
   try {
     const r = await fetch(HELPER + '/health', { signal: AbortSignal.timeout(1500) });
     if (r.ok && (await r.json()).camera) return 'helper';
-  } catch { /* helper not running: fine */ }
+  } catch { /* helper not running */ }
   try {
     if (navigator.mediaDevices?.enumerateDevices) {
       const devices = await navigator.mediaDevices.enumerateDevices();

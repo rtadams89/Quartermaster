@@ -87,7 +87,7 @@ export function watchSession({ idleMinutes, onLock }) {
   const arm = () => {
     clearTimeout(idleTimer);
     idleTimer = setTimeout(async () => {
-      try { await post('/api/auth/logout'); } catch { /* offline: server will expire it anyway */ }
+      try { await post('/api/auth/logout'); } catch { /* offline */ }
       onLock();
     }, idleMinutes * 60 * 1000);
   };

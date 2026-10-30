@@ -137,7 +137,7 @@ class AdjustIn(BaseModel):
 
 @router.post("/adjustments")
 def adjust(body: AdjustIn, db: Session = Depends(get_db)):
-    """Manual correction. The ledger is append-only, so mistakes are fixed by adding an entry."""
+    """Manual correction, recorded as a new ledger entry."""
     if body.boxes == 0:
         raise HTTPException(400, "Adjustment can't be zero")
     try:
@@ -181,8 +181,7 @@ class ClearHistoryIn(BaseModel):
 @router.post("/history/clear")
 def clear_history(body: ClearHistoryIn, db: Session = Depends(get_db)):
     """Erase the history log but keep what is on hand. Stock is the sum of the history, so each code's
-    total is rewritten as one 'opening balance' entry (codes at zero get none). Products, barcodes,
-    photos, alert levels and any scan session still in progress are left alone."""
+    total is rewritten as one 'opening balance' entry (codes at zero get none)."""
     if body.confirm != "CLEAR":
         raise HTTPException(400, "Type CLEAR to confirm")
     stock = on_hand_by_code(db)

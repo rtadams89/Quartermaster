@@ -22,8 +22,7 @@ LAUNCHER=/usr/local/bin/quartermaster-kiosk-browser
 RULES=/etc/udev/rules.d/99-kiosk-ignore-pointers.rules
 HELPER_DIR=/opt/quartermaster
 
-# QM_INSTALL_ROOT redirects every file write into another directory and skips all system commands.
-# It exists so the installer can be tested on a machine that is not a Pi.
+# QM_INSTALL_ROOT redirects every file write into another directory and skips all system commands (for testing).
 ROOT="${QM_INSTALL_ROOT:-}"
 DRY=0; YES=0; UNINSTALL=0; ARG_URL=""; PRINT_HELPER=0
 [ -n "$ROOT" ] && DRY=1
@@ -40,7 +39,7 @@ for a in "$@"; do
   esac
 done
 
-# The Pi camera helper (CSI camera modules only). Kept here so this file is the only thing the Pi needs.
+# The Pi camera helper (CSI camera modules only).
 emit_helper() {
   cat <<'QM_HELPER_EOF'
 #!/usr/bin/env python3
@@ -289,12 +288,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(503, "screen control is not set up on this Pi")
         self._send(200, json.dumps({"ok": True}).encode(), "application/json")
 
-    def log_message(self, fmt, *args):  # quiet; journald has the service's own start/stop lines
+    def log_message(self, fmt, *args):  # quiet
         pass
 
 
 def main() -> int:
-    has_autofocus()  # ask the camera once now, so the kiosk's first /health check is quick
+    has_autofocus()  # detect autofocus once at startup
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     threading.Thread(target=camera.watchdog, daemon=True).start()
     print(f"Quartermaster camera helper on 127.0.0.1:{PORT} (video: {' '.join(VIDEO) or 'NOT FOUND'}, autofocus: {'on' if has_autofocus() else 'off'}, origin: {ORIGIN or 'any'})", flush=True)
@@ -408,7 +407,7 @@ while true; do
   ask KIOSK_URL "Server address (for example http://192.168.1.50:8580)" "${KIOSK_URL:-http://quartermaster.local:8580}"
   KIOSK_URL="${KIOSK_URL%/}"; KIOSK_URL="${KIOSK_URL%/kiosk}"; KIOSK_URL="${KIOSK_URL%/}"
   [[ "$KIOSK_URL" =~ ^https?:// ]] || KIOSK_URL="http://$KIOSK_URL"
-  # The address ends up in files that are run as shell scripts, so only plain address characters are accepted.
+  # Accept only plain address characters.
   if ! [[ "$KIOSK_URL" =~ ^https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$ ]]; then
     [ "$YES" = 1 ] && die "That server address contains characters that are not allowed: $KIOSK_URL"
     say "   That address has characters that are not allowed. Use letters, digits, dots, dashes and an optional :port."
@@ -512,7 +511,7 @@ EOF
 step "Writing the browser launcher"
 put "$LAUNCHER" 755 <<'EOF'
 #!/bin/sh
-# Started by cage. Reads /etc/quartermaster-kiosk.conf, so changing a choice never needs a new unit file.
+# Started by cage. Reads /etc/quartermaster-kiosk.conf.
 . /etc/quartermaster-kiosk.conf
 
 # Turn the screen off after BLANK_AFTER seconds without a touch or scan, and back on at the next one.
@@ -535,7 +534,7 @@ if [ "${BLANK_AFTER:-0}" -gt 0 ] 2>/dev/null; then URL="$URL${SEP}blank=$BLANK_A
 BROWSER="$(command -v chromium || command -v chromium-browser)"
 EXTRA=""
 if [ "$CAMERA" = usb ]; then
-  # Browsers only allow cameras on HTTPS/localhost; this trusts just your own server and answers the prompt.
+  # Treat the server address as a secure origin and accept the camera prompt.
   EXTRA="--use-fake-ui-for-media-stream --unsafely-treat-insecure-origin-as-secure=$KIOSK_URL"
 fi
 
@@ -574,8 +573,7 @@ EOF
 if [ "$IGNORE_HDMI" = yes ]; then
   step "Hiding the stray mouse arrow"
   put "$RULES" 644 <<'EOF'
-# The Pi's HDMI ports register CEC input devices that claim to be keyboard+pointer. cage draws a mouse
-# pointer whenever any pointer exists, so tell libinput to ignore these. Do NOT list the touchscreen.
+# Ignore the HDMI CEC input devices so cage draws no mouse pointer.
 SUBSYSTEM=="input", ATTRS{name}=="vc4-hdmi-0", ENV{LIBINPUT_IGNORE_DEVICE}="1"
 SUBSYSTEM=="input", ATTRS{name}=="vc4-hdmi-1", ENV{LIBINPUT_IGNORE_DEVICE}="1"
 EOF
@@ -601,7 +599,7 @@ After=local-fs.target
 [Service]
 User=$KIOSK_USER
 SupplementaryGroups=video
-# Exactly the address the kiosk loads, so no other website can ask for photos.
+# Only this origin may call the helper.
 Environment=QM_CAMERA_ORIGIN=$KIOSK_URL
 Environment=QM_CAMERA_ENABLED=$([ "$CAMERA" = csi ] && echo yes || echo no)
 ExecStart=/usr/bin/python3 $HELPER_DIR/camera_helper.py

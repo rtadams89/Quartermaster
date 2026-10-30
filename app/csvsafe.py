@@ -1,15 +1,13 @@
 """Spreadsheet-formula protection for CSV files.
 
-Excel and similar programs run a cell as a formula when it starts with = + - @ (or a tab or carriage
-return). Names, notes and codes come from users and from online listings, so text cells that start with one
-of those characters are written with a leading apostrophe, which spreadsheets show as plain text. The product
-import removes that apostrophe again, so an export can be imported back unchanged."""
+Text cells that start with = + - @ (or a tab or carriage return) are written with a leading apostrophe,
+which spreadsheets show as plain text. The product import removes that apostrophe again."""
 
 _RISKY = ("=", "+", "-", "@", "\t", "\r")
 
 
 def safe(cell):
-    """A CSV cell that cannot run as a formula. Numbers are left alone."""
+    """A CSV cell with a leading apostrophe added when it starts with a formula character. Numbers are unchanged."""
     if isinstance(cell, str) and cell.startswith(_RISKY):
         return "'" + cell
     return cell

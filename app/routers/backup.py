@@ -1,11 +1,8 @@
 """Download a backup of everything, and restore from one.
 
 A backup is a SQLite file holding all inventory data: calibers, products, barcodes, box photos,
-the full transaction history, the label counter and preferences. It deliberately leaves out:
-
-* the PIN hash (a 4-digit PIN's hash can be brute-forced in milliseconds, so a backup file that
-  contained it would effectively contain the PIN), and
-* login sessions and lockout counters (meaningless on another server).
+the full transaction history, the label counter and preferences. It does not include the PIN hash,
+login sessions or lockout counters.
 
 Restoring replaces all inventory data with the backup's contents and keeps the current PIN,
 the current login sessions and the lockout counters.
@@ -221,7 +218,7 @@ def reset_all(body: ResetIn, request: Request, response: Response, db: Session =
     """Put the system back to a fresh install: every table is emptied, including the PIN, all logins and
     the lockout counters, and the starter caliber list is put back. The next visitor sets a new PIN.
 
-    Needs the current PIN plus the typed word RESET. No copy of the data is kept; download a backup first."""
+    Needs the current PIN plus the typed word RESET."""
     if body.confirm != "RESET":
         raise HTTPException(400, "Type RESET to confirm")
     ip = security.client_ip(request)

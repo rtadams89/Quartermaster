@@ -66,7 +66,7 @@ class Product(Base):
     rounds_per_box: Mapped[int] = mapped_column(Integer)
     cost_per_box: Mapped[float | None] = mapped_column(Float, nullable=True)
     notes: Mapped[str] = mapped_column(Text, default="")
-    # False = outdoor ranges only; the kiosk asks for confirmation before it is checked out.
+    # False = outdoor ranges only; the kiosk asks for confirmation at checkout.
     indoor_safe: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("1"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
@@ -97,7 +97,7 @@ class Barcode(Base):
 
 
 class BarcodePhoto(Base):
-    """A picture of the box for one code. Kept in its own table so listings never load the bytes."""
+    """A picture of the box for one code."""
 
     __tablename__ = "barcode_photos"
     code: Mapped[str] = mapped_column(ForeignKey("barcodes.code"), primary_key=True)
@@ -108,7 +108,7 @@ class BarcodePhoto(Base):
 
 
 class UpcLookup(Base):
-    """Cached answer from the online UPC lookup, so each code is only ever asked about once."""
+    """Cached answer from the online UPC lookup."""
 
     __tablename__ = "upc_lookups"
     code: Mapped[str] = mapped_column(String(64), primary_key=True)

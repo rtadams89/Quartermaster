@@ -5,7 +5,7 @@ __pycache__/
 venv/
 .env
 
-# Runtime data (the SQLite database lives here). Never commit it.
+# Runtime data (SQLite database)
 data/
 *.db
 *.db-wal
