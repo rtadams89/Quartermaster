@@ -40,3 +40,5 @@ COOKIE_SECURE = _bool("QM_COOKIE_SECURE", False)
 
 # Look up unidentified barcodes on UPCitemdb to pre-fill the product form. Only the barcode number is sent.
 UPC_LOOKUP = _bool("QM_UPC_LOOKUP", True)
+
+IMAGE_FORMATS = ("JPEG", "PNG", "WEBP", "GIF", "BMP")

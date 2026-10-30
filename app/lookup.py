@@ -15,6 +15,7 @@ from datetime import timedelta
 from PIL import Image, ImageStat
 from sqlalchemy.orm import Session
 
+from .config import IMAGE_FORMATS
 from .db import utcnow
 from .models import Caliber, UpcLookup
 
@@ -229,7 +230,7 @@ def fetch_image(url: str) -> bytes:
 def looks_like_product_photo(data: bytes) -> bool:
     """Reject tiny images, extreme shapes and flat/blank placeholders; keep real photos."""
     try:
-        img = Image.open(io.BytesIO(data))
+        img = Image.open(io.BytesIO(data), formats=IMAGE_FORMATS)
         w, h = img.size
         if min(w, h) < MIN_SIDE or not 0.4 <= w / h <= 2.5:
             return False

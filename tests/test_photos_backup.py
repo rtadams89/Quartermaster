@@ -85,6 +85,13 @@ def test_photo_strips_exif_and_handles_transparency(authed):
     assert put_photo(authed, "012345678905", rgba.getvalue()).status_code == 200
 
 
+def test_photo_accepts_only_common_formats(authed):
+    run_batch(authed, "in", [("012345678905", 1)])
+    assert put_photo(authed, "012345678905", image_bytes((300, 200), "TIFF")).status_code == 400
+    assert put_photo(authed, "012345678905", image_bytes((300, 200), "PPM")).status_code == 400
+    assert put_photo(authed, "012345678905", image_bytes((300, 200), "JPEG")).status_code == 200
+
+
 def test_photo_requires_login(client):
     assert client.get("/api/barcodes/012345678905/photo").status_code == 401
     assert client.put("/api/barcodes/012345678905/photo", content=image_bytes()).status_code == 401

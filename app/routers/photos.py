@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from .. import security
 from ..codes import normalize_code
+from ..config import IMAGE_FORMATS
 from ..db import get_db, utcnow
 from ..models import Barcode, BarcodePhoto
 
@@ -16,16 +17,13 @@ router = APIRouter(prefix="/api/barcodes", dependencies=[Depends(security.requir
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 FULL_SIZE = 1280
 THUMB_SIZE = 240
-ALLOWED_FORMATS = {"JPEG", "PNG", "WEBP", "GIF", "BMP"}
 Image.MAX_IMAGE_PIXELS = 60_000_000  # maximum image size in pixels
 
 
 def process_image(data: bytes) -> tuple[bytes, bytes]:
     """Decode any common image, fix its rotation, drop metadata, return (full, thumb) JPEGs."""
     try:
-        img = Image.open(io.BytesIO(data))
-        if img.format not in ALLOWED_FORMATS:
-            raise ValueError("unsupported format")
+        img = Image.open(io.BytesIO(data), formats=IMAGE_FORMATS)
         img = ImageOps.exif_transpose(img)
         if img.mode in ("RGBA", "LA", "P"):
             img = img.convert("RGBA")
