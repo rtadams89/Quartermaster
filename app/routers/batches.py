@@ -1,5 +1,7 @@
 """Kiosk ammo in / ammo out: scans are queued in a draft batch, then committed."""
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -33,19 +35,23 @@ class QtyIn(BaseModel):
     quantity: int = Field(ge=0, le=MAX_QTY)
 
 
-def _item_dict(db: Session, item: BatchItem) -> dict:
-    bc = db.get(Barcode, item.code)
+def _code_dict(db: Session, id: int, code: str, quantity: int) -> dict:
+    bc = db.get(Barcode, code)
     prod = product_dict(bc.product) if bc else None
     if prod and bc.product:
         prod["spec"] = spec_text(bc.product)
     return {
-        "id": item.id,
-        "code": item.code,
-        "quantity": item.quantity,
+        "id": id,
+        "code": code,
+        "quantity": quantity,
         "product": prod,
-        "on_hand": on_hand(db, item.code),
-        "has_photo": db.get(BarcodePhoto, item.code) is not None,
+        "on_hand": on_hand(db, code),
+        "has_photo": db.get(BarcodePhoto, code) is not None,
     }
+
+
+def _item_dict(db: Session, item: BatchItem) -> dict:
+    return _code_dict(db, item.id, item.code, item.quantity)
 
 
 def _batch_dict(db: Session, b: Batch) -> dict:
@@ -75,6 +81,14 @@ def current_draft(db: Session) -> Batch | None:
 def get_current(db: Session = Depends(get_db)):
     b = current_draft(db)
     return _batch_dict(db, b) if b else None
+
+
+@router.get("/recent-out")
+def recent_out(days: int = Query(default=7, ge=1, le=60), db: Session = Depends(get_db)):
+    since = utcnow() - timedelta(days=days)
+    rows = db.scalars(select(Transaction).where(Transaction.kind == "out", Transaction.ts >= since)
+                      .order_by(Transaction.id.desc()).limit(100))
+    return [{**_code_dict(db, t.id, t.code, -t.boxes), "ts": iso(t.ts)} for t in rows]
 
 
 @router.post("")

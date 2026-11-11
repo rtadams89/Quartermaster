@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.6.0
+- **Recent checkouts.** The Ammo In screen has a new *Recent* button that lists what was checked out in the last 7 days. Tapping one adds it to the Ammo In list as if you had just scanned it, with the full quantity that was checked out, so you can put unused ammo back quickly or change the number to return only some of it.
+
 ## 1.5.0
 - **Add ammo without scanning.** The Ammo In and Ammo Out screens have a new *Browse* button. Pick a caliber, a bullet weight and then a product to add it to the list, for ammo that has no barcode such as loose or bulk rounds. Ammo In lists every product; Ammo Out lists what is in stock. A product with no code is given a label code the first time it is added.
 

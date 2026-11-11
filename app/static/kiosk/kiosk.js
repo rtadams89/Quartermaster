@@ -303,9 +303,9 @@ function flash(kind) {
   setTimeout(() => el.classList.remove('flash-' + kind), 350);
 }
 
-async function doScan(code) {
+async function doScan(code, quantity = 1) {
   try {
-    const r = await post(`/api/batches/${S.batch.id}/scan`, { code });
+    const r = await post(`/api/batches/${S.batch.id}/scan`, { code, quantity });
     const i = S.batch.items.findIndex((x) => x.id === r.item.id);
     if (i >= 0) S.batch.items[i] = r.item; else S.batch.items.push(r.item);
     S.last = r.item;
@@ -481,6 +481,7 @@ function paintScan() {
       title: kind === 'in' ? 'AMMO IN' : 'AMMO OUT',
       left: h('button', { class: 'btn', onclick: cancelBatch }, '✕ Cancel'),
       right: [
+        kind === 'in' && h('button', { class: 'btn', onclick: showRecent }, '↺ Recent'),
         h('button', { class: 'btn', onclick: openBrowse }, '☰ Browse'),
         h('button', { class: 'btn', onclick: () => manualEntry() }, '⌨ Code'),
       ],
@@ -663,6 +664,39 @@ async function showBrowse() {
     h('div', { class: 'body' }, h('div', { class: 'list' },
       rows.length ? rows.map((r) => invRow(r, false, () => choose(r), d.level !== 'product'))
         : h('div', { class: 'empty' }, S.batch.kind === 'in' ? 'No products yet. Add them in the admin site.' : 'Nothing in stock to take out.'))));
+}
+
+function dayLabel(iso) {
+  const d = new Date(iso);
+  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
+  const day = days === 0 ? 'Today' : days === 1 ? 'Yesterday' : d.toLocaleDateString([], { weekday: 'short' });
+  return `${day} ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+}
+
+async function showRecent() {
+  S.screen = 'recent';
+  let rows;
+  try {
+    rows = await get('/api/batches/recent-out');
+  } catch (e) {
+    if (e.status !== 401) toast(e.message, 'error');
+    return showScan();
+  }
+  mount(
+    bar({ kind: 'in', title: 'RECENT CHECKOUTS', left: h('button', { class: 'btn', onclick: showScan }, '← Back') }),
+    h('div', { class: 'crumbs' }, 'Last 7 days. Tap one to check it back in.'),
+    h('div', { class: 'body' }, h('div', { class: 'list' },
+      rows.length ? rows.map((r) => {
+        const d = describe(r);
+        return h('button', { class: 'inv-row', onclick: () => returnCheckout(r) },
+          h('div', { class: 'info' }, h('div', { class: 'title' }, d.known ? d.name : r.code), h('div', { class: 'sub' }, [dayLabel(r.ts), d.known && d.sub].filter(Boolean).join(' · '))),
+          h('div', { class: 'r' }, h('div', { class: 'big' }, fmtInt(r.quantity)), h('small', {}, isSingle(r) ? 'rounds' : r.quantity === 1 ? 'box' : 'boxes')));
+      }) : h('div', { class: 'empty' }, 'Nothing was checked out in the last 7 days.'))));
+}
+
+async function returnCheckout(r) {
+  showScan();
+  await doScan(r.code, r.quantity);
 }
 
 async function addProduct(product) {
