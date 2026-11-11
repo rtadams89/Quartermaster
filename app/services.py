@@ -5,10 +5,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .db import iso
-from .models import Barcode, BarcodePhoto, Caliber, Product, StockMinimum, Transaction
+from .models import Barcode, BarcodePhoto, Caliber, Product, Setting, StockMinimum, Transaction
 
 UNIDENTIFIED = "unidentified"
 NO_BRAND = "(none)"  # drill-down key for products with no manufacturer
+LABEL_PREFIX = "QM"
+LABEL_COUNTER_KEY = "label_counter"
 
 
 def photo_codes(db: Session) -> set[str]:
@@ -171,6 +173,39 @@ def all_barcodes(db: Session) -> list[Barcode]:
     return list(db.scalars(select(Barcode)))
 
 
+def new_label_codes(db: Session, count: int, product_id: int | None = None) -> list[str]:
+    row = db.get(Setting, LABEL_COUNTER_KEY)
+    n = int(row.value) if row else 0
+    codes = []
+    while len(codes) < count:
+        n += 1
+        code = f"{LABEL_PREFIX}{n:06d}"
+        if db.get(Barcode, code):
+            continue
+        db.add(Barcode(code=code, product_id=product_id))
+        codes.append(code)
+    if row:
+        row.value = str(n)
+    else:
+        db.add(Setting(key=LABEL_COUNTER_KEY, value=str(n)))
+    return codes
+
+
+def product_label_code(db: Session, product_id: int) -> str | None:
+    mine = db.scalars(select(Barcode.code).where(Barcode.product_id == product_id,
+                                                  Barcode.code.like(f"{LABEL_PREFIX}%")).order_by(Barcode.code))
+    return next((c for c in mine if c[len(LABEL_PREFIX):].isdigit()), None)
+
+
+def code_for_product(db: Session, product_id: int) -> str:
+    """The code to record a product under: its own label, else its first code, else a new label."""
+    label = product_label_code(db, product_id)
+    if label:
+        return label
+    first = db.scalar(select(Barcode.code).where(Barcode.product_id == product_id).order_by(Barcode.code))
+    return first or new_label_codes(db, 1, product_id)[0]
+
+
 def inventory_by_product(db: Session) -> tuple[list[dict], list[dict]]:
     """Return (products_with_stock_info, unidentified_codes).
 
@@ -244,12 +279,16 @@ def low_stock(db: Session) -> dict:
 
 
 def drill(db: Session, caliber: str | None, weight: str | None, manufacturer: str | None = None,
-          by_manufacturer: bool = False, include_empty: bool = False) -> dict:
+          by_manufacturer: bool = False, include_empty: bool = False, all_products: bool = False) -> dict:
     """Drill-down: caliber -> bullet weight -> product (the kiosk), or with by_manufacturer
-    caliber -> bullet weight -> manufacturer -> product (the admin site)."""
+    caliber -> bullet weight -> manufacturer -> product (the admin site).
+    all_products also lists products with none in stock and leaves out unidentified codes."""
     items, unidentified = inventory_by_product(db)
-    items = [i for i in items if i["boxes"] != 0]
-    unid = [u for u in unidentified if u["boxes"] != 0]
+    if all_products:
+        unid = []
+    else:
+        items = [i for i in items if i["boxes"] != 0]
+        unid = [u for u in unidentified if u["boxes"] != 0]
 
     calibers = list(db.scalars(select(Caliber).order_by(Caliber.sort_order, Caliber.name)))
     mins = minimums(db)

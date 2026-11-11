@@ -26,9 +26,10 @@ def inventory_drill(
     manufacturer: str | None = None,
     by_manufacturer: bool = False,
     include_empty: bool = False,
+    all_products: bool = False,
     db: Session = Depends(get_db),
 ):
-    return drill(db, caliber, weight, manufacturer, by_manufacturer, include_empty)
+    return drill(db, caliber, weight, manufacturer, by_manufacturer, include_empty, all_products)
 
 
 @router.get("/out-of-stock")

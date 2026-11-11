@@ -67,6 +67,7 @@ const S = {
   batch: null,        // the draft ammo in/out batch being built (lives on the server)
   last: null,         // most recently scanned item, shown on the scan screen
   inv: { caliber: null, weight: null, hit: null }, // hit: the row to highlight after a scan
+  pick: { kind: null, caliber: null, weight: null },
   screen: 'lock',
   session: null,
   version: '',        // from /api/auth/status; shown small on the home screen
@@ -479,7 +480,10 @@ function paintScan() {
       kind,
       title: kind === 'in' ? 'AMMO IN' : 'AMMO OUT',
       left: h('button', { class: 'btn', onclick: cancelBatch }, '✕ Cancel'),
-      right: h('button', { class: 'btn', onclick: () => manualEntry() }, '⌨ Code'),
+      right: [
+        h('button', { class: 'btn', onclick: openBrowse }, '☰ Browse'),
+        h('button', { class: 'btn', onclick: () => manualEntry() }, '⌨ Code'),
+      ],
     }),
     h('div', { class: 'body' }, h('div', { class: 'scan' }, main)),
     h('div', { class: 'foot' },
@@ -609,14 +613,71 @@ async function showInventory() {
     h('div', { class: 'crumbs' }, d.breadcrumb.length ? crumbs : 'Tap a caliber to drill in, or scan a box to find it'),
     h('div', { class: 'body' }, h('div', { class: 'list' },
       d.rows.length ? d.rows.map((r) =>
-        h('button', { class: 'inv-row' + (r.key === S.inv.hit && !r.drillable ? ' hit' : ''), disabled: !r.drillable, onclick: () => open(r) },
-          h('div', { class: 'info' }, h('div', { class: 'title' }, r.label, r.low && h('span', { class: 'low-tag' }, 'LOW')), (r.sublabel || r.price) && h('div', { class: 'sub' }, [r.sublabel, r.price && `${fmtPriceRange(r.price)}/rd`].filter(Boolean).join(' · '))),
-          h('div', { class: 'r' },
-            h('div', { class: 'big' }, r.rounds === null ? '—' : fmtInt(r.rounds)),
-            h('small', {}, r.rounds === null ? plural(r.boxes, 'box') : r.single || (r.boxes === 0 && r.rounds > 0) ? 'rounds' : `rounds · ${plural(r.boxes, 'box')}`)),
-          r.drillable && h('span', { class: 'chev' }, '›')))
+        invRow(r, r.key === S.inv.hit && !r.drillable, r.drillable ? () => open(r) : null))
         : h('div', { class: 'empty' }, 'Nothing in stock yet. Use Ammo In to add boxes.'))));
   app.querySelector('.inv-row.hit')?.scrollIntoView({ block: 'center' });
+}
+
+function invRow(r, hit, onclick, chevron = r.drillable) {
+  return h('button', { class: 'inv-row' + (hit ? ' hit' : ''), disabled: !onclick, onclick },
+    h('div', { class: 'info' }, h('div', { class: 'title' }, r.label, r.low && h('span', { class: 'low-tag' }, 'LOW')), (r.sublabel || r.price) && h('div', { class: 'sub' }, [r.sublabel, r.price && `${fmtPriceRange(r.price)}/rd`].filter(Boolean).join(' · '))),
+    h('div', { class: 'r' },
+      h('div', { class: 'big' }, r.rounds === null ? '—' : fmtInt(r.rounds)),
+      h('small', {}, r.rounds === null ? plural(r.boxes, 'box') : r.single || (r.boxes === 0 && r.rounds > 0) ? 'rounds' : `rounds · ${plural(r.boxes, 'box')}`)),
+    chevron && h('span', { class: 'chev' }, '›'));
+}
+
+function openBrowse() {
+  if (S.pick.kind !== S.batch.kind) S.pick = { kind: S.batch.kind, caliber: null, weight: null };
+  showBrowse();
+}
+
+async function showBrowse() {
+  S.screen = 'browse';
+  let d;
+  try {
+    const q = new URLSearchParams({ all_products: S.batch.kind === 'in' });
+    if (S.pick.caliber !== null) q.set('caliber', S.pick.caliber);
+    if (S.pick.weight !== null) q.set('weight', S.pick.weight);
+    d = await get('/api/inventory/drill?' + q);
+  } catch (e) {
+    if (e.status !== 401) toast(e.message, 'error');
+    return;
+  }
+  const back = () => {
+    if (S.pick.weight !== null) S.pick.weight = null;
+    else if (S.pick.caliber !== null) S.pick.caliber = null;
+    else return showScan();
+    showBrowse();
+  };
+  const choose = (r) => {
+    if (d.level === 'product') return addProduct(r.item);
+    if (d.level === 'caliber') S.pick.caliber = r.key;
+    else S.pick.weight = r.key;
+    showBrowse();
+  };
+  const rows = d.rows.filter((r) => d.level === 'product' || (r.drillable && r.key !== 'unidentified'));
+  mount(
+    bar({ kind: S.batch.kind, title: 'ADD PRODUCT', left: h('button', { class: 'btn', onclick: back }, '← Back') }),
+    h('div', { class: 'crumbs' }, d.breadcrumb.length ? ['All calibers', ...d.breadcrumb].join('  ›  ') : 'Tap a caliber, then the product to add'),
+    h('div', { class: 'body' }, h('div', { class: 'list' },
+      rows.length ? rows.map((r) => invRow(r, false, () => choose(r), d.level !== 'product'))
+        : h('div', { class: 'empty' }, S.batch.kind === 'in' ? 'No products yet. Add them in the admin site.' : 'Nothing in stock to take out.'))));
+}
+
+async function addProduct(product) {
+  try {
+    const r = await post(`/api/batches/${S.batch.id}/product`, { product_id: product.id });
+    const i = S.batch.items.findIndex((x) => x.id === r.item.id);
+    if (i >= 0) S.batch.items[i] = r.item; else S.batch.items.push(r.item);
+    S.last = r.item;
+    beep(880);
+    showScan();
+    flash('ok');
+  } catch (e) {
+    beep(200, 220);
+    toast(e.message, 'error');
+  }
 }
 
 // Pick up a new server version by itself, but only while resting on the lock or home screen.

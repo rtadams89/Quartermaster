@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 from .. import security
 from ..codes import normalize_code
 from ..db import get_db, iso, utcnow
-from ..models import Barcode, BarcodePhoto, Batch, BatchItem, Transaction
-from ..services import on_hand, product_dict, spec_text
+from ..models import Barcode, BarcodePhoto, Batch, BatchItem, Product, Transaction
+from ..services import code_for_product, on_hand, product_dict, spec_text
 
 router = APIRouter(prefix="/api/batches", dependencies=[Depends(security.require_auth)])
 
@@ -21,6 +21,11 @@ class NewBatch(BaseModel):
 
 class ScanIn(BaseModel):
     code: str
+    quantity: int = Field(default=1, ge=1, le=MAX_QTY)
+
+
+class ProductIn(BaseModel):
+    product_id: int
     quantity: int = Field(default=1, ge=1, le=MAX_QTY)
 
 
@@ -99,14 +104,29 @@ def scan(batch_id: int, body: ScanIn, db: Session = Depends(get_db)):
     if new_code:
         db.add(Barcode(code=code))
         db.flush()
-    item = next((i for i in b.items if i.code == code), None)
-    if item:
-        item.quantity = min(MAX_QTY, item.quantity + body.quantity)
-    else:
-        item = BatchItem(batch_id=b.id, code=code, quantity=body.quantity)
-        b.items.append(item)
+    item = _add_item(b, code, body.quantity)
     db.commit()
     return {"item": _item_dict(db, item), "known": _is_known(db, code), "new_code": new_code}
+
+
+def _add_item(b: Batch, code: str, quantity: int) -> BatchItem:
+    item = next((i for i in b.items if i.code == code), None)
+    if item:
+        item.quantity = min(MAX_QTY, item.quantity + quantity)
+    else:
+        item = BatchItem(batch_id=b.id, code=code, quantity=quantity)
+        b.items.append(item)
+    return item
+
+
+@router.post("/{batch_id}/product")
+def add_product(batch_id: int, body: ProductIn, db: Session = Depends(get_db)):
+    b = _draft(db, batch_id)
+    if not db.get(Product, body.product_id):
+        raise HTTPException(404, "Product not found")
+    item = _add_item(b, code_for_product(db, body.product_id), body.quantity)
+    db.commit()
+    return {"item": _item_dict(db, item), "known": True, "new_code": False}
 
 
 def _is_known(db: Session, code: str) -> bool:

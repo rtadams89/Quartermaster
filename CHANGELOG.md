@@ -2,6 +2,12 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.5.0
+- **Add ammo without scanning.** The Ammo In and Ammo Out screens have a new *Browse* button. Pick a caliber, a bullet weight and then a product to add it to the list, for ammo that has no barcode such as loose or bulk rounds. Ammo In lists every product; Ammo Out lists what is in stock. A product with no code is given a label code the first time it is added.
+
+## 1.4.5
+- Fixed *Pull and redeploy* in Portainer (and `docker compose pull`) failing with "pull access denied for quartermaster". Quartermaster is built on your server rather than downloaded, so the compose file now tells Docker to skip the download and build it instead.
+
 ## 1.4.4
 - The README now has screenshots of the kiosk and the admin site.
 

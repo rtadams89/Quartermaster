@@ -43,6 +43,10 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 
 ![Kiosk review screen, and the warning shown for outdoor-only ammo](docs/images/kiosk-checkout.png)
 
+**Ammo with no barcode.** Loose or bulk ammo may have nothing to scan. On the scan screen, tap *Browse*, pick the caliber, then the bullet weight, then the product, and it is added to the list just like a scan (tap it again to add another). Ammo In lists every product, including ones you have none of right now; Ammo Out lists only what is in stock. A product that has no code yet is given a label code the first time you do this, which you can print later from **Labels**.
+
+![Browsing to a product on the kiosk](docs/images/kiosk-browse.png)
+
 **Unknown barcodes.** A barcode the system hasn't seen is still recorded, as "Unknown item". When it is new, the kiosk offers to take a photo of the box (if you have a camera). Later, open **Needs details** in the admin site and name it, and everything already scanned picks up the details. The server looks the barcode up online (only the number is sent) and offers to fill in the form for you (and keeps the listing's photo if the box has none yet); set `QM_UPC_LOOKUP=false` in `.env` to turn that off.
 
 **Inventory.** On the kiosk, tap *Inventory* and drill down by caliber, then bullet weight, then product, or scan a box to jump straight to it and see how many are in stock. In the admin site, *Inventory* opens the same drill-down (caliber, then bullet weight, then manufacturer, then the product) with clickable breadcrumbs to jump back; *All items* shows every product in one searchable table. *+ Add stock* adds boxes without scanning, and *Adjust* corrects a count.
