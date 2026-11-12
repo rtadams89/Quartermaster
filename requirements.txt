@@ -4,3 +4,4 @@ sqlalchemy>=2.0,<3
 python-barcode>=0.15,<1
 segno>=1.6,<2
 Pillow>=13.0,<14
+tzdata>=2024.1

@@ -205,3 +205,6 @@ td:first-child:has(.thumb-btn) { width: 60px; padding-right: 0; }
 .combo-list .opt:hover, .combo-list .opt.on { background: var(--accent); color: #fff; }
 .combo-list .opt.none { color: var(--muted); cursor: default; }
 .combo-list .opt.none:hover { background: none; color: var(--muted); }
+
+.scroll-x { overflow-x: auto; }
+.scroll-x table { min-width: 100%; }

@@ -8,7 +8,7 @@ let main;
 
 const NAV = [
   ['dashboard', 'Dashboard'], ['inventory', 'Inventory'], ['details', 'Needs details'], ['products', 'Products'],
-  ['calibers', 'Calibers'], ['history', 'History'], ['labels', 'Labels'], ['settings', 'Settings'],
+  ['calibers', 'Calibers'], ['history', 'History'], ['usage', 'Usage'], ['labels', 'Labels'], ['settings', 'Settings'],
 ];
 
 // ------------------------------------------------------------------ helpers
@@ -885,6 +885,71 @@ async function history() {
   await load(true);
 }
 
+// -------------------------------------------------------------------- usage
+const usageNav = { year: new Date().getFullYear(), metric: 'out' };
+const USAGE_METRICS = [['out', 'Used'], ['cost', 'Cost'], ['in', 'Checked in'], ['onhand', 'On hand']];
+
+async function usage() {
+  const calibers = await get('/api/calibers');
+  const holder = h('div');
+  const year = h('select', { 'aria-label': 'Year', onchange: () => { usageNav.year = year.value === 'all' ? null : Number(year.value); show(); } });
+  const seg = h('div', { class: 'seg' });
+  const filter = caliberFilter(calibers, () => show());
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const show = async () => {
+    const cal = filter.id();
+    if (cal === undefined) return;
+    const qs = new URLSearchParams({ tz });
+    if (usageNav.year) qs.set('year', usageNav.year);
+    if (cal) qs.set('caliber_id', cal);
+    const r = await get('/api/reports/usage?' + qs);
+    const years = [...new Set([...r.years, usageNav.year].filter(Boolean))].sort((a, b) => b - a);
+    clear(year, h('option', { value: 'all' }, 'All years'), years.map((y) => h('option', { value: y }, y)));
+    year.value = usageNav.year ? String(usageNav.year) : 'all';
+    clear(seg, USAGE_METRICS.map(([k, label]) => h('button', { type: 'button', class: usageNav.metric === k ? 'on' : '', onclick: () => { usageNav.metric = k; show(); } }, label)));
+    paintUsage(holder, r);
+  };
+  clear(main, h('h1', {}, 'Usage'),
+    h('p', { class: 'sub' }, 'Ammo checked out, by month or year. Use it to see how fast each caliber goes and when to reorder.'),
+    h('div', { class: 'toolbar' }, year, filter.el, seg), holder);
+  await show();
+}
+
+function paintUsage(holder, r) {
+  const metric = usageNav.metric;
+  const money = metric === 'cost';
+  const fmt = (v) => (v == null ? '' : v === 0 ? '—' : money ? fmtMoney(v) : fmtInt(v));
+  const heads = [r.by === 'product' ? 'Product' : 'Caliber', ...r.columns.map((c) => [c.label, 'num'])];
+  if (metric === 'onhand') heads.push(['Now', 'num']);
+  else heads.push(['Total', 'num']);
+  if (metric === 'out' || metric === 'cost') heads.push(['Avg / month', 'num']);
+  const rowFor = (row, cls) => {
+    const cells = row[metric];
+    const tail = [];
+    if (metric === 'onhand') tail.push(td(fmtInt(row.onhand_now), 'num'));
+    else tail.push(td(fmt(metric === 'out' ? row.out_total : metric === 'cost' ? row.cost_total : row.in_total), 'num'));
+    if (metric === 'out') tail.push(td(row.avg_out == null ? '' : fmtInt(row.avg_out), 'num'));
+    if (metric === 'cost') tail.push(td(r.months_counted ? fmtMoney(row.cost_total / r.months_counted) : '', 'num'));
+    return h('tr', cls ? { class: cls } : {}, td(h('b', {}, row.label)), cells.map((v) => td(metric === 'onhand' ? (v == null ? '' : fmtInt(v)) : fmt(v), 'num')), tail);
+  };
+  const t = r.total;
+  const period = r.year ? String(r.year) : 'all years';
+  const notes = [];
+  if (r.unpriced) notes.push(`${r.unpriced} product${r.unpriced === 1 ? ' has' : 's have'} no cost set and ${r.unpriced === 1 ? 'is' : 'are'} left out of the cost figures.`);
+  if (r.unidentified_boxes) notes.push(`${fmtInt(r.unidentified_boxes)} box${r.unidentified_boxes === 1 ? '' : 'es'} checked out under codes that were never identified ${r.unidentified_boxes === 1 ? 'is' : 'are'} not counted.`);
+  clear(holder,
+    h('div', { class: 'cards' },
+      card(`Rounds used, ${period}`, fmtInt(t.out_total)),
+      card('Estimated cost at current prices', fmtMoney(t.cost_total) || '$0.00'),
+      card(`Average per month`, t.avg_out == null ? '—' : fmtInt(t.avg_out) + ' rounds'),
+      card('On hand now', fmtInt(t.onhand_now) + ' rounds')),
+    r.rows.length
+      ? h('div', { class: 'scroll-x', style: { marginTop: '14px' } }, table(heads, [...r.rows.map((row) => rowFor(row)), rowFor(t, 'total')]))
+      : empty(`Nothing was checked out in ${period}.`),
+    h('p', { class: 'muted', style: { marginTop: '12px' } },
+      `Used counts ammo checked out. Ammo checked back in is shown under Checked in and is not subtracted, so Used can overstate real consumption if you return unused ammo. Average per month runs from the first activity to now${r.year ? ` within ${r.year}` : ''}. ${notes.join(' ')}`.trim()));
+}
+
 // ------------------------------------------------------------------- labels
 // The print job is kept while you move around the admin site, so you can leave and come back to it.
 const labelJob = { items: [], cols: 2, type: 'code128' };
@@ -1093,7 +1158,7 @@ function restoreDialog(file) {
 }
 
 // ------------------------------------------------------------------- router
-const pages = { dashboard, inventory, details: needsDetails, products, calibers, history, labels, settings };
+const pages = { dashboard, inventory, details: needsDetails, products, calibers, history, usage, labels, settings };
 
 async function route() {
   const name = (location.hash.replace(/^#\//, '') || 'dashboard').split('?')[0];
