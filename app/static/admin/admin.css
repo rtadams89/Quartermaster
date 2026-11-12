@@ -206,5 +206,9 @@ td:first-child:has(.thumb-btn) { width: 60px; padding-right: 0; }
 .combo-list .opt.none { color: var(--muted); cursor: default; }
 .combo-list .opt.none:hover { background: none; color: var(--muted); }
 
-.scroll-x { overflow-x: auto; }
-.scroll-x table { min-width: 100%; }
+
+.chart { position: relative; margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; touch-action: pan-y; }
+.chart svg { display: block; }
+.chart-tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,.18); white-space: nowrap; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 14px; font-size: 14px; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }

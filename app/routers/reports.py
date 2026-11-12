@@ -1,5 +1,8 @@
+import calendar
+from bisect import bisect_right
 from collections import defaultdict
-from datetime import timezone
+from datetime import date, timedelta, timezone
+from itertools import accumulate
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, Query
@@ -23,107 +26,50 @@ def _zone(name: str):
         return timezone.utc
 
 
-def _months(start, end):
-    y, m = start
-    while (y, m) <= end:
-        yield (y, m)
-        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
-
-
-def _sum_cols(rows, field):
-    if not rows:
-        return []
-    return [None if any(r[field][i] is None for r in rows) else round(sum(r[field][i] for r in rows), 2)
-            for i in range(len(rows[0][field]))]
-
-
-def _row(key, label, out, inn, cost, onhand, counted, onhand_now):
-    return {"key": key, "label": label, "out": out, "in": inn, "cost": cost, "onhand": onhand,
-            "out_total": sum(out), "in_total": sum(inn), "cost_total": round(sum(cost), 2),
-            "avg_out": round(sum(out) / counted) if counted else None, "onhand_now": onhand_now}
-
-
-@router.get("/usage")
-def usage(year: int | None = Query(default=None, ge=2000, le=2200), caliber_id: int | None = None,
-          tz: str = "UTC", db: Session = Depends(get_db)):
+@router.get("/onhand")
+def onhand(year: int = Query(ge=2000, le=2200), month: int | None = Query(default=None, ge=1, le=12),
+           caliber_id: int | None = None, tz: str = "UTC", db: Session = Depends(get_db)):
     zone = _zone(tz)
-    now = utcnow().replace(tzinfo=timezone.utc).astimezone(zone)
-    this_month = (now.year, now.month)
+    today = utcnow().replace(tzinfo=timezone.utc).astimezone(zone).date()
     by_product = caliber_id is not None
 
     rows = db.execute(
-        select(Transaction.ts, Transaction.boxes, Transaction.kind, Product)
-        .join(Barcode, Barcode.code == Transaction.code, isouter=True)
-        .join(Product, Product.id == Barcode.product_id, isouter=True)
+        select(Transaction.ts, Transaction.boxes, Product)
+        .join(Barcode, Barcode.code == Transaction.code)
+        .join(Product, Product.id == Barcode.product_id)
         .order_by(Transaction.id)
     ).all()
 
-    cells = defaultdict(lambda: {"out": 0, "in": 0, "net": 0, "cost": 0.0})
-    names, unpriced, unidentified, first = {}, set(), 0, None
-    for ts, boxes, kind, p in rows:
-        local = ts.replace(tzinfo=timezone.utc).astimezone(zone)
-        month = (local.year, local.month)
-        in_year = year is None or local.year == year
-        if p is None:
-            if kind == "out" and in_year:
-                unidentified += -boxes
-            continue
+    net, names = defaultdict(lambda: defaultdict(int)), {}
+    for ts, boxes, p in rows:
         if by_product and p.caliber_id != caliber_id:
             continue
-        first = month if first is None or month < first else first
         key = p.id if by_product else p.caliber_id
         names[key] = product_dict(p)["label"] if by_product else p.caliber.name
-        rounds = boxes * p.rounds_per_box
-        c = cells[(key, month)]
-        c["net"] += rounds
-        if kind == "out":
-            c["out"] += -rounds
-            if p.cost_per_box is None:
-                if in_year:
-                    unpriced.add(p.id)
-            else:
-                c["cost"] += -rounds * p.cost_per_box / p.rounds_per_box
-        elif kind == "in":
-            c["in"] += rounds
+        net[key][ts.replace(tzinfo=timezone.utc).astimezone(zone).date()] += boxes * p.rounds_per_box
 
-    years = sorted({m[0] for _, m in cells} | {this_month[0]})
-    if year is None:
-        periods = [(y, None) for y in years]
-        columns = [{"key": str(y), "label": str(y), "future": False} for y in years]
+    if month:
+        days = calendar.monthrange(year, month)[1]
+        ends = [date(year, month, d) for d in range(1, days + 1)]
+        labels = [str(d) for d in range(1, days + 1)]
     else:
-        periods = [(year, m) for m in range(1, 13)]
-        columns = [{"key": f"{year}-{m:02d}", "label": MONTHS[m - 1], "future": (year, m) > this_month}
-                   for m in range(1, 13)]
+        ends = [date(year, m, calendar.monthrange(year, m)[1]) for m in range(1, 13)]
+        labels = MONTHS
+    starts = ends if month else [date(year, m, 1) for m in range(1, 13)]
+    future = [st > today for st in starts]
+    ends = [min(e, today) for e in ends]
 
-    def in_period(month, period):
-        return month[0] == period[0] and (period[1] is None or month[1] == period[1])
-
-    counted = 0
-    if first:
-        counted = sum(1 for m in _months(first, this_month) if any(in_period(m, p) for p in periods))
-
-    result = []
+    series = []
     for key in sorted(names, key=lambda k: names[k].lower()):
-        months = sorted(m for k, m in cells if k == key)
-        out, inn, cost, onhand = [], [], [], []
-        running = idx = 0
-        for period, col in zip(periods, columns):
-            end = (period[0], period[1] or 12)
-            while idx < len(months) and months[idx] <= end:
-                running += cells[(key, months[idx])]["net"]
-                idx += 1
-            mine = [cells[(key, m)] for m in months if in_period(m, period)]
-            out.append(sum(c["out"] for c in mine))
-            inn.append(sum(c["in"] for c in mine))
-            cost.append(round(sum(c["cost"] for c in mine), 2))
-            onhand.append(None if col["future"] else running)
-        if not any(out) and not any(inn):
-            continue
-        result.append(_row(key, names[key], out, inn, cost, onhand, counted,
-                           sum(cells[(key, m)]["net"] for m in months)))
+        dates = sorted(net[key])
+        running = list(accumulate(net[key][d] for d in dates))
+        values = [None if f else (running[bisect_right(dates, e) - 1] if bisect_right(dates, e) else 0)
+                  for e, f in zip(ends, future)]
+        series.append({"key": key, "label": names[key], "values": values, "now": running[-1] if running else 0})
 
-    total = _row(None, "Total", *(_sum_cols(result, f) for f in ("out", "in", "cost", "onhand")), counted,
-                 sum(r["onhand_now"] for r in result))
-    return {"years": years, "year": year, "columns": columns, "by": "product" if by_product else "caliber",
-            "rows": result, "total": total, "months_counted": counted,
-            "unidentified_boxes": unidentified, "unpriced": len(unpriced)}
+    series = [s for s in series if s["now"] or any(v for v in s["values"] if v)]
+    total = [None if f else sum(s["values"][i] for s in series) for i, f in enumerate(future)]
+    first_year = min((d.year for k in net for d in net[k]), default=today.year)
+    return {"year": year, "month": month, "by": "product" if by_product else "caliber",
+            "labels": labels, "series": series, "total": total,
+            "now": sum(s["now"] for s in series), "years": list(range(today.year, min(first_year, today.year) - 1, -1))}

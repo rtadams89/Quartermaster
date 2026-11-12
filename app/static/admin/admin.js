@@ -886,68 +886,103 @@ async function history() {
 }
 
 // -------------------------------------------------------------------- usage
-const usageNav = { year: new Date().getFullYear(), metric: 'out' };
-const USAGE_METRICS = [['out', 'Used'], ['cost', 'Cost'], ['in', 'Checked in'], ['onhand', 'On hand']];
+const usageNav = { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const SERIES_COLORS = ['#2f7de1', '#e0762b', '#2fa36b', '#a35bd6', '#d6477a', '#17a2b8', '#b58a00', '#7a8696'];
 
 async function usage() {
   const calibers = await get('/api/calibers');
   const holder = h('div');
-  const year = h('select', { 'aria-label': 'Year', onchange: () => { usageNav.year = year.value === 'all' ? null : Number(year.value); show(); } });
-  const seg = h('div', { class: 'seg' });
+  const year = h('select', { 'aria-label': 'Year', onchange: () => { usageNav.year = Number(year.value); show(); } });
+  const month = h('select', { 'aria-label': 'Month', onchange: () => { usageNav.month = month.value ? Number(month.value) : null; show(); } },
+    h('option', { value: '' }, 'Whole year'), MONTH_NAMES.map((n, i) => h('option', { value: i + 1 }, n)));
   const filter = caliberFilter(calibers, () => show());
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  let data = null;
+  const draw = () => data && paintUsage(holder, data);
   const show = async () => {
     const cal = filter.id();
     if (cal === undefined) return;
-    const qs = new URLSearchParams({ tz });
-    if (usageNav.year) qs.set('year', usageNav.year);
+    const qs = new URLSearchParams({ tz, year: usageNav.year });
+    if (usageNav.month) qs.set('month', usageNav.month);
     if (cal) qs.set('caliber_id', cal);
-    const r = await get('/api/reports/usage?' + qs);
-    const years = [...new Set([...r.years, usageNav.year].filter(Boolean))].sort((a, b) => b - a);
-    clear(year, h('option', { value: 'all' }, 'All years'), years.map((y) => h('option', { value: y }, y)));
-    year.value = usageNav.year ? String(usageNav.year) : 'all';
-    clear(seg, USAGE_METRICS.map(([k, label]) => h('button', { type: 'button', class: usageNav.metric === k ? 'on' : '', onclick: () => { usageNav.metric = k; show(); } }, label)));
-    paintUsage(holder, r);
+    data = await get('/api/reports/onhand?' + qs);
+    clear(year, [...new Set([...data.years, usageNav.year])].sort((x, y) => y - x).map((y) => h('option', { value: y }, y)));
+    year.value = String(usageNav.year);
+    month.value = usageNav.month ? String(usageNav.month) : '';
+    draw();
   };
+  const onResize = () => { if (main.contains(holder)) draw(); else window.removeEventListener('resize', onResize); };
+  window.addEventListener('resize', onResize);
   clear(main, h('h1', {}, 'Usage'),
-    h('p', { class: 'sub' }, 'Ammo checked out, by month or year. Use it to see how fast each caliber goes and when to reorder.'),
-    h('div', { class: 'toolbar' }, year, filter.el, seg), holder);
+    h('p', { class: 'sub' }, 'Rounds on hand over time. Pick a month to see every day, or a whole year to see each month end. Drops show ammo used, rises show ammo added.'),
+    h('div', { class: 'toolbar' }, year, month, filter.el), holder);
   await show();
 }
 
+function niceStep(v) {
+  const e = 10 ** Math.floor(Math.log10(v));
+  return ([1, 2, 2.5, 5, 10].find((m) => m * e >= v) ?? 10) * e;
+}
+
 function paintUsage(holder, r) {
-  const metric = usageNav.metric;
-  const money = metric === 'cost';
-  const fmt = (v) => (v == null ? '' : v === 0 ? '—' : money ? fmtMoney(v) : fmtInt(v));
-  const heads = [r.by === 'product' ? 'Product' : 'Caliber', ...r.columns.map((c) => [c.label, 'num'])];
-  if (metric === 'onhand') heads.push(['Now', 'num']);
-  else heads.push(['Total', 'num']);
-  if (metric === 'out' || metric === 'cost') heads.push(['Avg / month', 'num']);
-  const rowFor = (row, cls) => {
-    const cells = row[metric];
-    const tail = [];
-    if (metric === 'onhand') tail.push(td(fmtInt(row.onhand_now), 'num'));
-    else tail.push(td(fmt(metric === 'out' ? row.out_total : metric === 'cost' ? row.cost_total : row.in_total), 'num'));
-    if (metric === 'out') tail.push(td(row.avg_out == null ? '' : fmtInt(row.avg_out), 'num'));
-    if (metric === 'cost') tail.push(td(r.months_counted ? fmtMoney(row.cost_total / r.months_counted) : '', 'num'));
-    return h('tr', cls ? { class: cls } : {}, td(h('b', {}, row.label)), cells.map((v) => td(metric === 'onhand' ? (v == null ? '' : fmtInt(v)) : fmt(v), 'num')), tail);
+  const lines = r.series;
+  const period = r.month ? `${MONTH_NAMES[r.month - 1]} ${r.year}` : String(r.year);
+  if (!lines.length) return clear(holder, empty(`No ammo has been on hand in ${period}.`));
+  const colorOf = (l, i) => SERIES_COLORS[i % SERIES_COLORS.length];
+  const W = Math.max(320, Math.min(holder.clientWidth || 900, 1400)), H = W < 560 ? 280 : 380;
+  const pad = { l: W < 560 ? 44 : 56, r: 14, t: 14, b: 30 };
+  const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+  const n = r.labels.length;
+  const all = lines.flatMap((l) => l.values.filter((v) => v != null));
+  const step4 = niceStep(Math.max((Math.max(...all) - Math.min(...all)) / 4, 5));
+  const bottom = Math.max(0, Math.floor(Math.min(...all) / step4) * step4), top = Math.max(bottom + step4 * 4, Math.ceil(Math.max(...all) / step4) * step4);
+  const x = (i) => pad.l + (n === 1 ? iw / 2 : (iw * i) / (n - 1));
+  const y = (v) => pad.t + ih - (ih * (v - bottom)) / (top - bottom);
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (tag, attrs = {}, text) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    if (text != null) e.textContent = text;
+    return e;
   };
-  const t = r.total;
-  const period = r.year ? String(r.year) : 'all years';
-  const notes = [];
-  if (r.unpriced) notes.push(`${r.unpriced} product${r.unpriced === 1 ? ' has' : 's have'} no cost set and ${r.unpriced === 1 ? 'is' : 'are'} left out of the cost figures.`);
-  if (r.unidentified_boxes) notes.push(`${fmtInt(r.unidentified_boxes)} box${r.unidentified_boxes === 1 ? '' : 'es'} checked out under codes that were never identified ${r.unidentified_boxes === 1 ? 'is' : 'are'} not counted.`);
+  const svg = el('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `Rounds on hand, ${period}` });
+  for (let t = 0; t <= 4; t++) {
+    const v = bottom + ((top - bottom) * t) / 4;
+    svg.append(el('line', { x1: pad.l, x2: W - pad.r, y1: y(v), y2: y(v), stroke: 'var(--line)', 'stroke-width': 1 }),
+      el('text', { x: pad.l - 8, y: y(v) + 4, 'text-anchor': 'end', 'font-size': 11, fill: 'var(--muted)' }, fmtInt(v)));
+  }
+  const step = Math.max(1, Math.ceil(n / Math.floor(iw / (r.month ? 26 : 40))));
+  r.labels.forEach((lab, i) => { if (i % step === 0) svg.append(el('text', { x: x(i), y: H - 9, 'text-anchor': 'middle', 'font-size': 11, fill: 'var(--muted)' }, lab)); });
+  lines.forEach((l, li) => {
+    const c = colorOf(l, li);
+    let d = '', pen = false;
+    l.values.forEach((v, i) => { if (v == null) { pen = false; return; } d += `${pen ? 'L' : 'M'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`; pen = true; });
+    svg.append(el('path', { d, fill: 'none', stroke: c, 'stroke-width': 2.5, 'stroke-linejoin': 'round' }));
+    if (n <= 31) l.values.forEach((v, i) => { if (v != null) svg.append(el('circle', { cx: x(i), cy: y(v), r: 3, fill: c })); });
+  });
+  const cross = el('line', { y1: pad.t, y2: pad.t + ih, stroke: 'var(--muted)', 'stroke-width': 1, visibility: 'hidden' });
+  svg.append(cross);
+  const tip = h('div', { class: 'chart-tip', hidden: true });
+  const wrap = h('div', { class: 'chart' }, svg, tip);
+  const hover = (e) => {
+    const box = svg.getBoundingClientRect();
+    const i = Math.max(0, Math.min(n - 1, Math.round(((e.clientX - box.left - pad.l) / iw) * (n - 1))));
+    cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.setAttribute('visibility', 'visible');
+    const when = r.month ? `${MONTH_NAMES[r.month - 1]} ${r.labels[i]}` : `End of ${MONTH_NAMES[i]}`;
+    clear(tip, h('b', {}, when), lines.map((l, li) => h('div', {}, h('span', { class: 'sw', style: { background: colorOf(l, li) } }), `${l.label}: `, l.values[i] == null ? '—' : fmtInt(l.values[i]))));
+    tip.hidden = false;
+    const left = x(i) + 14 + tip.offsetWidth > W ? x(i) - 14 - tip.offsetWidth : x(i) + 14;
+    tip.style.left = `${Math.max(0, left)}px`;
+    tip.style.top = `${pad.t}px`;
+  };
+  svg.addEventListener('pointermove', hover);
+  svg.addEventListener('pointerleave', () => { tip.hidden = true; cross.setAttribute('visibility', 'hidden'); });
+  const last = r.total.filter((v) => v != null).at(-1);
   clear(holder,
-    h('div', { class: 'cards' },
-      card(`Rounds used, ${period}`, fmtInt(t.out_total)),
-      card('Estimated cost at current prices', fmtMoney(t.cost_total) || '$0.00'),
-      card(`Average per month`, t.avg_out == null ? '—' : fmtInt(t.avg_out) + ' rounds'),
-      card('On hand now', fmtInt(t.onhand_now) + ' rounds')),
-    r.rows.length
-      ? h('div', { class: 'scroll-x', style: { marginTop: '14px' } }, table(heads, [...r.rows.map((row) => rowFor(row)), rowFor(t, 'total')]))
-      : empty(`Nothing was checked out in ${period}.`),
-    h('p', { class: 'muted', style: { marginTop: '12px' } },
-      `Used counts ammo checked out. Ammo checked back in is shown under Checked in and is not subtracted, so Used can overstate real consumption if you return unused ammo. Average per month runs from the first activity to now${r.year ? ` within ${r.year}` : ''}. ${notes.join(' ')}`.trim()));
+    h('div', { class: 'cards' }, card('On hand now', fmtInt(r.now) + ' rounds'), card(`On hand, end of ${period}`, last == null ? '—' : fmtInt(last) + ' rounds')),
+    h('div', { class: 'legend' }, lines.map((l, li) => h('span', {}, h('i', { class: 'sw', style: { background: colorOf(l, li) } }), l.label))),
+    wrap);
 }
 
 // ------------------------------------------------------------------- labels

@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.7.1
+- **Usage is now an on-hand chart.** The *Usage* page in the admin site is a line chart of rounds on hand, one line per caliber: every day for the month you pick, or month-end values for a whole year. It replaces the used / cost / checked-in tables from 1.7.0.
+
 ## 1.7.0
 - **Usage report.** A new *Usage* page in the admin site shows ammo checked out by month or by year, one row per caliber (type a caliber to see its products). Switch between rounds used, estimated cost at current prices, rounds checked in and the count on hand at the end of each month. It also shows the average per month, to help plan reorders. Rebuild the container after updating: it now includes time zone data.
 
