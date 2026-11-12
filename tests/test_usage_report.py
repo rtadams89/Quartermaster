@@ -61,12 +61,15 @@ def test_time_zone_moves_the_day(authed):
     assert bad[30] == 0
 
 
-def test_by_product_when_caliber_given(authed):
+def test_one_line_per_caliber_and_filter(authed):
     a, _ = stocked(authed, name="Alpha")
     stocked(authed, name="Beta", rounds_per_box=1, qty=300)
-    r = authed.get(f"/api/reports/onhand?year={utcnow().year}&caliber_id={a['caliber_id']}").json()
-    assert r["by"] == "product"
-    assert sorted(s["now"] for s in r["series"]) == [300, 500] and r["now"] == 800
+    other = authed.post("/api/calibers", json={"name": "Other"}).json()
+    stocked(authed, name="Gamma", caliber_id=other["id"], qty=2)
+    r = authed.get(f"/api/reports/onhand?year={utcnow().year}").json()
+    assert sorted((s["label"], s["now"]) for s in r["series"]) == sorted([(r["series"][0]["label"], 800), ("Other", 100)])
+    one = authed.get(f"/api/reports/onhand?year={utcnow().year}&caliber_id={a['caliber_id']}").json()
+    assert [s["now"] for s in one["series"]] == [800] and one["now"] == 800
 
 
 def test_current_month_shows_the_value_so_far(authed):

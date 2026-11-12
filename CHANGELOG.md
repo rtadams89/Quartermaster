@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.7.2
+- The *Usage* chart is by caliber only. Choosing a caliber shows just that line, and no longer splits it into products.
+
 ## 1.7.1
 - **Usage is now an on-hand chart.** The *Usage* page in the admin site is a line chart of rounds on hand, one line per caliber: every day for the month you pick, or month-end values for a whole year. It replaces the used / cost / checked-in tables from 1.7.0.
 

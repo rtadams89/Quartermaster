@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 from .. import security
 from ..db import get_db, utcnow
 from ..models import Barcode, Product, Transaction
-from ..services import product_dict
 
 router = APIRouter(prefix="/api/reports", dependencies=[Depends(security.require_auth)])
 
@@ -31,7 +30,6 @@ def onhand(year: int = Query(ge=2000, le=2200), month: int | None = Query(defaul
            caliber_id: int | None = None, tz: str = "UTC", db: Session = Depends(get_db)):
     zone = _zone(tz)
     today = utcnow().replace(tzinfo=timezone.utc).astimezone(zone).date()
-    by_product = caliber_id is not None
 
     rows = db.execute(
         select(Transaction.ts, Transaction.boxes, Product)
@@ -42,10 +40,10 @@ def onhand(year: int = Query(ge=2000, le=2200), month: int | None = Query(defaul
 
     net, names = defaultdict(lambda: defaultdict(int)), {}
     for ts, boxes, p in rows:
-        if by_product and p.caliber_id != caliber_id:
+        if caliber_id is not None and p.caliber_id != caliber_id:
             continue
-        key = p.id if by_product else p.caliber_id
-        names[key] = product_dict(p)["label"] if by_product else p.caliber.name
+        key = p.caliber_id
+        names[key] = p.caliber.name
         net[key][ts.replace(tzinfo=timezone.utc).astimezone(zone).date()] += boxes * p.rounds_per_box
 
     if month:
@@ -70,6 +68,5 @@ def onhand(year: int = Query(ge=2000, le=2200), month: int | None = Query(defaul
     series = [s for s in series if s["now"] or any(v for v in s["values"] if v)]
     total = [None if f else sum(s["values"][i] for s in series) for i, f in enumerate(future)]
     first_year = min((d.year for k in net for d in net[k]), default=today.year)
-    return {"year": year, "month": month, "by": "product" if by_product else "caliber",
-            "labels": labels, "series": series, "total": total,
+    return {"year": year, "month": month, "labels": labels, "series": series, "total": total,
             "now": sum(s["now"] for s in series), "years": list(range(today.year, min(first_year, today.year) - 1, -1))}
