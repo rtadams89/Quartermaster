@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.7.3
+- The *Usage* chart's vertical axis now always has gridlines on round numbers, and a new *Start axis at zero* box shows the true scale instead of zooming in on the range of your counts.
+
 ## 1.7.2
 - The *Usage* chart is by caliber only. Choosing a caliber shows just that line, and no longer splits it into products.
 

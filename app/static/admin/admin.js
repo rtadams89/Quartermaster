@@ -886,7 +886,7 @@ async function history() {
 }
 
 // -------------------------------------------------------------------- usage
-const usageNav = { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
+const usageNav = { year: new Date().getFullYear(), month: new Date().getMonth() + 1, zero: false };
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const SERIES_COLORS = ['#2f7de1', '#e0762b', '#2fa36b', '#a35bd6', '#d6477a', '#17a2b8', '#b58a00', '#7a8696'];
 
@@ -897,6 +897,7 @@ async function usage() {
   const month = h('select', { 'aria-label': 'Month', onchange: () => { usageNav.month = month.value ? Number(month.value) : null; show(); } },
     h('option', { value: '' }, 'Whole year'), MONTH_NAMES.map((n, i) => h('option', { value: i + 1 }, n)));
   const filter = caliberFilter(calibers, () => show());
+  const zero = h('input', { type: 'checkbox', checked: usageNav.zero, onchange: () => { usageNav.zero = zero.checked; draw(); } });
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   let data = null;
   const draw = () => data && paintUsage(holder, data);
@@ -916,7 +917,7 @@ async function usage() {
   window.addEventListener('resize', onResize);
   clear(main, h('h1', {}, 'Usage'),
     h('p', { class: 'sub' }, 'Rounds on hand over time. Pick a month to see every day, or a whole year to see each month end. Drops show ammo used, rises show ammo added.'),
-    h('div', { class: 'toolbar' }, year, month, filter.el), holder);
+    h('div', { class: 'toolbar' }, year, month, filter.el, h('label', { class: 'chk' }, zero, 'Start axis at zero')), holder);
   await show();
 }
 
@@ -933,10 +934,12 @@ function paintUsage(holder, r) {
   const W = Math.max(320, Math.min(holder.clientWidth || 900, 1400)), H = W < 560 ? 280 : 380;
   const pad = { l: W < 560 ? 44 : 56, r: 14, t: 14, b: 30 };
   const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
-  const n = r.labels.length;
   const all = lines.flatMap((l) => l.values.filter((v) => v != null));
-  const step4 = niceStep(Math.max((Math.max(...all) - Math.min(...all)) / 4, 5));
-  const bottom = Math.max(0, Math.floor(Math.min(...all) / step4) * step4), top = Math.max(bottom + step4 * 4, Math.ceil(Math.max(...all) / step4) * step4);
+  const lo = usageNav.zero ? 0 : Math.min(...all), hi = Math.max(...all);
+  const step = niceStep(Math.max((hi - lo) / 4, 5));
+  const bottom = Math.max(0, Math.floor(lo / step) * step), top = Math.max(Math.ceil(hi / step) * step, bottom + step * 2);
+  const ticks = Array.from({ length: Math.round((top - bottom) / step) + 1 }, (_, i) => bottom + i * step);
+  const n = r.labels.length;
   const x = (i) => pad.l + (n === 1 ? iw / 2 : (iw * i) / (n - 1));
   const y = (v) => pad.t + ih - (ih * (v - bottom)) / (top - bottom);
   const NS = 'http://www.w3.org/2000/svg';
@@ -947,13 +950,12 @@ function paintUsage(holder, r) {
     return e;
   };
   const svg = el('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `Rounds on hand, ${period}` });
-  for (let t = 0; t <= 4; t++) {
-    const v = bottom + ((top - bottom) * t) / 4;
+  for (const v of ticks) {
     svg.append(el('line', { x1: pad.l, x2: W - pad.r, y1: y(v), y2: y(v), stroke: 'var(--line)', 'stroke-width': 1 }),
       el('text', { x: pad.l - 8, y: y(v) + 4, 'text-anchor': 'end', 'font-size': 11, fill: 'var(--muted)' }, fmtInt(v)));
   }
-  const step = Math.max(1, Math.ceil(n / Math.floor(iw / (r.month ? 26 : 40))));
-  r.labels.forEach((lab, i) => { if (i % step === 0) svg.append(el('text', { x: x(i), y: H - 9, 'text-anchor': 'middle', 'font-size': 11, fill: 'var(--muted)' }, lab)); });
+  const every = Math.max(1, Math.ceil(n / Math.floor(iw / (r.month ? 26 : 40))));
+  r.labels.forEach((lab, i) => { if (i % every === 0) svg.append(el('text', { x: x(i), y: H - 9, 'text-anchor': 'middle', 'font-size': 11, fill: 'var(--muted)' }, lab)); });
   lines.forEach((l, li) => {
     const c = colorOf(l, li);
     let d = '', pen = false;
