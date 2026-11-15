@@ -5,11 +5,6 @@ from datetime import datetime, timezone
 from xml.sax.saxutils import escape
 
 import segno
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
-from .models import Barcode, PackCode
-from .services import LABEL_PREFIX, product_dict, spec_text
 
 TAPE_PT = 33.6
 PRINT_PT = 28.0
@@ -24,22 +19,6 @@ COLUMNS = ["Code", "Type", "Caliber", "Product", "Details", "Total"]
 
 NAMESPACES = " ".join(f'xmlns:{p}="http://schemas.brother.info/ptouch/2007/lbx/{p if p != "pt" else "main"}"'
                       for p in ("pt", "style", "text", "draw", "image", "barcode", "database", "table", "cable"))
-
-
-def label_rows(db: Session) -> list[dict]:
-    rows = []
-    for k in db.scalars(select(PackCode)):
-        rows.append(_row(k.code, "Pack", k.product, f"{k.quantity} {'rounds' if k.product.rounds_per_box == 1 else 'boxes'}"))
-    for b in db.scalars(select(Barcode).where(Barcode.product_id.is_not(None), Barcode.code.like(f"{LABEL_PREFIX}%"))):
-        if b.code[len(LABEL_PREFIX):].isdigit():
-            rows.append(_row(b.code, "Product", b.product, ""))
-    return sorted(rows, key=lambda r: (r["caliber"].lower(), r["product"].lower(), r["type"], r["code"]))
-
-
-def _row(code, kind, product, total):
-    d = product_dict(product)
-    return {"code": code, "type": kind, "caliber": d["caliber"], "product": d["label"],
-            "details": spec_text(product).replace(" · ", ", "), "total": total}
 
 
 def qr_layout(code: str) -> dict:
@@ -65,19 +44,24 @@ def _text_object(n: int, text: str, x: float, y: float, w: float, h: float, size
             f'<text:stringItem charLen="{len(text)}">{font}</text:stringItem></text:text>')
 
 
-def lbx_bytes(row: dict) -> bytes:
+def _sheet(row: dict, n: int) -> str:
     code = row["code"]
     q = qr_layout(code)
     lines = text_lines(row)
     size = 10.0 if len(lines) <= 2 else 7.5
-    line_h = round(PRINT_PT / len(lines), 1)
-    qr_y = QR_Y_PT
+    line_h = round(PRINT_PT / len(lines), 1) if lines else PRINT_PT
     text_x = round(START_PT + q["side"] + TEXT_GAP_PT, 1)
-    text_w = round(max(len(t) for t in lines) * size * CHAR_WIDTH_EM + 4, 1)
-    bg_w = round(text_x + text_w - START_PT, 1)
+    text_w = round(max((len(t) for t in lines), default=0) * size * CHAR_WIDTH_EM + 4, 1)
+    bg_w = round(text_x + text_w - START_PT, 1) if lines else q["side"]
     texts = "".join(_text_object(i + 1, t, text_x, round(EDGE_PT + i * line_h, 1), text_w, line_h, size, i == 0)
                     for i, t in enumerate(lines))
-    label = f"""<?xml version="1.0" encoding="UTF-8"?><pt:document {NAMESPACES} version="1.7" generator="Quartermaster"><pt:body currentSheet="Sheet 1" direction="LTR"><style:sheet name="Sheet 1"><style:paper media="0" width="{TAPE_PT}pt" height="2834.4pt" marginLeft="3pt" marginTop="{START_PT}pt" marginRight="3pt" marginBottom="{START_PT}pt" orientation="landscape" autoLength="true" monochromeDisplay="true" printColorDisplay="false" printColorsID="0" paperColor="#FFFFFF" paperInk="#000000" split="1" format="259" backgroundTheme="0" printerID="25904" printerName="Brother PT-E500"/><style:cutLine regularCut="0pt" freeCut=""/><style:backGround x="{START_PT}pt" y="{EDGE_PT}pt" width="{bg_w}pt" height="{PRINT_PT}pt" brushStyle="NULL" brushId="0" userPattern="NONE" userPatternId="0" color="#000000" printColorNumber="1" backColor="#FFFFFF" backPrintColorNumber="0"/><pt:objects><barcode:barcode><pt:objectStyle x="{START_PT}pt" y="{qr_y}pt" width="{q['side']}pt" height="{q['side']}pt" backColor="#FFFFFF" backPrintColorNumber="0" ropMode="COPYPEN" angle="0" anchor="TOPLEFT" flip="NONE"><pt:pen style="NULL" widthX="0.5pt" widthY="0.5pt" color="#000000" printColorNumber="1"/><pt:brush style="NULL" color="#000000" printColorNumber="1" id="0"/><pt:expanded objectName="Bar Code1" ID="0" lock="4" templateMergeTarget="LABELLIST" templateMergeType="NONE" templateMergeID="0" linkStatus="NONE" linkID="0"/></pt:objectStyle><barcode:barcodeStyle protocol="QRCODE" lengths="{len(code)}" zeroFill="false" barWidth="{q['cell']}pt" barRatio="1:3" humanReadable="false" humanReadableAlignment="LEFT" checkDigit="false" autoLengths="false" margin="false" sameLengthBar="false" bearerBar="false"/><barcode:qrcodeStyle model="2" eccLevel="25%" cellSize="{q['cell']}pt" mbcs="1252" joint="1" version="{q['version']}"/><pt:data>{escape(code)}</pt:data></barcode:barcode>{texts}</pt:objects></style:sheet></pt:body></pt:document>"""
+    qr_y = QR_Y_PT
+    return f"""<style:sheet name="Sheet {n}"><style:paper media="0" width="{TAPE_PT}pt" height="2834.4pt" marginLeft="3pt" marginTop="{START_PT}pt" marginRight="3pt" marginBottom="{START_PT}pt" orientation="landscape" autoLength="true" monochromeDisplay="true" printColorDisplay="false" printColorsID="0" paperColor="#FFFFFF" paperInk="#000000" split="1" format="259" backgroundTheme="0" printerID="25904" printerName="Brother PT-E500"/><style:cutLine regularCut="0pt" freeCut=""/><style:backGround x="{START_PT}pt" y="{EDGE_PT}pt" width="{bg_w}pt" height="{PRINT_PT}pt" brushStyle="NULL" brushId="0" userPattern="NONE" userPatternId="0" color="#000000" printColorNumber="1" backColor="#FFFFFF" backPrintColorNumber="0"/><pt:objects><barcode:barcode><pt:objectStyle x="{START_PT}pt" y="{qr_y}pt" width="{q['side']}pt" height="{q['side']}pt" backColor="#FFFFFF" backPrintColorNumber="0" ropMode="COPYPEN" angle="0" anchor="TOPLEFT" flip="NONE"><pt:pen style="NULL" widthX="0.5pt" widthY="0.5pt" color="#000000" printColorNumber="1"/><pt:brush style="NULL" color="#000000" printColorNumber="1" id="0"/><pt:expanded objectName="Bar Code1" ID="0" lock="4" templateMergeTarget="LABELLIST" templateMergeType="NONE" templateMergeID="0" linkStatus="NONE" linkID="0"/></pt:objectStyle><barcode:barcodeStyle protocol="QRCODE" lengths="{len(code)}" zeroFill="false" barWidth="{q['cell']}pt" barRatio="1:3" humanReadable="false" humanReadableAlignment="LEFT" checkDigit="false" autoLengths="false" margin="false" sameLengthBar="false" bearerBar="false"/><barcode:qrcodeStyle model="2" eccLevel="25%" cellSize="{q['cell']}pt" mbcs="1252" joint="1" version="{q['version']}"/><pt:data>{escape(code)}</pt:data></barcode:barcode>{texts}</pt:objects></style:sheet>"""
+
+
+def lbx_bytes(rows: list[dict]) -> bytes:
+    sheets = "".join(_sheet(r, i + 1) for i, r in enumerate(rows))
+    label = f"""<?xml version="1.0" encoding="UTF-8"?><pt:document {NAMESPACES} version="1.7" generator="Quartermaster"><pt:body currentSheet="Sheet 1" direction="LTR">{sheets}</pt:body></pt:document>"""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     prop = f"""<?xml version="1.0" encoding="UTF-8"?><meta:properties xmlns:meta="http://schemas.brother.info/ptouch/2007/lbx/meta" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/"><meta:appName>Quartermaster</meta:appName><dc:title></dc:title><dc:subject></dc:subject><dc:creator>Quartermaster</dc:creator><meta:keyword></meta:keyword><dc:description></dc:description><meta:template></meta:template><dcterms:created>{now}</dcterms:created><dcterms:modified>{now}</dcterms:modified><meta:lastPrinted></meta:lastPrinted><meta:modifiedBy>Quartermaster</meta:modifiedBy><meta:revision>1</meta:revision><meta:editTime>0</meta:editTime><meta:numPages>0</meta:numPages><meta:numWords>0</meta:numWords><meta:numChars>0</meta:numChars><meta:security>0</meta:security><meta:transferScript></meta:transferScript></meta:properties>"""
     buf = io.BytesIO()

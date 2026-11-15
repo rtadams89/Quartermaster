@@ -4,7 +4,7 @@ from pathlib import Path
 from app import config
 from app.db import SessionLocal
 from app.models import Barcode, PackCode
-from tests.conftest import make_product, run_batch
+from tests.conftest import make_product, resolve, run_batch
 
 
 def stocked(c, qty=10, **over):
@@ -16,9 +16,7 @@ def stocked(c, qty=10, **over):
 
 
 def pack(c, p, qty):
-    r = c.post("/api/labels/allocate", json={"count": 1, "product_id": p["id"], "pack_qty": qty})
-    assert r.status_code == 200, r.text
-    return r.json()
+    return {"codes": [resolve(c, product_id=p["id"], pack_qty=qty)[0]["code"]]}
 
 
 def test_allocate_pack_reuses_same_product_and_quantity(authed):
@@ -26,18 +24,20 @@ def test_allocate_pack_reuses_same_product_and_quantity(authed):
     a = pack(authed, p, 12)
     b = pack(authed, p, 12)
     c = pack(authed, p, 6)
-    assert a["codes"][0].startswith("QP") and not a["reused"]
-    assert b["codes"] == a["codes"] and b["reused"]
+    assert a["codes"][0].startswith("QP")
+    assert b["codes"] == a["codes"]
     assert c["codes"] != a["codes"]
-    many = authed.post("/api/labels/allocate", json={"count": 3, "product_id": p["id"], "pack_qty": 12}).json()
-    assert many["codes"] == a["codes"] * 3
+    many = resolve(authed, product_id=p["id"], pack_qty=12, copies=3)
+    assert [(r["code"], r["copies"]) for r in many] == [(a["codes"][0], 3)]
 
 
 def test_pack_needs_a_product_and_a_sensible_size(authed):
     p, _ = stocked(authed)
-    assert authed.post("/api/labels/allocate", json={"count": 1, "pack_qty": 12}).status_code == 400
-    assert authed.post("/api/labels/allocate", json={"count": 1, "product_id": p["id"], "pack_qty": 1}).status_code == 422
-    assert authed.post("/api/labels/allocate", json={"count": 1, "product_id": 9999, "pack_qty": 5}).status_code == 400
+    def post(**item):
+        return authed.post("/api/labels/resolve", json={"items": [item]}).status_code
+    assert post(pack_qty=12) == 400
+    assert post(product_id=p["id"], pack_qty=1) == 422
+    assert post(product_id=9999, pack_qty=5) == 400
 
 
 def test_scanning_a_pack_adds_its_quantity_to_the_product(authed):
@@ -83,31 +83,22 @@ def test_by_the_round_pack_counts_rounds(authed):
     assert res["rounds"] == 100 and res["boxes"] == 0
 
 
-def test_list_and_delete_packs(authed):
-    p, _ = stocked(authed)
-    pc = pack(authed, p, 12)["codes"][0]
-    rows = authed.get("/api/labels/packs").json()
-    assert [(r["code"], r["quantity"], r["product"]["id"]) for r in rows] == [(pc, 12, p["id"])]
-    assert rows[0]["product"]["caliber"] and rows[0]["product"]["spec"] and rows[0]["product"]["label"]
-    assert authed.delete(f"/api/labels/packs/{pc}").status_code == 200
-    assert authed.get("/api/labels/packs").json() == []
-    assert authed.delete(f"/api/labels/packs/{pc}").status_code == 404
-
-
 def test_deleting_a_product_removes_its_packs(authed):
     p, _ = stocked(authed)
     pack(authed, p, 12)
     assert authed.delete(f"/api/products/{p['id']}").status_code == 200
-    assert authed.get("/api/labels/packs").json() == []
+    with SessionLocal() as db:
+        assert db.query(PackCode).count() == 0
 
 
 def test_backup_roundtrip_keeps_packs_and_old_backups_still_restore(authed):
     p, _ = stocked(authed)
     pc = pack(authed, p, 12)["codes"][0]
     backup = authed.get("/api/backup").content
-    authed.delete(f"/api/labels/packs/{pc}")
+    authed.delete(f"/api/products/{p['id']}")
     assert authed.post("/api/restore", content=backup).status_code == 200
-    assert [r["code"] for r in authed.get("/api/labels/packs").json()] == [pc]
+    with SessionLocal() as db:
+        assert [k.code for k in db.query(PackCode)] == [pc]
 
     old = Path(config.DB_PATH).parent / "old.db"
     old.write_bytes(backup)
@@ -116,7 +107,8 @@ def test_backup_roundtrip_keeps_packs_and_old_backups_still_restore(authed):
     con.commit()
     con.close()
     assert authed.post("/api/restore", content=old.read_bytes()).status_code == 200
-    assert authed.get("/api/labels/packs").json() == []
+    with SessionLocal() as db:
+        assert db.query(PackCode).count() == 0
 
 
 def test_a_pack_code_cannot_be_added_as_a_product_barcode(authed):
@@ -124,14 +116,3 @@ def test_a_pack_code_cannot_be_added_as_a_product_barcode(authed):
     pc = pack(authed, p, 12)["codes"][0]
     other = make_product(authed, name="Other")
     assert authed.post(f"/api/products/{other['id']}/barcodes", json={"code": pc}).status_code == 409
-
-
-def test_pack_list_is_ordered_by_caliber_then_product_then_size(authed):
-    a, _ = stocked(authed, name="Zed")
-    b, _ = stocked(authed, name="Alpha")
-    other = authed.post("/api/calibers", json={"name": "Zzz last"}).json()
-    c, _ = stocked(authed, name="Mid", caliber_id=other["id"])
-    for p, q in ((a, 12), (b, 20), (b, 6), (c, 3)):
-        pack(authed, p, q)
-    rows = authed.get("/api/labels/packs").json()
-    assert [(r["product"]["id"], r["quantity"]) for r in rows] == [(b["id"], 6), (b["id"], 20), (a["id"], 12), (c["id"], 3)]

@@ -1,4 +1,4 @@
-from tests.conftest import make_product, run_batch
+from tests.conftest import make_product, resolve, run_batch
 
 
 def start(c, kind="in"):
@@ -26,7 +26,7 @@ def test_existing_codes_are_reused(authed):
     authed.post(f"/api/products/{upc['id']}/barcodes", json={"code": "012345678905"})
     both = make_product(authed, name="Has both")
     authed.post(f"/api/products/{both['id']}/barcodes", json={"code": "036000291452"})
-    label = authed.post("/api/labels/allocate", json={"count": 1, "product_id": both["id"]}).json()["codes"][0]
+    label = resolve(authed, product_id=both["id"])[0]["code"]
     bid = start(authed)
     assert add(authed, bid, upc["id"]).json()["item"]["code"] == "012345678905"
     assert add(authed, bid, both["id"]).json()["item"]["code"] == label

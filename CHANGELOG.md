@@ -2,6 +2,12 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.10.0
+- **New Labels page.** Add the products to label, choose a product label or a pack label for each (with the total in the pack), set the copies, then choose how to print: a printer sheet (Code 128 or QR, any number of columns), a P-touch file, or a CSV. Codes are created, or reused, only when you print or download.
+- P-touch files can be one file with a page for every label and copy, so the printer cuts between labels, or a zip with one file per different label. The CSV has a row for every copy.
+- You can add blank labels (each copy gets its own new code) or an existing code to the list.
+- The *Pack labels* list is gone, since packs are chosen directly in the list.
+
 ## 1.9.1
 - The P-touch download buttons moved off the *Pack labels* heading to their own row above the print sheet, since they cover product labels too.
 - P-touch Editor files: the QR code's character set is now Western (1252) instead of Japanese, the QR code uses the Medium Small cell size at 0.42" and sits on the tape without overhanging it, the label length is set to Auto, and the third line on pack labels now shows just the amount (for example "100 rounds").

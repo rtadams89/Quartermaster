@@ -990,71 +990,134 @@ function paintUsage(holder, r) {
 }
 
 // ------------------------------------------------------------------- labels
-// The print job is kept while you move around the admin site, so you can leave and come back to it.
-const labelJob = { items: [], cols: 2, type: 'code128' };
+// The label list is kept while you move around the admin site, so you can leave and come back to it.
+const labelJob = { rows: [], output: 'sheet', type: 'code128', cols: 2, mode: 'one' };
 
 async function labels() {
   const prods = await get('/api/products');
-  const pick = productPicker(prods, { optional: true, placeholder: 'Product: type to search, or leave empty to identify later' });
-  const count = h('input', { type: 'number', min: 1, max: 100, value: 1, style: { width: '80px' }, 'aria-label': 'Number of labels' });
-  const packIn = h('input', { type: 'number', min: 2, max: 99999, placeholder: 'optional', style: { width: '110px' }, 'aria-label': 'Quantity in a pack' });
-  const packBox = h('div');
-  const packText = (p, n) => `Total of ${fmtInt(n)} ${p.rounds_per_box === 1 ? 'rounds' : 'boxes'}`;
-  const type = h('select', { 'aria-label': 'Label style', onchange: () => { labelJob.type = type.value; paint(); } },
-    h('option', { value: 'code128' }, 'Code 128 (bar)'), h('option', { value: 'qr' }, 'QR code'));
-  type.value = labelJob.type;
-  const cols = h('select', { 'aria-label': 'Columns', onchange: () => { labelJob.cols = Number(cols.value); paint(); } },
-    [1, 2, 3, 4, 5, 6].map((n) => h('option', { value: n }, n === 1 ? '1 column' : `${n} columns`)));
-  cols.value = String(labelJob.cols);
-  const reprint = h('input', { placeholder: 'e.g. QM000012', size: 14 });
+  const byId = new Map(prods.map((p) => [p.id, p]));
+  const pick = productPicker(prods, { placeholder: 'Product: type to search by caliber, manufacturer or name' });
+  const code = h('input', { placeholder: 'e.g. QM000012', size: 14, 'aria-label': 'Existing code' });
+  const unit = (p) => (p.rounds_per_box === 1 ? 'rounds' : 'boxes');
+  const packText = (p, n) => `Total of ${fmtInt(n)} ${unit(p)}`;
+  const listBox = h('div');
+  const options = h('div', { class: 'toolbar' });
   const sheet = h('div', { class: 'sheet' });
   const status = h('span', { class: 'muted' });
-  const paint = () => {
+  let busy = false;
+
+  const nameOf = (r) => (r.code ? r.code : r.product_id == null ? 'a blank label' : byId.get(r.product_id).label);
+  const items = () => {
+    if (!labelJob.rows.length) throw new Error('Add at least one label first');
+    return labelJob.rows.map((r) => {
+      const copies = Number(r.copies);
+      if (!Number.isInteger(copies) || copies < 1 || copies > 100) throw new Error(`Copies for ${nameOf(r)} must be 1 to 100`);
+      if (r.code) return { code: r.code, copies };
+      if (r.product_id == null) return { copies };
+      if (!r.pack) return { product_id: r.product_id, copies };
+      const q = Number(r.pack_qty);
+      if (!Number.isInteger(q) || q < 2 || q > 99999) throw new Error(`Enter the total in the pack for ${nameOf(r)} (2 or more)`);
+      return { product_id: r.product_id, pack_qty: q, copies };
+    });
+  };
+
+  const paintList = () => {
+    const total = labelJob.rows.reduce((n, r) => n + (Number(r.copies) || 0), 0);
+    status.textContent = labelJob.rows.length ? `${total} label${total === 1 ? '' : 's'} in ${labelJob.rows.length} line${labelJob.rows.length === 1 ? '' : 's'}` : '';
+    clear(listBox, labelJob.rows.length ? table(['Label', 'Type', 'Total in pack', 'Copies', ''], labelJob.rows.map((r, i) => {
+      const p = r.product_id == null ? null : byId.get(r.product_id);
+      const kind = r.code ? 'existing' : p ? 'product' : 'blank';
+      const what = kind === 'product' ? [h('b', {}, p.label), h('span', { class: 'code' }, `${p.caliber} · ${labelSpecOf(p)}`)]
+        : kind === 'existing' ? [h('b', {}, r.code), h('span', { class: 'code' }, 'Existing label')]
+          : [h('b', {}, 'Blank label'), h('span', { class: 'code' }, 'New code, identified later; every copy gets its own code')];
+      const type = h('select', { 'aria-label': 'Label type', onchange: () => { r.pack = type.value === 'pack'; paintList(); } },
+        h('option', { value: 'product' }, 'Product label'), h('option', { value: 'pack' }, 'Pack label'));
+      type.value = r.pack ? 'pack' : 'product';
+      const qty = h('input', { type: 'number', min: 2, max: 99999, value: r.pack_qty, style: { width: '90px' }, 'aria-label': 'Total in the pack', oninput: () => { r.pack_qty = qty.value; } });
+      const copies = h('input', { type: 'number', min: 1, max: 100, value: r.copies, style: { width: '70px' }, 'aria-label': 'Copies', oninput: () => { r.copies = copies.value; status.textContent = ''; } });
+      return h('tr', {}, td(what),
+        td(kind === 'product' ? type : ''),
+        td(kind === 'product' && r.pack ? [qty, ' ', unit(p)] : ''),
+        td(copies),
+        td(h('button', { class: 'btn sm danger', onclick: () => { labelJob.rows.splice(i, 1); paintList(); } }, 'Remove'), 'actions'));
+    }), { sort: false }) : empty('No labels yet. Add products above.'));
+  };
+
+  const paintOptions = () => {
+    const out = h('select', { 'aria-label': 'How to print', onchange: () => { labelJob.output = out.value; paintOptions(); } },
+      h('option', { value: 'sheet' }, 'Printer sheet'), h('option', { value: 'ptouch' }, 'P-touch file'), h('option', { value: 'csv' }, 'CSV for P-touch'));
+    out.value = labelJob.output;
+    const type = h('select', { 'aria-label': 'Label style', onchange: () => { labelJob.type = type.value; } },
+      h('option', { value: 'code128' }, 'Code 128 (bar)'), h('option', { value: 'qr' }, 'QR code'));
+    type.value = labelJob.type;
+    const cols = h('select', { 'aria-label': 'Columns', onchange: () => { labelJob.cols = Number(cols.value); } },
+      [1, 2, 3, 4, 5, 6].map((n) => h('option', { value: n }, n === 1 ? '1 column' : `${n} columns`)));
+    cols.value = String(labelJob.cols);
+    const mode = h('select', { 'aria-label': 'File layout', onchange: () => { labelJob.mode = mode.value; paintOptions(); } },
+      h('option', { value: 'one' }, 'One file with every label'), h('option', { value: 'many' }, 'One file per label'));
+    mode.value = labelJob.mode;
+    const go = h('button', { class: 'btn primary', onclick: () => run(), disabled: busy },
+      labelJob.output === 'sheet' ? 'Print' : labelJob.output === 'csv' ? 'Download CSV' : labelJob.mode === 'one' ? 'Download P-touch file' : 'Download P-touch files');
+    clear(options, out, labelJob.output === 'sheet' ? [type, cols] : labelJob.output === 'ptouch' ? mode : '', h('span', { class: 'grow' }), status, go);
+  };
+
+  const download = async (path, body) => {
+    const res = await post(path, body);
+    const blob = await res.blob();
+    const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') || '')?.[1] || 'quartermaster-labels';
+    const a = h('a', { href: URL.createObjectURL(blob), download: name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast(`Downloaded ${name}`, 'ok');
+  };
+
+  const printSheet = async (rows) => {
     sheet.style.gridTemplateColumns = `repeat(${labelJob.cols}, minmax(0, 1fr))`;
-    status.textContent = labelJob.items.length ? `${labelJob.items.length} label(s) on the sheet` : 'The sheet is empty. Add labels above.';
-    clear(sheet, labelJob.items.map((it, i) => h('div', { class: 'label ' + labelJob.type },
-      h('button', { class: 'x no-print', type: 'button', title: 'Remove this label from the sheet', 'aria-label': `Remove label ${it.code}`,
-        onclick: () => { labelJob.items.splice(i, 1); paint(); } }, '×'),
-      h('img', { src: `/api/labels/render?type=${labelJob.type}&code=${encodeURIComponent(it.code)}`, alt: it.code }),
-      h('div', { class: 'c' }, it.code), it.text && h('div', { class: 'p' }, it.text))));
+    const imgs = [];
+    clear(sheet, rows.flatMap((r) => {
+      const p = r.product_id == null ? null : byId.get(r.product_id);
+      const text = p ? `${p.label}\n${p.caliber} ${labelSpecOf(p)}${r.pack_qty ? '\n' + packText(p, r.pack_qty) : ''}` : '';
+      return Array.from({ length: r.copies }, () => {
+        const img = h('img', { src: `/api/labels/render?type=${labelJob.type}&code=${encodeURIComponent(r.code)}`, alt: r.code });
+        imgs.push(img);
+        return h('div', { class: 'label ' + labelJob.type }, img, h('div', { class: 'c' }, r.code), text && h('div', { class: 'p' }, text));
+      });
+    }));
+    await Promise.all(imgs.map((i) => i.decode().catch(() => {})));
+    window.print();
   };
-  const add = (codes, text) => { for (const code of codes) labelJob.items.push({ code, text }); paint(); };
+
+  const run = async () => {
+    if (busy) return;
+    busy = true;
+    paintOptions();
+    try {
+      const list = items();
+      if (labelJob.output === 'sheet') await printSheet((await post('/api/labels/resolve', { items: list })).rows);
+      else if (labelJob.output === 'csv') await download('/api/labels/ptouch.csv', { items: list });
+      else await download('/api/labels/ptouch', { items: list, mode: labelJob.mode });
+    } catch (e) { toast(e.message, 'error'); }
+    busy = false;
+    paintOptions();
+  };
+
+  const addRow = (row) => { labelJob.rows.push({ product_id: null, code: null, pack: false, pack_qty: '', copies: 1, ...row }); paintList(); };
   clear(main, h('h1', {}, 'Labels'),
-    h('p', { class: 'sub' }, 'For ammo with no UPC (or repacked boxes). Build a sheet from as many different labels as you like, choose how many columns, remove any you do not want, then print. A label is a code you can scan like any other barcode. A product keeps one label code: adding it again reprints the same code. With no product chosen, each label gets its own new code to identify later. Any 2D-capable scanner reads both styles. To label a case, belt or container that holds a fixed amount, fill in Total of.'),
-    h('div', { class: 'toolbar no-print' }, h('div', { style: { flex: '1 1 460px', minWidth: '280px' } }, pick.el), h('span', {}, 'Total of'), packIn, h('span', {}, 'Labels'), count,
-      h('button', { class: 'btn primary', onclick: async () => {
-        try {
-          const n = Number(count.value);
-          const pid = pick.value();
-          const pack = packIn.value ? Number(packIn.value) : null;
-          if (pack && !pid) throw new Error('Choose a product for a pack label');
-          const r = await post('/api/labels/allocate', { count: n, product_id: pid, pack_qty: pack });
-          const p = prods.find((x) => x.id === pid);
-          add(r.codes, p ? `${p.label}\n${p.caliber} ${labelSpecOf(p)}${pack ? '\n' + packText(p, pack) : ''}`.trim() : '');
-          toast(pack ? `Added ${n} pack label${n === 1 ? '' : 's'}: ${packText(p, pack)}` : !pid ? `Added ${r.codes.length} new code(s)` : r.reused ? `Added ${n} of ${r.codes[0]}, already this product's label` : `Created ${r.codes[0]} for this product and added ${n}`, 'ok');
-          if (pack) loadPacks();
-        } catch (e) { toast(e.message, 'error'); }
-      } }, 'Add to sheet')),
-    h('div', { class: 'toolbar no-print' }, h('span', { class: 'muted' }, 'Or add an existing code:'), reprint,
-      h('button', { class: 'btn', onclick: () => { if (reprint.value.trim()) { add([reprint.value.trim().toUpperCase()], ''); reprint.value = ''; } } }, 'Add')),
-    h('div', { class: 'toolbar no-print' }, h('span', { class: 'muted' }, 'Export every pack and product label for P-touch Editor:'),
-      h('a', { class: 'btn', href: '/api/labels/ptouch.zip' }, 'Download P-touch files (.zip)'), h('a', { class: 'btn', href: '/api/labels/ptouch.csv' }, 'Download CSV for P-touch')),
-    h('div', { class: 'toolbar no-print' }, type, cols, status, h('span', { class: 'grow' }),
-      h('button', { class: 'btn', onclick: () => { labelJob.items.length = 0; paint(); } }, 'Clear sheet'),
-      h('button', { class: 'btn primary', onclick: () => window.print() }, 'Print')),
-    sheet,
-    h('div', { class: 'no-print', style: { marginTop: '28px' } }, h('h2', {}, 'Pack labels'),
-      h('p', { class: 'sub', style: { margin: '0 0 10px' } }, 'A pack label stands for a fixed amount of one product, such as a case of boxes or a belt of rounds. Scanning it checks in or out that whole amount, and the quantity can still be changed on the kiosk.'),
-      packBox));
-  const loadPacks = async () => {
-    const rows = await get('/api/labels/packs');
-    clear(packBox, rows.length ? table(['Caliber', 'Product', 'Total', 'Code', ''], rows.map((k) => h('tr', {},
-      td(k.product.caliber), td([h('b', {}, k.product.label), h('span', { class: 'code' }, k.product.spec)]), td(packText(k.product, k.quantity).replace(/^Total of /, '')), td(h('span', { class: 'code' }, k.code)),
-      td([h('a', { class: 'btn sm', href: `/api/labels/ptouch/${encodeURIComponent(k.code)}.lbx` }, 'P-touch file'), h('button', { class: 'btn sm', onclick: () => add([k.code], `${k.product.label}\n${k.product.caliber} ${labelSpecOf(k.product)}\n${packText(k.product, k.quantity)}`) }, 'Add to sheet'),
-        h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete pack label?', 'Printed copies of this label will no longer scan.', 'Delete', async () => { await del(`/api/labels/packs/${encodeURIComponent(k.code)}`); loadPacks(); }) }, 'Delete')], 'actions')))) : empty('No pack labels yet.'));
-  };
-  paint();
-  await loadPacks();
+    h('p', { class: 'sub no-print' }, 'Choose the products to label, say whether each gets a product label or a pack label (a case, belt or container holding a fixed amount, which adds that whole amount when scanned), and how many of each to print. Then print a sheet of labels, or download a P-touch Editor file or a CSV. Codes are created, or reused when the product or pack already has one, only when you print or download.'),
+    h('div', { class: 'no-print' },
+      h('div', { class: 'toolbar' }, h('div', { style: { flex: '1 1 460px', minWidth: '280px' } }, pick.el),
+        h('button', { class: 'btn primary', onclick: () => { try { addRow({ product_id: pick.value() }); } catch (e) { toast(e.message, 'error'); } } }, 'Add product')),
+      h('div', { class: 'toolbar' }, h('button', { class: 'btn', onclick: () => addRow({}) }, 'Add blank label'),
+        h('span', { class: 'muted' }, 'Or an existing code:'), code,
+        h('button', { class: 'btn', onclick: () => { if (code.value.trim()) { addRow({ code: code.value.trim().toUpperCase() }); code.value = ''; } } }, 'Add')),
+      listBox,
+      h('div', { style: { marginTop: '16px' } }, h('h2', {}, 'Print'), options),
+      h('div', { class: 'toolbar' }, h('button', { class: 'btn', onclick: () => { labelJob.rows.length = 0; paintList(); } }, 'Clear list'))),
+    sheet);
+  paintList();
+  paintOptions();
 }
 
 // ----------------------------------------------------------------- settings

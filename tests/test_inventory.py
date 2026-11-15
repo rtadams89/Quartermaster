@@ -1,7 +1,7 @@
 import pytest
 
 from app.codes import normalize_code
-from tests.conftest import make_product, run_batch
+from tests.conftest import make_product, resolve, run_batch
 
 
 @pytest.mark.parametrize(
@@ -162,9 +162,9 @@ def test_code_cannot_be_stolen_by_second_product(authed):
 
 def test_labels_allocate_and_render(authed):
     p = make_product(authed)
-    r = authed.post("/api/labels/allocate", json={"count": 3, "product_id": p["id"]}).json()
-    assert r == {"codes": ["QM000001"] * 3, "reused": False}   # one code for the product, printed 3 times
-    assert authed.post("/api/labels/allocate", json={"count": 2}).json()["codes"] == ["QM000002", "QM000003"]
+    rows = resolve(authed, product_id=p["id"], copies=3)
+    assert [(r["code"], r["copies"]) for r in rows] == [("QM000001", 3)]
+    assert [r["code"] for r in resolve(authed, copies=2)] == ["QM000002", "QM000003"]
     for kind in ("code128", "qr"):
         r = authed.get(f"/api/labels/render?code=QM000001&type={kind}")
         assert r.status_code == 200 and r.headers["content-type"] == "image/svg+xml" and b"<svg" in r.content
@@ -175,17 +175,14 @@ def test_labels_allocate_and_render(authed):
 def test_product_label_code_is_reused(authed):
     a = make_product(authed, name="A")
     b = make_product(authed, name="B")
-    first = authed.post("/api/labels/allocate", json={"count": 1, "product_id": a["id"]}).json()
-    again = authed.post("/api/labels/allocate", json={"count": 4, "product_id": a["id"]}).json()
-    assert first == {"codes": ["QM000001"], "reused": False}
-    assert again == {"codes": ["QM000001"] * 4, "reused": True}
-    other = authed.post("/api/labels/allocate", json={"count": 1, "product_id": b["id"]}).json()
-    assert other["codes"] == ["QM000002"] and other["reused"] is False
+    assert resolve(authed, product_id=a["id"])[0]["code"] == "QM000001"
+    again = resolve(authed, product_id=a["id"], copies=4)[0]
+    assert again["code"] == "QM000001" and again["copies"] == 4
+    assert resolve(authed, product_id=b["id"])[0]["code"] == "QM000002"
     # a product that only has a manufacturer UPC still gets its own QM label
     c = make_product(authed, name="C")
     authed.post(f"/api/products/{c['id']}/barcodes", json={"code": "012345678905"})
-    got = authed.post("/api/labels/allocate", json={"count": 1, "product_id": c["id"]}).json()
-    assert got["codes"] == ["QM000003"] and not got["reused"]
+    assert resolve(authed, product_id=c["id"])[0]["code"] == "QM000003"
 
 
 def test_csv_export(authed):

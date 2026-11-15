@@ -54,3 +54,9 @@ def run_batch(c, kind, scans):
         if qty != 1:
             c.patch(f"/api/batches/{b['id']}/items/{r.json()['item']['id']}", json={"quantity": qty})
     return c.post(f"/api/batches/{b['id']}/finish")
+
+
+def resolve(c, **item):
+    r = c.post("/api/labels/resolve", json={"items": [item]})
+    assert r.status_code == 200, r.text
+    return r.json()["rows"]

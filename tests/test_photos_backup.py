@@ -6,7 +6,7 @@ import pytest
 from PIL import Image
 
 from app import config
-from tests.conftest import make_product, run_batch
+from tests.conftest import make_product, resolve, run_batch
 
 
 def image_bytes(size=(3000, 2000), fmt="PNG", color=(200, 30, 30)):
@@ -142,7 +142,7 @@ def seed_data(c):
     run_batch(c, "in", [("111111111111", 4), ("999999999999", 2)])
     put_photo(c, "111111111111", image_bytes((640, 480)))
     c.post("/api/calibers", json={"name": ".45 Colt"})
-    c.post("/api/labels/allocate", json={"count": 3})
+    resolve(c, copies=3)
     c.put("/api/settings", json={"photo_prompt": False})
     return p
 
@@ -202,7 +202,7 @@ def test_restore_roundtrip_replaces_data_but_keeps_pin_and_session(authed):
     assert authed.post("/api/auth/login", json={"pin": "4321"}).status_code == 200  # NEW pin kept
     assert authed.post("/api/auth/login", json={"pin": "1234"}).status_code == 401
     # label counter restored, so new labels don't collide with ones already printed
-    assert authed.post("/api/labels/allocate", json={"count": 1}).json()["codes"] == ["QM000004"]
+    assert [r["code"] for r in resolve(authed)] == ["QM000004"]
 
 
 def test_restore_makes_a_safety_copy_of_what_it_replaces(authed):
