@@ -15,7 +15,6 @@ CELL_PT = 1.2
 QR_Y_PT = 1.8
 TEXT_GAP_PT = 3.0
 CHAR_WIDTH_EM = 0.55
-COLUMNS = ["Code", "Type", "Caliber", "Product", "Details", "Total"]
 
 NAMESPACES = " ".join(f'xmlns:{p}="http://schemas.brother.info/ptouch/2007/lbx/{p if p != "pt" else "main"}"'
                       for p in ("pt", "style", "text", "draw", "image", "barcode", "database", "table", "cable"))

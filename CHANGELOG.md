@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.10.1
+- The CSV option on the Labels page is now just *CSV file*, since it works with any label printing program.
+
 ## 1.10.0
 - **New Labels page.** Add the products to label, choose a product label or a pack label for each (with the total in the pack), set the copies, then choose how to print: a printer sheet (Code 128 or QR, any number of columns), a P-touch file, or a CSV. Codes are created, or reused, only when you print or download.
 - P-touch files can be one file with a page for every label and copy, so the printer cuts between labels, or a zip with one file per different label. The CSV has a row for every copy.

@@ -16,6 +16,8 @@ from ..codes import normalize_code
 from ..db import get_db
 from ..csvsafe import safe_row
 
+COLUMNS = ["Code", "Type", "Caliber", "Product", "Details", "Total"]
+
 router = APIRouter(prefix="/api/labels", dependencies=[Depends(security.require_auth)])
 
 class ItemIn(BaseModel):
@@ -70,11 +72,11 @@ def ptouch_files(body: JobIn, db: Session = Depends(get_db)):
                     headers={"Content-Disposition": 'attachment; filename="quartermaster-labels-ptouch.zip"'})
 
 
-@router.post("/ptouch.csv")
-def ptouch_csv(body: JobIn, db: Session = Depends(get_db)):
+@router.post("/csv")
+def labels_csv(body: JobIn, db: Session = Depends(get_db)):
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(ptouch.COLUMNS)
+    w.writerow(COLUMNS)
     for r in resolved(db, body):
         for _ in range(r["copies"]):
             w.writerow(safe_row([r["code"], r["type"], r["caliber"], r["product"], r["details"], r["total"]]))

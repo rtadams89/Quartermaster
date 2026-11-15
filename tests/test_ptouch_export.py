@@ -4,6 +4,7 @@ import zipfile
 from xml.etree import ElementTree as ET
 
 from app import ptouch
+from app.routers.labels import COLUMNS
 from tests.conftest import make_product
 
 NS = {"pt": "http://schemas.brother.info/ptouch/2007/lbx/main", "text": "http://schemas.brother.info/ptouch/2007/lbx/text",
@@ -26,7 +27,7 @@ def page_texts(sheet):
 
 
 def test_requires_login(client):
-    for path in ("resolve", "ptouch", "ptouch.csv"):
+    for path in ("resolve", "ptouch", "csv"):
         assert client.post(f"/api/labels/{path}", json={"items": [{}]}).status_code == 401
 
 
@@ -86,9 +87,9 @@ def test_many_files_with_a_single_label_downloads_the_lbx_itself(authed):
 
 def test_csv_has_a_row_per_copy_with_details(authed):
     p = make_product(authed)
-    r = post(authed, "ptouch.csv", [{"product_id": p["id"], "pack_qty": 6, "copies": 2}, {"product_id": p["id"]}, {}])
+    r = post(authed, "csv", [{"product_id": p["id"], "pack_qty": 6, "copies": 2}, {"product_id": p["id"]}, {}])
     rows = list(csv.DictReader(io.StringIO(r.text)))
-    assert list(rows[0]) == ptouch.COLUMNS and len(rows) == 4
+    assert list(rows[0]) == COLUMNS and len(rows) == 4
     pack, product, blank = rows[0], rows[2], rows[3]
     assert pack == rows[1] and pack["Type"] == "Pack" and pack["Total"] == "6 boxes"
     assert product["Type"] == "Product" and product["Total"] == ""

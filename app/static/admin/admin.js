@@ -1045,7 +1045,7 @@ async function labels() {
 
   const paintOptions = () => {
     const out = h('select', { 'aria-label': 'How to print', onchange: () => { labelJob.output = out.value; paintOptions(); } },
-      h('option', { value: 'sheet' }, 'Printer sheet'), h('option', { value: 'ptouch' }, 'P-touch file'), h('option', { value: 'csv' }, 'CSV for P-touch'));
+      h('option', { value: 'sheet' }, 'Printer sheet'), h('option', { value: 'ptouch' }, 'P-touch file'), h('option', { value: 'csv' }, 'CSV file'));
     out.value = labelJob.output;
     const type = h('select', { 'aria-label': 'Label style', onchange: () => { labelJob.type = type.value; } },
       h('option', { value: 'code128' }, 'Code 128 (bar)'), h('option', { value: 'qr' }, 'QR code'));
@@ -1057,7 +1057,7 @@ async function labels() {
       h('option', { value: 'one' }, 'One file with every label'), h('option', { value: 'many' }, 'One file per label'));
     mode.value = labelJob.mode;
     const go = h('button', { class: 'btn primary', onclick: () => run(), disabled: busy },
-      labelJob.output === 'sheet' ? 'Print' : labelJob.output === 'csv' ? 'Download CSV' : labelJob.mode === 'one' ? 'Download P-touch file' : 'Download P-touch files');
+      labelJob.output === 'sheet' ? 'Print' : labelJob.output === 'csv' ? 'Download CSV file' : labelJob.mode === 'one' ? 'Download P-touch file' : 'Download P-touch files');
     clear(options, out, labelJob.output === 'sheet' ? [type, cols] : labelJob.output === 'ptouch' ? mode : '', h('span', { class: 'grow' }), status, go);
   };
 
@@ -1096,7 +1096,7 @@ async function labels() {
     try {
       const list = items();
       if (labelJob.output === 'sheet') await printSheet((await post('/api/labels/resolve', { items: list })).rows);
-      else if (labelJob.output === 'csv') await download('/api/labels/ptouch.csv', { items: list });
+      else if (labelJob.output === 'csv') await download('/api/labels/csv', { items: list });
       else await download('/api/labels/ptouch', { items: list, mode: labelJob.mode });
     } catch (e) { toast(e.message, 'error'); }
     busy = false;
