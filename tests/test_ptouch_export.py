@@ -36,15 +36,17 @@ def test_pack_file_has_qr_and_caliber_product_total(authed):
     qr = root.find(".//barcode:barcode", NS)
     assert qr.find("barcode:barcodeStyle", NS).get("protocol") == "QRCODE"
     assert qr.find("pt:data", NS).text == code
-    assert qr.find("barcode:qrcodeStyle", NS).get("eccLevel") == "25%"
+    style = qr.find("barcode:qrcodeStyle", NS)
+    assert style.get("eccLevel") == "25%" and style.get("mbcs") == "1252" and style.get("version") == "1"
+    assert root.find(".//{http://schemas.brother.info/ptouch/2007/lbx/style}paper").get("autoLength") == "true"
     assert [t.find("pt:data", NS).text for t in root.findall(".//text:text", NS)] == [
-        p["caliber"], "Federal American Eagle", "Total of 12 boxes"]
+        p["caliber"], "Federal American Eagle", "12 boxes"]
 
 
 def test_by_the_round_pack_says_rounds_and_product_label_has_two_lines(authed):
     p, code = with_pack(authed, qty=100, rounds_per_box=1)
     texts = [t.find("pt:data", NS).text for t in label_root(authed.get(f"/api/labels/ptouch/{code}.lbx").content).findall(".//text:text", NS)]
-    assert texts[-1] == "Total of 100 rounds"
+    assert texts[-1] == "100 rounds"
     r = authed.post("/api/labels/allocate", json={"count": 1, "product_id": p["id"]}).json()["codes"][0]
     two = label_root(authed.get(f"/api/labels/ptouch/{r}.lbx").content).findall(".//text:text", NS)
     assert len(two) == 2
@@ -53,7 +55,7 @@ def test_by_the_round_pack_says_rounds_and_product_label_has_two_lines(authed):
 def test_qr_fits_the_printable_height_of_12mm_tape(authed):
     for code in ("QP000001", "QM000123", "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123"):
         q = ptouch.qr_layout(code)
-        assert q["side"] <= ptouch.PRINT_PT
+        assert q["side"] <= ptouch.PRINT_PT and q["version"] >= 1
 
 
 def test_unknown_code_is_404_and_bad_code_is_400(authed):

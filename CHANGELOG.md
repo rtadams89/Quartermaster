@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.9.1
+- P-touch Editor files: the QR code's character set is now Western (1252) instead of Japanese, the QR code size is set to the exact version it needs so it fits inside the label, and the QR code is centered on the tape, and the label length is set to Auto. The third line on pack labels now shows just the amount (for example "100 rounds").
+
 ## 1.9.0
 - **P-touch Editor export.** The Labels page can download a ready-to-print Brother P-touch Editor file (.lbx) for each pack and product label, or all of them in one zip. Each has the QR code with the caliber and product beside it, plus the total on pack labels, laid out for 12 mm tape on a PT-E500. It can also download a CSV of every label to connect to your own P-touch Editor layout.
 

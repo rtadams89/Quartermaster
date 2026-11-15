@@ -11,16 +11,17 @@ from sqlalchemy.orm import Session
 from .models import Barcode, PackCode
 from .services import LABEL_PREFIX, product_dict, spec_text
 
-TAPE_PT = 34.0
+TAPE_PT = 33.6
 PRINT_PT = 28.0
-LENGTH_MARGIN_PT = 2.0
+EDGE_PT = 2.8
+START_PT = 5.6
 CELL_SIZES_PT = (1.2, 1.0, 0.8, 0.6)
 TEXT_GAP_PT = 3.0
 CHAR_WIDTH_EM = 0.55
 COLUMNS = ["Code", "Type", "Caliber", "Product", "Details", "Total"]
 
 NAMESPACES = " ".join(f'xmlns:{p}="http://schemas.brother.info/ptouch/2007/lbx/{p if p != "pt" else "main"}"'
-                      for p in ("pt", "style", "text", "draw", "image", "barcode", "database", "table"))
+                      for p in ("pt", "style", "text", "draw", "image", "barcode", "database", "table", "cable"))
 
 
 def label_rows(db: Session) -> list[dict]:
@@ -40,26 +41,28 @@ def _row(code, kind, product, total):
 
 
 def qr_layout(code: str) -> dict:
-    modules = segno.make(code, error="q", micro=False).symbol_size(border=0)[0]
+    qr = segno.make(code, error="q", micro=False)
+    modules = qr.symbol_size(border=0)[0]
     cell = next((c for c in CELL_SIZES_PT if modules * c <= PRINT_PT), CELL_SIZES_PT[-1])
-    return {"cell": cell, "side": round(modules * cell, 1)}
+    return {"cell": cell, "side": round(modules * cell, 1), "version": qr.version}
 
 
 def text_lines(row: dict) -> list[str]:
-    return [x for x in (row["caliber"], row["product"], f"Total of {row['total']}" if row["total"] else "") if x]
+    return [x for x in (row["caliber"], row["product"], row["total"]) if x]
 
 
 def _text_object(n: int, text: str, x: float, y: float, w: float, h: float, size: float, bold: bool) -> str:
-    font = f'<text:logFont name="Arial" width="0.0pt" italic="false" weight="{700 if bold else 400}" charSet="1" pitchAndFamily="{{pf}}"/><text:fontExt effect="NOEFFECT" underline="0" strikeout="0" size="{size}pt" orgSize="{size}pt" textColor="#000000"/>'
-    return (f'<text:text><pt:objectStyle x="{x}pt" y="{y}pt" width="{w}pt" height="{h}pt" backColor="#FFFFFF" ropMode="COPYPEN" angle="0" anchor="TOPLEFT" flip="NONE">'
-            '<pt:pen style="NULL" widthX="0.50pt" widthY="0.50pt" color="#000000"/><pt:brush style="NULL" color="#000000" id="0"/>'
-            f'<pt:expanded objectName="Text{n}" ID="0" lock="0" templateMergeTarget="LABELLIST" templateMergeType="NONE" templateMergeID="0" dbMergeFieldStyleName="" linkStatus="NONE" linkID="0"/></pt:objectStyle>'
-            f'<text:ptFontInfo>{font.format(pf=34)}</text:ptFontInfo>'
+    font = (f'<text:ptFontInfo><text:logFont name="Arial" width="0" italic="false" weight="{700 if bold else 400}" charSet="0" pitchAndFamily="34"/>'
+            f'<text:fontExt effect="NOEFFECT" underline="0" strikeout="0" size="{size}pt" orgSize="{size}pt" textColor="#000000" textPrintColorNumber="1"/></text:ptFontInfo>')
+    return (f'<text:text><pt:objectStyle x="{x}pt" y="{y}pt" width="{w}pt" height="{h}pt" backColor="#FFFFFF" backPrintColorNumber="0" ropMode="COPYPEN" angle="0" anchor="TOPLEFT" flip="NONE">'
+            '<pt:pen style="NULL" widthX="0.5pt" widthY="0.5pt" color="#000000" printColorNumber="1"/><pt:brush style="NULL" color="#000000" printColorNumber="1" id="0"/>'
+            f'<pt:expanded objectName="Text{n}" ID="0" lock="0" templateMergeTarget="LABELLIST" templateMergeType="NONE" templateMergeID="0" linkStatus="NONE" linkID="0"/></pt:objectStyle>'
+            f'{font}'
             '<text:textControl control="LONGTEXTFIXED" clipFrame="false" aspectNormal="true" shrink="true" autoLF="true" avoidImage="false"/>'
             '<text:textAlign horizontalAlignment="LEFT" verticalAlignment="CENTER" inLineAlignment="BASELINE"/>'
-            f'<text:textStyle vertical="false" nullBlock="false" charSpace="0" lineSpace="0" orgPoint="{size}pt"/>'
+            f'<text:textStyle vertical="false" nullBlock="false" charSpace="0" lineSpace="0" orgPoint="{size}pt" combinedChars="false"/>'
             f'<pt:data>{escape(text)}</pt:data>'
-            f'<text:stringItem charLen="{len(text)}"><text:ptFontInfo>{font.format(pf=0)}</text:ptFontInfo></text:stringItem></text:text>')
+            f'<text:stringItem charLen="{len(text)}">{font}</text:stringItem></text:text>')
 
 
 def lbx_bytes(row: dict) -> bytes:
@@ -68,18 +71,15 @@ def lbx_bytes(row: dict) -> bytes:
     lines = text_lines(row)
     size = 10.0 if len(lines) <= 2 else 7.5
     line_h = round(PRINT_PT / len(lines), 1)
-    margin_side = round((TAPE_PT - PRINT_PT) / 2, 1)
-    text_x = round(LENGTH_MARGIN_PT + q["side"] + TEXT_GAP_PT, 1)
+    qr_y = round((TAPE_PT - q["side"]) / 2, 1)
+    text_x = round(START_PT + q["side"] + TEXT_GAP_PT, 1)
     text_w = round(max(len(t) for t in lines) * size * CHAR_WIDTH_EM + 4, 1)
-    length = round(text_x + text_w + LENGTH_MARGIN_PT, 1)
-    qr_y = round(margin_side + (PRINT_PT - q["side"]) / 2, 1)
-    texts = "".join(_text_object(i + 1, t, text_x, round(margin_side + i * line_h, 1), text_w, line_h, size, i == 0)
+    bg_w = round(text_x + text_w - START_PT, 1)
+    texts = "".join(_text_object(i + 1, t, text_x, round(EDGE_PT + i * line_h, 1), text_w, line_h, size, i == 0)
                     for i, t in enumerate(lines))
-    label = f"""<?xml version="1.0" encoding="UTF-8"?>
-<pt:document {NAMESPACES} version="1.1" generator="Quartermaster"><pt:body currentSheet="Sheet 1"><style:sheet name="Sheet 1"><style:paper media="0" width="{TAPE_PT}pt" height="{length}pt" marginLeft="{margin_side}pt" marginTop="{LENGTH_MARGIN_PT}pt" marginRight="{margin_side}pt" marginBottom="{LENGTH_MARGIN_PT}pt" orientation="landscape" autoLength="false" monochromeDisplay="true" paperColor="#FFFFFF" paperInk="#000000" split="1" format="" backgroundTheme="0" printerName="Brother PT-E500"/><style:cutLine regularCut="0pt" freeCut=""/><style:backGround x="{LENGTH_MARGIN_PT}pt" y="{margin_side}pt" width="{round(length - 2 * LENGTH_MARGIN_PT, 1)}pt" height="{PRINT_PT}pt" brushStyle="NULL" brushId="0" color="#000000" backColor="#FFFFFF"/><pt:objects><barcode:barcode><pt:objectStyle x="{LENGTH_MARGIN_PT}pt" y="{qr_y}pt" width="{q['side']}pt" height="{q['side']}pt" backColor="#FFFFFF" ropMode="COPYPEN" angle="0" anchor="TOPLEFT" flip="NONE"><pt:pen style="NULL" widthX="0.50pt" widthY="0.50pt" color="#000000"/><pt:brush style="NULL" color="#000000" id="0"/><pt:expanded objectName="Bar Code1" ID="0" lock="0" templateMergeTarget="LABELLIST" templateMergeType="NONE" templateMergeID="0" dbMergeFieldStyleName="" linkStatus="NONE" linkID="0"/></pt:objectStyle><barcode:barcodeStyle protocol="QRCODE" lengths="{len(code)}" zeroFill="false" barWidth="{q['cell']}pt" barRatio="1:3" humanReadable="false" humanReadableAlignment="LEFT" checkDigit="false" autoLengths="false" margin="false" sameLengthBar="false" bearerBar="false"/><pt:data>{escape(code)}</pt:data><barcode:qrcodeStyle model="2" eccLevel="25%" cellSize="{q['cell']}pt" mbcs="932" removeCharKind="0" removeCharString="" joint="1" jointSpace="8" jointVertically="false" version="auto" changeVersionDrag="false"/></barcode:barcode>{texts}</pt:objects></style:sheet></pt:body></pt:document>"""
+    label = f"""<?xml version="1.0" encoding="UTF-8"?><pt:document {NAMESPACES} version="1.7" generator="Quartermaster"><pt:body currentSheet="Sheet 1" direction="LTR"><style:sheet name="Sheet 1"><style:paper media="0" width="{TAPE_PT}pt" height="2834.4pt" marginLeft="3pt" marginTop="{START_PT}pt" marginRight="3pt" marginBottom="{START_PT}pt" orientation="landscape" autoLength="true" monochromeDisplay="true" printColorDisplay="false" printColorsID="0" paperColor="#FFFFFF" paperInk="#000000" split="1" format="259" backgroundTheme="0" printerID="25904" printerName="Brother PT-E500"/><style:cutLine regularCut="0pt" freeCut=""/><style:backGround x="{START_PT}pt" y="{EDGE_PT}pt" width="{bg_w}pt" height="{PRINT_PT}pt" brushStyle="NULL" brushId="0" userPattern="NONE" userPatternId="0" color="#000000" printColorNumber="1" backColor="#FFFFFF" backPrintColorNumber="0"/><pt:objects><barcode:barcode><pt:objectStyle x="{START_PT}pt" y="{qr_y}pt" width="{q['side']}pt" height="{q['side']}pt" backColor="#FFFFFF" backPrintColorNumber="0" ropMode="COPYPEN" angle="0" anchor="TOPLEFT" flip="NONE"><pt:pen style="NULL" widthX="0.5pt" widthY="0.5pt" color="#000000" printColorNumber="1"/><pt:brush style="NULL" color="#000000" printColorNumber="1" id="0"/><pt:expanded objectName="Bar Code1" ID="0" lock="4" templateMergeTarget="LABELLIST" templateMergeType="NONE" templateMergeID="0" linkStatus="NONE" linkID="0"/></pt:objectStyle><barcode:barcodeStyle protocol="QRCODE" lengths="{len(code)}" zeroFill="false" barWidth="{q['cell']}pt" barRatio="1:3" humanReadable="false" humanReadableAlignment="LEFT" checkDigit="false" autoLengths="false" margin="false" sameLengthBar="false" bearerBar="false"/><barcode:qrcodeStyle model="2" eccLevel="25%" cellSize="{q['cell']}pt" mbcs="1252" joint="1" version="{q['version']}"/><pt:data>{escape(code)}</pt:data></barcode:barcode>{texts}</pt:objects></style:sheet></pt:body></pt:document>"""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    prop = f"""<?xml version="1.0" encoding="UTF-8"?>
-<meta:properties xmlns:meta="http://schemas.brother.info/ptouch/2007/lbx/meta" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/"><meta:appName>Quartermaster</meta:appName><dc:title></dc:title><dc:subject></dc:subject><dc:creator>Quartermaster</dc:creator><meta:keyword></meta:keyword><dc:description></dc:description><meta:template></meta:template><dcterms:created>{now}</dcterms:created><dcterms:modified>{now}</dcterms:modified><meta:lastModifiedBy>Quartermaster</meta:lastModifiedBy></meta:properties>"""
+    prop = f"""<?xml version="1.0" encoding="UTF-8"?><meta:properties xmlns:meta="http://schemas.brother.info/ptouch/2007/lbx/meta" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/"><meta:appName>Quartermaster</meta:appName><dc:title></dc:title><dc:subject></dc:subject><dc:creator>Quartermaster</dc:creator><meta:keyword></meta:keyword><dc:description></dc:description><meta:template></meta:template><dcterms:created>{now}</dcterms:created><dcterms:modified>{now}</dcterms:modified><meta:lastPrinted></meta:lastPrinted><meta:modifiedBy>Quartermaster</meta:modifiedBy><meta:revision>1</meta:revision><meta:editTime>0</meta:editTime><meta:numPages>0</meta:numPages><meta:numWords>0</meta:numWords><meta:numChars>0</meta:numChars><meta:security>0</meta:security><meta:transferScript></meta:transferScript></meta:properties>"""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("label.xml", label)
