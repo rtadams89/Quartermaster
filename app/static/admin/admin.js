@@ -1037,13 +1037,14 @@ async function labels() {
       } }, 'Add to sheet')),
     h('div', { class: 'toolbar no-print' }, h('span', { class: 'muted' }, 'Or add an existing code:'), reprint,
       h('button', { class: 'btn', onclick: () => { if (reprint.value.trim()) { add([reprint.value.trim().toUpperCase()], ''); reprint.value = ''; } } }, 'Add')),
+    h('div', { class: 'toolbar no-print' }, h('span', { class: 'muted' }, 'Export every pack and product label for P-touch Editor:'),
+      h('a', { class: 'btn', href: '/api/labels/ptouch.zip' }, 'Download P-touch files (.zip)'), h('a', { class: 'btn', href: '/api/labels/ptouch.csv' }, 'Download CSV for P-touch')),
     h('div', { class: 'toolbar no-print' }, type, cols, status, h('span', { class: 'grow' }),
       h('button', { class: 'btn', onclick: () => { labelJob.items.length = 0; paint(); } }, 'Clear sheet'),
       h('button', { class: 'btn primary', onclick: () => window.print() }, 'Print')),
     sheet,
     h('div', { class: 'no-print', style: { marginTop: '28px' } }, h('h2', {}, 'Pack labels'),
       h('p', { class: 'sub', style: { margin: '0 0 10px' } }, 'A pack label stands for a fixed amount of one product, such as a case of boxes or a belt of rounds. Scanning it checks in or out that whole amount, and the quantity can still be changed on the kiosk.'),
-      h('div', { class: 'toolbar' }, h('a', { class: 'btn', href: '/api/labels/ptouch.zip' }, 'Download P-touch files (.zip)'), h('a', { class: 'btn', href: '/api/labels/ptouch.csv' }, 'Download CSV for P-touch')),
       packBox));
   const loadPacks = async () => {
     const rows = await get('/api/labels/packs');

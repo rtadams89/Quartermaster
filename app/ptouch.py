@@ -15,6 +15,7 @@ TAPE_PT = 33.6
 PRINT_PT = 28.0
 EDGE_PT = 2.8
 START_PT = 5.6
+EDITOR_MODULES = 25
 CELL_SIZES_PT = (1.2, 1.0, 0.8, 0.6)
 TEXT_GAP_PT = 3.0
 CHAR_WIDTH_EM = 0.55
@@ -42,9 +43,9 @@ def _row(code, kind, product, total):
 
 def qr_layout(code: str) -> dict:
     qr = segno.make(code, error="q", micro=False)
-    modules = qr.symbol_size(border=0)[0]
+    modules = max(qr.symbol_size(border=0)[0], EDITOR_MODULES)
     cell = next((c for c in CELL_SIZES_PT if modules * c <= PRINT_PT), CELL_SIZES_PT[-1])
-    return {"cell": cell, "side": round(modules * cell, 1), "version": qr.version}
+    return {"cell": cell, "side": round(modules * cell, 1), "version": "auto"}
 
 
 def text_lines(row: dict) -> list[str]:
