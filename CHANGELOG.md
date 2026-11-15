@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.10.2
+- Products counted by the round (1 round per box) now show their cost as per round: the product form's cost box reads *Cost per round* and the Products list shows $0.45/round instead of /box.
+
 ## 1.10.1
 - The CSV option on the Labels page is now just *CSV file*, since it works with any label printing program.
 

@@ -278,7 +278,7 @@ function suggestInput({ value = '', placeholder = '', maxlength }) {
 const parseMoney = (text) => {
   const t = text.replace(/[\s$,]/g, '');
   if (t === '') return null;
-  if (!/^\d*\.?\d+$|^\d+\.$/.test(t)) throw new Error('Cost per box must be a dollar amount, like $18.50');
+  if (!/^\d*\.?\d+$|^\d+\.$/.test(t)) throw new Error('Cost must be a dollar amount, like $18.50');
   return Math.round(parseFloat(t) * 100) / 100;
 };
 function moneyInput(initial) {
@@ -311,7 +311,9 @@ function productFields(calibers, p = {}) {
   const indoor = h('input', { type: 'checkbox', checked: p.indoor_safe !== false });
   // Cost per round, worked out from the cost per box and rounds per box.
   const perRound = h('output', { class: 'calc', 'aria-live': 'polite' });
+  const costRow = labeled('Cost per box (US dollars)', [cost.el, perRound], '', 'Optional. The $ is optional when typing; it is shown as $0.00.');
   const showPerRound = () => {
+    costRow.firstChild.textContent = Number(rpb.value) === 1 ? 'Cost per round (US dollars)' : 'Cost per box (US dollars)';
     let text = '';
     try {
       const box = cost.value(), n = Number(rpb.value);
@@ -326,7 +328,7 @@ function productFields(calibers, p = {}) {
     labeled('Rounds per box', rpb, '', 'Use 1 for ammo you count by the individual round; it then shows round counts instead of boxes.'),
     labeled('Manufacturer', brandBox.el), labeled('Product / line', name),
     labeled('Bullet weight (gr)', weight, '', '0 or N/A means no traditional bullet weight (shot, slugs, flares…).'), labeled('Bullet type', type),
-    labeled('Cost per box (US dollars)', [cost.el, perRound], '', 'Optional. The $ is optional when typing; it is shown as $0.00.'),
+    costRow,
     labeled('Alert when below (rounds)', minr, '', 'Optional. Leave blank for no alert. Otherwise this product is flagged as low when its rounds on hand drop under this number.'),
     h('label', { class: 'check full' }, indoor, h('span', {}, h('b', {}, 'Indoor range safe'),
       h('small', { class: 'hint' }, 'Uncheck for ammo that indoor ranges do not allow (steel core, bimetal, tracer, incendiary, some shot…). The kiosk asks for confirmation when it is checked out.'))),
@@ -739,7 +741,7 @@ async function products() {
     if (q.value.trim()) qs.set('q', q.value.trim());
     const list = await get('/api/products?' + qs);
     clear(holder, list.length ? table(['', 'Caliber', 'Product', 'Details', ['Cost per round', 'num'], 'Codes', ''], list.map((p) =>
-      h('tr', {}, td(thumb(p.photo_codes[0] || p.codes[0], p.photo_codes.length > 0, load)), td(p.caliber), td(h('b', {}, p.label)), td(specOf(p) + (p.cost_per_box != null ? ` · ${fmtMoney(p.cost_per_box)}/box` : '')), td(fmtPerRound(p.cost_per_round) || '—', 'num'), td(p.codes.length ? codesOf(p.codes) : h('em', { class: 'muted' }, 'none')),
+      h('tr', {}, td(thumb(p.photo_codes[0] || p.codes[0], p.photo_codes.length > 0, load)), td(p.caliber), td(h('b', {}, p.label)), td(specOf(p) + (p.cost_per_box != null ? ` · ${fmtMoney(p.cost_per_box)}/${isSingle(p) ? 'round' : 'box'}` : '')), td(fmtPerRound(p.cost_per_round) || '—', 'num'), td(p.codes.length ? codesOf(p.codes) : h('em', { class: 'muted' }, 'none')),
         td([h('button', { class: 'btn sm', onclick: () => productDialog(calibers, p, load) }, 'Edit'), ' ',
           h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete product?', `Delete ${p.label}? Its codes keep their history and go back to "unidentified".`, 'Delete', async () => { await del(`/api/products/${p.id}`); load(); refreshBadge(); }) }, 'Delete')], 'actions'))))
       : empty('No products match.'));
