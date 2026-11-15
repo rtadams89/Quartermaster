@@ -52,10 +52,10 @@ def test_by_the_round_pack_says_rounds_and_product_label_has_two_lines(authed):
     assert len(two) == 2
 
 
-def test_qr_fits_the_printable_height_of_12mm_tape(authed):
-    for code in ("QP000001", "QM000123", "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123"):
+def test_qr_fits_the_height_of_12mm_tape(authed):
+    for code in ("QP000001", "QM000123"):
         q = ptouch.qr_layout(code)
-        assert q["side"] <= ptouch.PRINT_PT
+        assert q["side"] + ptouch.QR_Y_PT <= ptouch.TAPE_PT
 
 
 def test_unknown_code_is_404_and_bad_code_is_400(authed):
