@@ -12,7 +12,7 @@ from .. import security
 from ..codes import normalize_code
 from ..csvsafe import safe_row
 from ..db import get_db, iso
-from ..models import Barcode, Batch, BatchItem, Transaction
+from ..models import Barcode, Batch, BatchItem, PackCode, Transaction
 from ..services import (box_count, drill, inventory_by_product, locate, low_stock, on_hand_by_code, out_of_stock_calibers,
                         price_range, stock_money)
 
@@ -49,7 +49,8 @@ def inventory_code(code: str, db: Session = Depends(get_db)):
         code = normalize_code(code)
     except ValueError:
         raise HTTPException(400, "Invalid code")
-    return locate(db, code)
+    pack = db.get(PackCode, code)
+    return locate(db, code, pack.product_id if pack else None)
 
 
 @router.get("/inventory/items")

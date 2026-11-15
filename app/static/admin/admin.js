@@ -107,7 +107,7 @@ const boxesCell = (n) => td(h('span', { class: n < 0 ? 'neg' : '' }, fmtInt(n)),
 const specOf = (p, { naWeight = true } = {}) => [p.bullet_weight_gr === 0 ? (naWeight ? 'N/A' : '') : p.bullet_weight_gr ? `${p.bullet_weight_gr} gr` : '', p.bullet_type, p.rounds_per_box === 1 ? 'by the round' : `${p.rounds_per_box}/box`, naWeight && p.indoor_safe === false ? 'Outdoor only' : ''].filter(Boolean).join(' · ');
 /** The same, for a printed label: no weight line at all when the weight is N/A. */
 const labelSpecOf = (p) => specOf(p, { naWeight: false });
-// Products with 1 round per box are counted by the individual round, so they show rounds instead of boxes.
+// Products with 1 round per box are counted, and shown, by the round.
 const isSingle = (p) => p.rounds_per_box === 1;
 /** Boxes cell for a product row that has a Rounds column beside it: a by-the-round product has no boxes. */
 const boxesFor = (p) => (isSingle(p) ? td('—', 'num') : boxesCell(p.boxes));
@@ -309,7 +309,7 @@ function productFields(calibers, p = {}) {
   const cost = moneyInput(p.cost_per_box);
   const minr = h('input', { type: 'number', min: 0, step: 1, value: p.min_rounds ?? '', placeholder: 'blank = no alert' });
   const indoor = h('input', { type: 'checkbox', checked: p.indoor_safe !== false });
-  // Cost per round is worked out from the two boxes above it. It is shown, never typed. Ammo counted by the round has no box to divide.
+  // Cost per round, worked out from the cost per box and rounds per box.
   const perRound = h('output', { class: 'calc', 'aria-live': 'polite' });
   const showPerRound = () => {
     let text = '';
@@ -886,6 +886,8 @@ async function history() {
 }
 
 // -------------------------------------------------------------------- usage
+let usageRedraw = null;
+window.addEventListener('resize', () => usageRedraw?.());
 const usageNav = { year: new Date().getFullYear(), month: new Date().getMonth() + 1, zero: false };
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const SERIES_COLORS = ['#2f7de1', '#e0762b', '#2fa36b', '#a35bd6', '#d6477a', '#17a2b8', '#b58a00', '#7a8696'];
@@ -900,7 +902,7 @@ async function usage() {
   const zero = h('input', { type: 'checkbox', checked: usageNav.zero, onchange: () => { usageNav.zero = zero.checked; draw(); } });
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   let data = null;
-  const draw = () => data && paintUsage(holder, data);
+  const draw = () => { if (data && main.contains(holder)) paintUsage(holder, data); };
   const show = async () => {
     const cal = filter.id();
     if (cal === undefined) return;
@@ -913,8 +915,7 @@ async function usage() {
     month.value = usageNav.month ? String(usageNav.month) : '';
     draw();
   };
-  const onResize = () => { if (main.contains(holder)) draw(); else window.removeEventListener('resize', onResize); };
-  window.addEventListener('resize', onResize);
+  usageRedraw = draw;
   clear(main, h('h1', {}, 'Usage'),
     h('p', { class: 'sub' }, 'Rounds on hand over time. Pick a month to see every day, or a whole year to see each month end. Drops show ammo used, rises show ammo added.'),
     h('div', { class: 'toolbar' }, year, month, filter.el, h('label', { class: 'chk' }, zero, 'Start axis at zero')), holder);
@@ -930,6 +931,7 @@ function paintUsage(holder, r) {
   const lines = r.series;
   const period = r.month ? `${MONTH_NAMES[r.month - 1]} ${r.year}` : String(r.year);
   if (!lines.length) return clear(holder, empty(`No ammo has been on hand in ${period}.`));
+  if (lines.every((l) => l.values.every((v) => v == null))) return clear(holder, empty(`${period} has not started yet.`));
   const colorOf = (l, i) => SERIES_COLORS[i % SERIES_COLORS.length];
   const W = Math.max(320, Math.min(holder.clientWidth || 900, 1400)), H = W < 560 ? 280 : 380;
   const pad = { l: W < 560 ? 44 : 56, r: 14, t: 14, b: 30 };
@@ -995,6 +997,9 @@ async function labels() {
   const prods = await get('/api/products');
   const pick = productPicker(prods, { optional: true, placeholder: 'Product: type to search, or leave empty to identify later' });
   const count = h('input', { type: 'number', min: 1, max: 100, value: 1, style: { width: '80px' }, 'aria-label': 'Number of labels' });
+  const packIn = h('input', { type: 'number', min: 2, max: 99999, placeholder: 'optional', style: { width: '110px' }, 'aria-label': 'Quantity in a pack' });
+  const packBox = h('div');
+  const packText = (p, n) => `Total of ${fmtInt(n)} ${p.rounds_per_box === 1 ? 'rounds' : 'boxes'}`;
   const type = h('select', { 'aria-label': 'Label style', onchange: () => { labelJob.type = type.value; paint(); } },
     h('option', { value: 'code128' }, 'Code 128 (bar)'), h('option', { value: 'qr' }, 'QR code'));
   type.value = labelJob.type;
@@ -1015,16 +1020,19 @@ async function labels() {
   };
   const add = (codes, text) => { for (const code of codes) labelJob.items.push({ code, text }); paint(); };
   clear(main, h('h1', {}, 'Labels'),
-    h('p', { class: 'sub' }, 'For ammo with no UPC (or repacked boxes). Build a sheet from as many different labels as you like, choose how many columns, remove any you do not want, then print. A label is a code you can scan like any other barcode. A product keeps one label code: adding it again reprints the same code. With no product chosen, each label gets its own new code to identify later. Any 2D-capable scanner reads both styles.'),
-    h('div', { class: 'toolbar no-print' }, h('div', { style: { flex: '1 1 460px', minWidth: '280px' } }, pick.el), h('span', {}, 'Labels'), count,
+    h('p', { class: 'sub' }, 'For ammo with no UPC (or repacked boxes). Build a sheet from as many different labels as you like, choose how many columns, remove any you do not want, then print. A label is a code you can scan like any other barcode. A product keeps one label code: adding it again reprints the same code. With no product chosen, each label gets its own new code to identify later. Any 2D-capable scanner reads both styles. To label a case, belt or container that holds a fixed amount, fill in Total of.'),
+    h('div', { class: 'toolbar no-print' }, h('div', { style: { flex: '1 1 460px', minWidth: '280px' } }, pick.el), h('span', {}, 'Total of'), packIn, h('span', {}, 'Labels'), count,
       h('button', { class: 'btn primary', onclick: async () => {
         try {
           const n = Number(count.value);
           const pid = pick.value();
-          const r = await post('/api/labels/allocate', { count: n, product_id: pid });
+          const pack = packIn.value ? Number(packIn.value) : null;
+          if (pack && !pid) throw new Error('Choose a product for a pack label');
+          const r = await post('/api/labels/allocate', { count: n, product_id: pid, pack_qty: pack });
           const p = prods.find((x) => x.id === pid);
-          add(r.codes, p ? `${p.label}\n${p.caliber} ${labelSpecOf(p)}`.trim() : '');
-          toast(!pid ? `Added ${r.codes.length} new code(s)` : r.reused ? `Added ${n} of ${r.codes[0]}, already this product's label` : `Created ${r.codes[0]} for this product and added ${n}`, 'ok');
+          add(r.codes, p ? `${p.label}\n${p.caliber} ${labelSpecOf(p)}${pack ? '\n' + packText(p, pack) : ''}`.trim() : '');
+          toast(pack ? `Added ${n} pack label${n === 1 ? '' : 's'}: ${packText(p, pack)}` : !pid ? `Added ${r.codes.length} new code(s)` : r.reused ? `Added ${n} of ${r.codes[0]}, already this product's label` : `Created ${r.codes[0]} for this product and added ${n}`, 'ok');
+          if (pack) loadPacks();
         } catch (e) { toast(e.message, 'error'); }
       } }, 'Add to sheet')),
     h('div', { class: 'toolbar no-print' }, h('span', { class: 'muted' }, 'Or add an existing code:'), reprint,
@@ -1032,8 +1040,19 @@ async function labels() {
     h('div', { class: 'toolbar no-print' }, type, cols, status, h('span', { class: 'grow' }),
       h('button', { class: 'btn', onclick: () => { labelJob.items.length = 0; paint(); } }, 'Clear sheet'),
       h('button', { class: 'btn primary', onclick: () => window.print() }, 'Print')),
-    sheet);
+    sheet,
+    h('div', { class: 'no-print', style: { marginTop: '28px' } }, h('h2', {}, 'Pack labels'),
+      h('p', { class: 'sub', style: { margin: '0 0 10px' } }, 'A pack label stands for a fixed amount of one product, such as a case of boxes or a belt of rounds. Scanning it checks in or out that whole amount, and the quantity can still be changed on the kiosk.'),
+      packBox));
+  const loadPacks = async () => {
+    const rows = await get('/api/labels/packs');
+    clear(packBox, rows.length ? table(['Product', 'Pack', 'Code', ''], rows.map((k) => h('tr', {},
+      td(h('b', {}, k.product.label)), td(packText(k.product, k.quantity)), td(h('span', { class: 'code' }, k.code)),
+      td([h('button', { class: 'btn sm', onclick: () => add([k.code], `${k.product.label}\n${k.product.caliber} ${labelSpecOf(k.product)}\n${packText(k.product, k.quantity)}`) }, 'Add to sheet'),
+        h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete pack label?', 'Printed copies of this label will no longer scan.', 'Delete', async () => { await del(`/api/labels/packs/${encodeURIComponent(k.code)}`); loadPacks(); }) }, 'Delete')], 'actions')))) : empty('No pack labels yet.'));
+  };
   paint();
+  await loadPacks();
 }
 
 // ----------------------------------------------------------------- settings

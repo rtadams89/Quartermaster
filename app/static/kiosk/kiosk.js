@@ -114,7 +114,7 @@ function mount(...children) {
   clear(app, ...children);
 }
 
-// Products with 1 round per box are counted by the individual round, so they show rounds instead of boxes.
+// Products with 1 round per box are counted, and shown, by the round.
 const isSingle = (it) => it.product?.rounds_per_box === 1;
 /** "3 boxes", "25 rounds" or "3 boxes · 25 rounds" for everything in a batch. */
 const qtyText = (b) => {
@@ -312,8 +312,9 @@ async function doScan(code, quantity = 1) {
     if (S.screen === 'scan') paintScan();
     flash(r.known ? 'ok' : 'warn');
     beep(r.known ? 880 : 520);
+    if (r.pack) toast(`Total of ${r.pack} ${isSingle(r.item) ? 'rounds' : 'boxes'}`, 'info');
     // First time this barcode has ever been seen: offer to photograph the box.
-    // (Awaited, so any further scans queue up behind it.)
+    // Waits for the photo step; later scans queue behind it.
     if (r.new_code && S.photoPrompt && S.screen === 'scan') {
       if (await takeBoxPhoto(r.item.code)) {
         for (const it of S.batch.items) if (it.code === r.item.code) it.has_photo = true;
@@ -669,7 +670,7 @@ async function showBrowse() {
 function dayLabel(iso) {
   const d = new Date(iso);
   const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
-  const day = days === 0 ? 'Today' : days === 1 ? 'Yesterday' : d.toLocaleDateString([], { weekday: 'short' });
+  const day = days === 0 ? 'Today' : days === 1 ? 'Yesterday' : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
   return `${day} ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
 }
 

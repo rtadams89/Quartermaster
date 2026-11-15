@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from .. import config, lookup, security
 from ..codes import normalize_code
 from ..db import get_db
-from ..models import Barcode, BarcodePhoto, BatchItem, Caliber, Product, Transaction, UpcLookup
+from ..models import Barcode, BarcodePhoto, BatchItem, Caliber, PackCode, Product, Transaction, UpcLookup
 from .photos import process_image, store_photo
 from ..services import (brand_spellings, canonical_brand, inventory_by_product, minimums, missing_details, photo_codes,
                         product_dict, set_minimum, spec_text)
@@ -215,13 +215,14 @@ def update_product(pid: int, body: ProductIn, db: Session = Depends(get_db)):
 
 @router.delete("/products/{pid}")
 def delete_product(pid: int, db: Session = Depends(get_db)):
-    """Delete a product; its codes become unidentified and keep their history."""
+    """Delete a product; its codes become unidentified and keep their history, and its pack labels are removed."""
     p = db.get(Product, pid)
     if not p:
         raise HTTPException(404, "Product not found")
     for b in p.barcodes:
         b.product_id = None
     set_minimum(db, "product", pid, None)
+    db.execute(delete(PackCode).where(PackCode.product_id == pid))
     db.delete(p)
     db.commit()
     return {"ok": True}
@@ -263,6 +264,8 @@ def add_barcode(pid: int, body: CodeIn, db: Session = Depends(get_db)):
     if not db.get(Product, pid):
         raise HTTPException(404, "Product not found")
     code = _norm(body.code)
+    if db.get(PackCode, code):
+        raise HTTPException(409, "That code is a pack label")
     bc = db.get(Barcode, code)
     if bc and bc.product_id not in (None, pid):
         raise HTTPException(409, "That code already belongs to another product")

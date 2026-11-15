@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .db import iso
-from .models import Barcode, BarcodePhoto, Caliber, Product, Setting, StockMinimum, Transaction
+from .models import Barcode, BarcodePhoto, Caliber, PackCode, Product, Setting, StockMinimum, Transaction
 
 UNIDENTIFIED = "unidentified"
 NO_BRAND = "(none)"  # drill-down key for products with no manufacturer
@@ -189,6 +189,29 @@ def new_label_codes(db: Session, count: int, product_id: int | None = None) -> l
     else:
         db.add(Setting(key=LABEL_COUNTER_KEY, value=str(n)))
     return codes
+
+
+PACK_PREFIX = "QP"
+
+
+def pack_code_for(db: Session, product_id: int, quantity: int) -> tuple[str, bool]:
+    """The pack code for this product and quantity, and whether it already existed."""
+    have = db.scalar(select(PackCode.code).where(PackCode.product_id == product_id, PackCode.quantity == quantity))
+    if have:
+        return have, True
+    row = db.get(Setting, LABEL_COUNTER_KEY)
+    n = int(row.value) if row else 0
+    while True:
+        n += 1
+        code = f"{PACK_PREFIX}{n:06d}"
+        if not db.get(Barcode, code) and not db.get(PackCode, code):
+            break
+    if row:
+        row.value = str(n)
+    else:
+        db.add(Setting(key=LABEL_COUNTER_KEY, value=str(n)))
+    db.add(PackCode(code=code, product_id=product_id, quantity=quantity))
+    return code, False
 
 
 def product_label_code(db: Session, product_id: int) -> str | None:
@@ -414,16 +437,16 @@ def drill(db: Session, caliber: str | None, weight: str | None, manufacturer: st
     return _drill_result("product", crumbs, rows)
 
 
-def locate(db: Session, code: str) -> dict:
+def locate(db: Session, code: str, product_id: int | None = None) -> dict:
     """Where a scanned code sits in the kiosk drill-down, and how much of it is in stock."""
     items, unidentified = inventory_by_product(db)
     for i in items:
         mine = next((c for c in i["codes"] if c["code"] == code), None)
-        if mine:
+        if mine or i["id"] == product_id:
             return {
                 "found": True, "code": code, "identified": True, "label": i["label"], "spec": i["spec"],
                 "caliber": str(i["caliber_id"]), "weight": _wkey(i["bullet_weight_gr"]), "row": str(i["id"]),
-                "boxes": i["boxes"], "rounds": i["rounds"], "code_boxes": mine["boxes"], "single": i["rounds_per_box"] == 1,
+                "boxes": i["boxes"], "rounds": i["rounds"], "code_boxes": mine["boxes"] if mine else i["boxes"], "single": i["rounds_per_box"] == 1,
             }
     for u in unidentified:
         if u["code"] == code:

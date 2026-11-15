@@ -19,7 +19,7 @@ LOCKOUT_THRESHOLD_KEY = "lockout_threshold"
 LOCKOUT_SECONDS_KEY = "lockout_seconds"
 
 PIN_KEY = "pin_hash"
-_TOUCH_EVERY = timedelta(seconds=5)  # don't write last_seen on every request
+_TOUCH_EVERY = timedelta(seconds=5)  # minimum time between last_seen writes
 
 
 # ---------------------------------------------------------------- PIN hashing

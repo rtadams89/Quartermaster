@@ -152,7 +152,7 @@ class Camera:
     def _argv(self):
         if _override:
             return VIDEO
-        # "full" lets it focus on a box held close to the lens as well as on things further away.
+        # Continuous autofocus over the full range, near to far.
         focus = ["--autofocus-mode", "continuous", "--autofocus-range", "full"] if has_autofocus() else []
         return VIDEO + ["--nopreview", "-t", "0", "--codec", "mjpeg", "--width", WIDTH, "--height", HEIGHT,
                         "--framerate", FPS, "--quality", "85", *focus, "-o", "-"]
@@ -223,7 +223,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", ORIGIN)
             self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Expose-Headers", "X-Frame")
-        # Chromium's "Private Network Access" check, for a page on the LAN calling loopback:
+        # Answer Chromium's Private Network Access check.
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def _allowed(self) -> bool:
@@ -272,8 +272,7 @@ class Handler(BaseHTTPRequestHandler):
         self._error(404, "not found")
 
     def do_POST(self):
-        # A POST changes something, so it must come from the kiosk page itself: with an origin configured, no
-        # other website (and no request without an Origin header) is accepted.
+        # With an origin configured, accept POSTs only from it; requests with no Origin header are refused.
         if ORIGIN and self.headers.get("Origin") != ORIGIN:
             return self._error(403, "origin not allowed")
         if self.path.partition("?")[0] != "/sleep":
@@ -515,7 +514,7 @@ put "$LAUNCHER" 755 <<'EOF'
 . /etc/quartermaster-kiosk.conf
 
 # Turn the screen off after BLANK_AFTER seconds without a touch or scan, and back on at the next one.
-# With "never", swayidle still runs (with a timeout that never arrives) so the kiosk's Screen off button can use it.
+# With "never", swayidle still runs with a timeout that is never reached.
 IDLE="${BLANK_AFTER:-0}"
 [ "$IDLE" -gt 0 ] 2>/dev/null || IDLE=100000000
 out="$(wlr-randr 2>/dev/null | awk 'NR==1 {print $1}')"
@@ -523,7 +522,7 @@ if [ -n "$out" ]; then
   swayidle -w timeout "$IDLE" "wlr-randr --output $out --off" resume "wlr-randr --output $out --on" &
 fi
 
-# Settings the page needs go on the URL: its rotation, and the blank period so it can swallow the wake-up touch.
+# The rotation and the blank period are passed on the URL.
 URL="$KIOSK_URL/kiosk/"
 SEP="?"
 case "${ROTATION:-0}" in

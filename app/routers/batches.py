@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from .. import security
 from ..codes import normalize_code
 from ..db import get_db, iso, utcnow
-from ..models import Barcode, BarcodePhoto, Batch, BatchItem, Product, Transaction
+from ..models import Barcode, BarcodePhoto, Batch, BatchItem, PackCode, Product, Transaction
 from ..services import code_for_product, on_hand, product_dict, spec_text
 
 router = APIRouter(prefix="/api/batches", dependencies=[Depends(security.require_auth)])
@@ -114,6 +114,11 @@ def scan(batch_id: int, body: ScanIn, db: Session = Depends(get_db)):
         code = normalize_code(body.code)
     except ValueError:
         raise HTTPException(400, "That doesn't look like a valid barcode")
+    pack = db.get(PackCode, code)
+    if pack:
+        item = _add_item(b, code_for_product(db, pack.product_id), min(MAX_QTY, pack.quantity * body.quantity))
+        db.commit()
+        return {"item": _item_dict(db, item), "known": True, "new_code": False, "pack": pack.quantity}
     new_code = db.get(Barcode, code) is None  # first time this code has ever been seen
     if new_code:
         db.add(Barcode(code=code))

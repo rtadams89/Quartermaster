@@ -2,6 +2,15 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.8.1
+- Pack labels now read "Total of 12 boxes" or "Total of 100 rounds", and the box on the Labels page is called *Total of*.
+- Fixed the *Usage* chart breaking when a month that has not started yet was chosen. It now says so.
+- Recent checkouts on the kiosk show the date for anything older than yesterday, so the same weekday a week apart can be told apart.
+- A code that is already a pack label can no longer be added to a product as an ordinary barcode.
+
+## 1.8.0
+- **Pack labels.** On the admin *Labels* page, a new *Pack of* box makes a label for a fixed amount of one product, such as a case of boxes, a belt or a container of rounds. Scanning it on the kiosk adds that whole amount to the Ammo In or Out list, and the quantity can still be changed. Pack labels are listed on the Labels page, where you can print more copies or delete them. Backups made by older versions can still be restored.
+
 ## 1.7.3
 - The *Usage* chart's vertical axis now always has gridlines on round numbers, and a new *Start axis at zero* box shows the true scale instead of zooming in on the range of your counts.
 

@@ -96,6 +96,18 @@ class Barcode(Base):
     product: Mapped[Product | None] = relationship(back_populates="barcodes")
 
 
+class PackCode(Base):
+    """A label for a fixed quantity of one product: a case of boxes, a belt or a container of rounds."""
+
+    __tablename__ = "pack_codes"
+    code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    quantity: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    product: Mapped[Product] = relationship()
+
+
 class BarcodePhoto(Base):
     """A picture of the box for one code."""
 

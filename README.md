@@ -87,6 +87,8 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 
 **Ammo without a barcode.** In the admin site, **Labels** prints your own barcode or QR labels to stick on those boxes. Add as many different products as you like to one sheet (every label for a product carries the same code, so each box scans as that product), pick the number of columns, remove any label you don't want, and print.
 
+**Cases, belts and containers.** For ammo that always comes in the same amount (a case of 12 boxes, a 100-round belt, a container of loose rounds), make a *pack label*: on **Labels**, choose the product, enter the amount in **Total of** and add it to the sheet. Boxes are counted in boxes and by-the-round products in rounds. Scanning that label on the kiosk adds the full amount to the Ammo In or Ammo Out list in one go (scan it twice for two), and you can still change the quantity before finishing. A product can have several pack sizes. The list under **Pack labels** lets you print more copies or delete a label.
+
 **Backup and restore.** *Settings* has a button to download a backup of everything (except the PIN) and one to restore from it. Backups are manual.
 
 **Reset.** *Settings → Reset all data* returns Quartermaster to a fresh install, including the PIN. It keeps no copy, so download a backup first.

@@ -1,7 +1,7 @@
 import calendar
 from bisect import bisect_right
 from collections import defaultdict
-from datetime import date, timedelta, timezone
+from datetime import date, timezone
 from itertools import accumulate
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 

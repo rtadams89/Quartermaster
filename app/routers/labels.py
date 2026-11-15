@@ -7,19 +7,21 @@ from barcode.writer import SVGWriter
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import security
 from ..codes import normalize_code
 from ..db import get_db
-from ..models import Product
-from ..services import new_label_codes, product_label_code
+from ..models import PackCode, Product
+from ..services import new_label_codes, pack_code_for, product_label_code, product_dict, spec_text
 
 router = APIRouter(prefix="/api/labels", dependencies=[Depends(security.require_auth)])
 
 class AllocateIn(BaseModel):
     count: int = Field(ge=1, le=100)
     product_id: int | None = None
+    pack_qty: int | None = Field(default=None, ge=2, le=99999)
 
 
 @router.post("/allocate")
@@ -28,9 +30,16 @@ def allocate(body: AllocateIn, db: Session = Depends(get_db)):
 
     With a product: the product keeps one label code, so its existing QM code is reused (the
     labels are copies of it); only a product with no label yet gets a new code.
+    With a product and pack_qty: a pack code (one per product and quantity) that adds that many when scanned.
     Without a product: `count` fresh, unique codes to identify later."""
     if body.product_id is not None and not db.get(Product, body.product_id):
         raise HTTPException(400, "Unknown product")
+    if body.pack_qty is not None:
+        if body.product_id is None:
+            raise HTTPException(400, "Choose a product for a pack label")
+        code, reused = pack_code_for(db, body.product_id, body.pack_qty)
+        db.commit()
+        return {"codes": [code] * body.count, "reused": reused}
     if body.product_id is None:
         codes = new_label_codes(db, body.count)
         db.commit()
@@ -41,6 +50,23 @@ def allocate(body: AllocateIn, db: Session = Depends(get_db)):
     codes = new_label_codes(db, 1, body.product_id)
     db.commit()
     return {"codes": codes * body.count, "reused": False}
+
+
+@router.get("/packs")
+def packs(db: Session = Depends(get_db)):
+    rows = db.scalars(select(PackCode).order_by(PackCode.code))
+    return [{"code": r.code, "quantity": r.quantity, "product_id": r.product_id,
+             "product": {**product_dict(r.product), "spec": spec_text(r.product)}} for r in rows]
+
+
+@router.delete("/packs/{code}")
+def delete_pack(code: str, db: Session = Depends(get_db)):
+    row = db.get(PackCode, code.upper())
+    if not row:
+        raise HTTPException(404, "Pack label not found")
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/render")
