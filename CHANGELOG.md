@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.8.2
+- The *Pack labels* list on the Labels page now shows the caliber, manufacturer, product, bullet weight, bullet type and rounds per box for each label, and is sorted by caliber and product.
+
 ## 1.8.1
 - Pack labels now read "Total of 12 boxes" or "Total of 100 rounds", and the box on the Labels page is called *Total of*.
 - Fixed the *Usage* chart breaking when a month that has not started yet was chosen. It now says so.

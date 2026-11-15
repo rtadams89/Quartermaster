@@ -88,6 +88,7 @@ def test_list_and_delete_packs(authed):
     pc = pack(authed, p, 12)["codes"][0]
     rows = authed.get("/api/labels/packs").json()
     assert [(r["code"], r["quantity"], r["product"]["id"]) for r in rows] == [(pc, 12, p["id"])]
+    assert rows[0]["product"]["caliber"] and rows[0]["product"]["spec"] and rows[0]["product"]["label"]
     assert authed.delete(f"/api/labels/packs/{pc}").status_code == 200
     assert authed.get("/api/labels/packs").json() == []
     assert authed.delete(f"/api/labels/packs/{pc}").status_code == 404
@@ -123,3 +124,14 @@ def test_a_pack_code_cannot_be_added_as_a_product_barcode(authed):
     pc = pack(authed, p, 12)["codes"][0]
     other = make_product(authed, name="Other")
     assert authed.post(f"/api/products/{other['id']}/barcodes", json={"code": pc}).status_code == 409
+
+
+def test_pack_list_is_ordered_by_caliber_then_product_then_size(authed):
+    a, _ = stocked(authed, name="Zed")
+    b, _ = stocked(authed, name="Alpha")
+    other = authed.post("/api/calibers", json={"name": "Zzz last"}).json()
+    c, _ = stocked(authed, name="Mid", caliber_id=other["id"])
+    for p, q in ((a, 12), (b, 20), (b, 6), (c, 3)):
+        pack(authed, p, q)
+    rows = authed.get("/api/labels/packs").json()
+    assert [(r["product"]["id"], r["quantity"]) for r in rows] == [(b["id"], 6), (b["id"], 20), (a["id"], 12), (c["id"], 3)]

@@ -54,9 +54,10 @@ def allocate(body: AllocateIn, db: Session = Depends(get_db)):
 
 @router.get("/packs")
 def packs(db: Session = Depends(get_db)):
-    rows = db.scalars(select(PackCode).order_by(PackCode.code))
-    return [{"code": r.code, "quantity": r.quantity, "product_id": r.product_id,
-             "product": {**product_dict(r.product), "spec": spec_text(r.product)}} for r in rows]
+    rows = [{"code": r.code, "quantity": r.quantity, "product_id": r.product_id,
+             "product": {**product_dict(r.product), "spec": spec_text(r.product)}}
+            for r in db.scalars(select(PackCode))]
+    return sorted(rows, key=lambda r: (r["product"]["caliber"].lower(), r["product"]["label"].lower(), r["quantity"]))
 
 
 @router.delete("/packs/{code}")

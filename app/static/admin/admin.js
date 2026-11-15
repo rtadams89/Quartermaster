@@ -1046,8 +1046,8 @@ async function labels() {
       packBox));
   const loadPacks = async () => {
     const rows = await get('/api/labels/packs');
-    clear(packBox, rows.length ? table(['Product', 'Pack', 'Code', ''], rows.map((k) => h('tr', {},
-      td(h('b', {}, k.product.label)), td(packText(k.product, k.quantity)), td(h('span', { class: 'code' }, k.code)),
+    clear(packBox, rows.length ? table(['Caliber', 'Product', 'Total', 'Code', ''], rows.map((k) => h('tr', {},
+      td(k.product.caliber), td([h('b', {}, k.product.label), h('span', { class: 'code' }, k.product.spec)]), td(packText(k.product, k.quantity).replace(/^Total of /, '')), td(h('span', { class: 'code' }, k.code)),
       td([h('button', { class: 'btn sm', onclick: () => add([k.code], `${k.product.label}\n${k.product.caliber} ${labelSpecOf(k.product)}\n${packText(k.product, k.quantity)}`) }, 'Add to sheet'),
         h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete pack label?', 'Printed copies of this label will no longer scan.', 'Delete', async () => { await del(`/api/labels/packs/${encodeURIComponent(k.code)}`); loadPacks(); }) }, 'Delete')], 'actions')))) : empty('No pack labels yet.'));
   };
