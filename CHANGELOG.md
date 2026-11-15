@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.9.0
+- **P-touch Editor export.** The Labels page can download a ready-to-print Brother P-touch Editor file (.lbx) for each pack and product label, or all of them in one zip. Each has the QR code with the caliber and product beside it, plus the total on pack labels, laid out for 12 mm tape on a PT-E500. It can also download a CSV of every label to connect to your own P-touch Editor layout.
+
 ## 1.8.2
 - The *Pack labels* list on the Labels page now shows the caliber, manufacturer, product, bullet weight, bullet type and rounds per box for each label, and is sorted by caliber and product.
 

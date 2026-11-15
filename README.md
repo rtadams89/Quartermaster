@@ -89,6 +89,8 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 
 **Cases, belts and containers.** For ammo that always comes in the same amount (a case of 12 boxes, a 100-round belt, a container of loose rounds), make a *pack label*: on **Labels**, choose the product, enter the amount in **Total of** and add it to the sheet. Boxes are counted in boxes and by-the-round products in rounds. Scanning that label on the kiosk adds the full amount to the Ammo In or Ammo Out list in one go (scan it twice for two), and you can still change the quantity before finishing. A product can have several pack sizes. The list under **Pack labels** lets you print more copies or delete a label.
 
+**Printing labels in P-touch Editor.** At the bottom of **Labels**, **Download P-touch files (.zip)** gives one Brother P-touch Editor file per label, set up for 12 mm tape on a PT-E500: a QR code (regular QR, error correction 25%) with the caliber, product and, for pack labels, the total beside it. Each pack label also has its own **P-touch file** button. Open a file in P-touch Editor and print. **Download CSV for P-touch** is a spreadsheet of every label (code, type, caliber, product, details and total) that you can connect to your own P-touch Editor layout with *File > Database > Connect*, so every row prints as a label. These files are made without access to P-touch Editor, so open one and check the size, the text and a test scan before printing a batch.
+
 **Backup and restore.** *Settings* has a button to download a backup of everything (except the PIN) and one to restore from it. Backups are manual.
 
 **Reset.** *Settings → Reset all data* returns Quartermaster to a fresh install, including the PIN. It keeps no copy, so download a backup first.

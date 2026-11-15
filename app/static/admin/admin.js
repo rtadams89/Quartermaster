@@ -1043,12 +1043,13 @@ async function labels() {
     sheet,
     h('div', { class: 'no-print', style: { marginTop: '28px' } }, h('h2', {}, 'Pack labels'),
       h('p', { class: 'sub', style: { margin: '0 0 10px' } }, 'A pack label stands for a fixed amount of one product, such as a case of boxes or a belt of rounds. Scanning it checks in or out that whole amount, and the quantity can still be changed on the kiosk.'),
+      h('div', { class: 'toolbar' }, h('a', { class: 'btn', href: '/api/labels/ptouch.zip' }, 'Download P-touch files (.zip)'), h('a', { class: 'btn', href: '/api/labels/ptouch.csv' }, 'Download CSV for P-touch')),
       packBox));
   const loadPacks = async () => {
     const rows = await get('/api/labels/packs');
     clear(packBox, rows.length ? table(['Caliber', 'Product', 'Total', 'Code', ''], rows.map((k) => h('tr', {},
       td(k.product.caliber), td([h('b', {}, k.product.label), h('span', { class: 'code' }, k.product.spec)]), td(packText(k.product, k.quantity).replace(/^Total of /, '')), td(h('span', { class: 'code' }, k.code)),
-      td([h('button', { class: 'btn sm', onclick: () => add([k.code], `${k.product.label}\n${k.product.caliber} ${labelSpecOf(k.product)}\n${packText(k.product, k.quantity)}`) }, 'Add to sheet'),
+      td([h('a', { class: 'btn sm', href: `/api/labels/ptouch/${encodeURIComponent(k.code)}.lbx` }, 'P-touch file'), h('button', { class: 'btn sm', onclick: () => add([k.code], `${k.product.label}\n${k.product.caliber} ${labelSpecOf(k.product)}\n${packText(k.product, k.quantity)}`) }, 'Add to sheet'),
         h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete pack label?', 'Printed copies of this label will no longer scan.', 'Delete', async () => { await del(`/api/labels/packs/${encodeURIComponent(k.code)}`); loadPacks(); }) }, 'Delete')], 'actions')))) : empty('No pack labels yet.'));
   };
   paint();

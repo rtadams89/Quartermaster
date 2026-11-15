@@ -1,5 +1,7 @@
 """Your own labels for ammo that has no UPC: allocate codes and render Code 128 / QR."""
+import csv
 import io
+import zipfile
 
 import barcode as pybarcode
 import segno
@@ -10,9 +12,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import security
+from .. import ptouch, security
 from ..codes import normalize_code
 from ..db import get_db
+from ..csvsafe import safe_row
 from ..models import PackCode, Product
 from ..services import new_label_codes, pack_code_for, product_label_code, product_dict, spec_text
 
@@ -85,3 +88,37 @@ def render(code: str, type: str = Query(default="code128", pattern="^(code128|qr
             buf, options={"write_text": False, "module_height": 12.0, "module_width": 0.33, "quiet_zone": 2.0}
         )
     return Response(buf.getvalue(), media_type="image/svg+xml", headers={"Cache-Control": "private, max-age=3600"})
+
+
+@router.get("/ptouch.csv")
+def ptouch_csv(db: Session = Depends(get_db)):
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(ptouch.COLUMNS)
+    for r in ptouch.label_rows(db):
+        w.writerow(safe_row([r["code"], r["type"], r["caliber"], r["product"], r["details"], r["total"]]))
+    return Response(buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": 'attachment; filename="quartermaster-labels.csv"'})
+
+
+@router.get("/ptouch.zip")
+def ptouch_zip(db: Session = Depends(get_db)):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+        for r in ptouch.label_rows(db):
+            z.writestr(f"{ptouch.file_stem(r)}.lbx", ptouch.lbx_bytes(r))
+    return Response(buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": 'attachment; filename="quartermaster-labels-ptouch.zip"'})
+
+
+@router.get("/ptouch/{code}.lbx")
+def ptouch_lbx(code: str, db: Session = Depends(get_db)):
+    try:
+        code = normalize_code(code)
+    except ValueError:
+        raise HTTPException(400, "Invalid code")
+    row = next((r for r in ptouch.label_rows(db) if r["code"] == code), None)
+    if not row:
+        raise HTTPException(404, "No label with that code")
+    return Response(ptouch.lbx_bytes(row), media_type="application/octet-stream",
+                    headers={"Content-Disposition": f'attachment; filename="{code}.lbx"'})
