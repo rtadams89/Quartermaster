@@ -2,6 +2,16 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.11.1
+- **Magazines reworked.** Each magazine is now its own record with its own short serial (M001, M002, …, growing a digit after M999) instead of a kind with a quantity. *+ New magazine* can add several at once. You can edit and delete any magazine, filter the list by firearm, and tick the ones to print labels for.
+- The firearm and manufacturer boxes suggest names already used, and the same name typed with different capitals or spacing takes the spelling already in use.
+- Magazine labels use one text style for both lines.
+- Codes of an M and three or more digits are reserved for magazines: scanning one on the kiosk is refused, and it can't be added to a product or imported as ammo.
+
+## 1.11.0
+- **Magazines.** A new Magazines page in the admin site records each kind of magazine (firearm it fits, caliber, capacity, manufacturer, model, notes) with a quantity. Every magazine gets its own generated serial number, and *Serials & labels* adds or removes them and downloads small P-touch Editor labels (QR code of the serial, the firearm and the serial) or a CSV.
+- Backups include magazines. A backup made before this version still restores, with no magazines.
+
 ## 1.10.2
 - Products counted by the round (1 round per box) now show their cost as per round: the product form's cost box reads *Cost per round* and the Products list shows $0.45/round instead of /box.
 

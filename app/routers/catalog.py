@@ -5,9 +5,9 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from .. import config, lookup, security
-from ..codes import normalize_code
+from ..codes import is_magazine_code, normalize_code
 from ..db import get_db
-from ..models import Barcode, BarcodePhoto, BatchItem, Caliber, PackCode, Product, Transaction, UpcLookup
+from ..models import Barcode, BarcodePhoto, BatchItem, Caliber, Magazine, PackCode, Product, Transaction, UpcLookup
 from .photos import process_image, store_photo
 from ..services import (brand_spellings, canonical_brand, inventory_by_product, minimums, missing_details, photo_codes,
                         product_dict, set_minimum, spec_text)
@@ -95,8 +95,9 @@ def delete_caliber(cid: int, db: Session = Depends(get_db)):
     c = db.get(Caliber, cid)
     if not c:
         raise HTTPException(404, "Caliber not found")
-    if db.scalar(select(func.count(Product.id)).where(Product.caliber_id == cid)):
-        raise HTTPException(409, "Products use this caliber. Mark it inactive instead, or move those products first.")
+    if db.scalar(select(func.count(Product.id)).where(Product.caliber_id == cid)) or db.scalar(
+            select(func.count(Magazine.serial)).where(Magazine.caliber_id == cid)):
+        raise HTTPException(409, "Products or magazines use this caliber. Mark it inactive instead, or move them first.")
     set_minimum(db, "caliber", cid, None)
     db.delete(c)
     db.commit()
@@ -270,6 +271,8 @@ def add_barcode(pid: int, body: CodeIn, db: Session = Depends(get_db)):
     if bc and bc.product_id not in (None, pid):
         raise HTTPException(409, "That code already belongs to another product")
     if not bc:
+        if is_magazine_code(code):
+            raise HTTPException(409, "That code is reserved for magazines")
         bc = Barcode(code=code)
         db.add(bc)
     bc.product_id = pid

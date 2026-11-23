@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import security
-from ..codes import normalize_code
+from ..codes import is_magazine_code, normalize_code
 from ..csvsafe import safe_row, unsafe
 from ..db import get_db
 from ..models import Barcode, Caliber, Product
@@ -109,6 +109,8 @@ def _parse_row(raw: dict, present: set[str]) -> tuple[dict | None, str | None]:
                 codes.append(normalize_code(c))
             except ValueError:
                 return None, f"'{c}' is not a valid barcode"
+            if is_magazine_code(codes[-1]):
+                return None, f"'{c}' is reserved for magazines"
         out["codes"] = list(dict.fromkeys(codes))
     return out, None
 

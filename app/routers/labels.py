@@ -42,25 +42,13 @@ def resolved(db: Session, body: JobIn) -> list[dict]:
     return rows
 
 
-@router.post("/resolve")
-def resolve(body: JobIn, db: Session = Depends(get_db)):
-    return {"rows": resolved(db, body)}
+def lbx_download(pages: list[dict]) -> Response:
+    return Response(ptouch.lbx_bytes(pages), media_type="application/octet-stream",
+                    headers={"Content-Disposition": 'attachment; filename="quartermaster-labels.lbx"'})
 
 
-@router.post("/ptouch")
-def ptouch_files(body: JobIn, db: Session = Depends(get_db)):
-    rows = resolved(db, body)
-    if body.mode == "one":
-        pages = [r for r in rows for _ in range(r["copies"])]
-        return Response(ptouch.lbx_bytes(pages), media_type="application/octet-stream",
-                        headers={"Content-Disposition": 'attachment; filename="quartermaster-labels.lbx"'})
-    unique: dict[str, dict] = {}
-    for r in rows:
-        unique.setdefault(r["code"], {**r, "copies": 0})["copies"] += r["copies"]
-    files = {}
-    for r in unique.values():
-        times = f" x{r['copies']}" if r["copies"] > 1 else ""
-        files[f"{ptouch.file_stem(r)}{times}.lbx"] = ptouch.lbx_bytes([r])
+def files_download(files: dict[str, bytes]) -> Response:
+    """The one file itself, or a zip when there are several."""
     if len(files) == 1:
         name, data = next(iter(files.items()))
         return Response(data, media_type="application/octet-stream", headers={"Content-Disposition": f'attachment; filename="{name}"'})
@@ -72,16 +60,41 @@ def ptouch_files(body: JobIn, db: Session = Depends(get_db)):
                     headers={"Content-Disposition": 'attachment; filename="quartermaster-labels-ptouch.zip"'})
 
 
-@router.post("/csv")
-def labels_csv(body: JobIn, db: Session = Depends(get_db)):
+def csv_download(header: list[str], rows: list[list]) -> Response:
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(COLUMNS)
-    for r in resolved(db, body):
-        for _ in range(r["copies"]):
-            w.writerow(safe_row([r["code"], r["type"], r["caliber"], r["product"], r["details"], r["total"]]))
+    w.writerow(header)
+    for r in rows:
+        w.writerow(safe_row(r))
     return Response(buf.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": 'attachment; filename="quartermaster-labels.csv"'})
+
+
+@router.post("/resolve")
+def resolve(body: JobIn, db: Session = Depends(get_db)):
+    return {"rows": resolved(db, body)}
+
+
+@router.post("/ptouch")
+def ptouch_files(body: JobIn, db: Session = Depends(get_db)):
+    rows = resolved(db, body)
+    if body.mode == "one":
+        pages = [r for r in rows for _ in range(r["copies"])]
+        return lbx_download(pages)
+    unique: dict[str, dict] = {}
+    for r in rows:
+        unique.setdefault(r["code"], {**r, "copies": 0})["copies"] += r["copies"]
+    files = {}
+    for r in unique.values():
+        times = f" x{r['copies']}" if r["copies"] > 1 else ""
+        files[f"{ptouch.file_stem(r)}{times}.lbx"] = ptouch.lbx_bytes([r])
+    return files_download(files)
+
+
+@router.post("/csv")
+def labels_csv(body: JobIn, db: Session = Depends(get_db)):
+    return csv_download(COLUMNS, [[r["code"], r["type"], r["caliber"], r["product"], r["details"], r["total"]]
+                                  for r in resolved(db, body) for _ in range(r["copies"])])
 
 
 @router.get("/render")

@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import security
-from ..codes import normalize_code
+from ..codes import is_magazine_code, normalize_code
 from ..db import get_db, iso, utcnow
 from ..models import Barcode, BarcodePhoto, Batch, BatchItem, PackCode, Product, Transaction
 from ..services import code_for_product, on_hand, product_dict, spec_text
@@ -120,6 +120,8 @@ def scan(batch_id: int, body: ScanIn, db: Session = Depends(get_db)):
         db.commit()
         return {"item": _item_dict(db, item), "known": True, "new_code": False, "pack": pack.quantity}
     new_code = db.get(Barcode, code) is None  # first time this code has ever been seen
+    if new_code and is_magazine_code(code):
+        raise HTTPException(409, f"{code} is a magazine label, not ammo")
     if new_code:
         db.add(Barcode(code=code))
         db.flush()

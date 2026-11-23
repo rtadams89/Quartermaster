@@ -74,6 +74,22 @@ class Product(Base):
     barcodes: Mapped[list["Barcode"]] = relationship(back_populates="product")
 
 
+class Magazine(Base):
+    """One physical magazine, with its own unique serial: the firearm it fits, caliber, capacity, maker and model."""
+
+    __tablename__ = "magazine_items"
+    serial: Mapped[str] = mapped_column(String(16), primary_key=True)
+    firearm: Mapped[str] = mapped_column(String(80), index=True)
+    caliber_id: Mapped[int] = mapped_column(ForeignKey("calibers.id"), index=True)
+    capacity: Mapped[int] = mapped_column(Integer)
+    manufacturer: Mapped[str] = mapped_column(String(80), default="")
+    model: Mapped[str] = mapped_column(String(80), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    caliber: Mapped[Caliber] = relationship()
+
+
 class StockMinimum(Base):
     """Low-stock level, in rounds, for one caliber or one product. No row means no alert."""
 

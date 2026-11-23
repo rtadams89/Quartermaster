@@ -8,8 +8,14 @@ QM000123 labels, odd symbologies) is only trimmed and upper-cased.
 import re
 
 MAX_LEN = 64
+# Magazine serials: M and at least three digits. Reserved, so a scan can never create one as an ammo code.
+_MAGAZINE = re.compile(r"^M\d{3,}$")
 # Visible ASCII, no spaces or '/'.
 _PRINTABLE = re.compile(r"^[\x21-\x2e\x30-\x7e]+$")
+
+
+def is_magazine_code(code: str) -> bool:
+    return bool(_MAGAZINE.match(code))
 
 
 def normalize_code(raw: str) -> str:

@@ -26,7 +26,8 @@ def qr_layout(code: str) -> dict:
 
 
 def text_lines(row: dict) -> list[str]:
-    return [x for x in (row["caliber"], row["product"], row["total"]) if x]
+    lines = row["lines"] if "lines" in row else [row["caliber"], row["product"], row["total"]]
+    return [x for x in lines if x]
 
 
 def _text_object(n: int, text: str, x: float, y: float, w: float, h: float, size: float, bold: bool) -> str:
@@ -52,7 +53,7 @@ def _sheet(row: dict, n: int) -> str:
     text_x = round(START_PT + q["side"] + TEXT_GAP_PT, 1)
     text_w = round(max((len(t) for t in lines), default=0) * size * CHAR_WIDTH_EM + 4, 1)
     bg_w = round(text_x + text_w - START_PT, 1) if lines else q["side"]
-    texts = "".join(_text_object(i + 1, t, text_x, round(EDGE_PT + i * line_h, 1), text_w, line_h, size, i == 0)
+    texts = "".join(_text_object(i + 1, t, text_x, round(EDGE_PT + i * line_h, 1), text_w, line_h, size, i == 0 and not row.get("plain"))
                     for i, t in enumerate(lines))
     qr_y = QR_Y_PT
     return f"""<style:sheet name="Sheet {n}"><style:paper media="0" width="{TAPE_PT}pt" height="2834.4pt" marginLeft="3pt" marginTop="{START_PT}pt" marginRight="3pt" marginBottom="{START_PT}pt" orientation="landscape" autoLength="true" monochromeDisplay="true" printColorDisplay="false" printColorsID="0" paperColor="#FFFFFF" paperInk="#000000" split="1" format="259" backgroundTheme="0" printerID="25904" printerName="Brother PT-E500"/><style:cutLine regularCut="0pt" freeCut=""/><style:backGround x="{START_PT}pt" y="{EDGE_PT}pt" width="{bg_w}pt" height="{PRINT_PT}pt" brushStyle="NULL" brushId="0" userPattern="NONE" userPatternId="0" color="#000000" printColorNumber="1" backColor="#FFFFFF" backPrintColorNumber="0"/><pt:objects><barcode:barcode><pt:objectStyle x="{START_PT}pt" y="{qr_y}pt" width="{q['side']}pt" height="{q['side']}pt" backColor="#FFFFFF" backPrintColorNumber="0" ropMode="COPYPEN" angle="0" anchor="TOPLEFT" flip="NONE"><pt:pen style="NULL" widthX="0.5pt" widthY="0.5pt" color="#000000" printColorNumber="1"/><pt:brush style="NULL" color="#000000" printColorNumber="1" id="0"/><pt:expanded objectName="Bar Code1" ID="0" lock="4" templateMergeTarget="LABELLIST" templateMergeType="NONE" templateMergeID="0" linkStatus="NONE" linkID="0"/></pt:objectStyle><barcode:barcodeStyle protocol="QRCODE" lengths="{len(code)}" zeroFill="false" barWidth="{q['cell']}pt" barRatio="1:3" humanReadable="false" humanReadableAlignment="LEFT" checkDigit="false" autoLengths="false" margin="false" sameLengthBar="false" bearerBar="false"/><barcode:qrcodeStyle model="2" eccLevel="25%" cellSize="{q['cell']}pt" mbcs="1252" joint="1" version="{q['version']}"/><pt:data>{escape(code)}</pt:data></barcode:barcode>{texts}</pt:objects></style:sheet>"""
@@ -71,5 +72,5 @@ def lbx_bytes(rows: list[dict]) -> bytes:
 
 
 def file_stem(row: dict) -> str:
-    text = " ".join(x for x in (row["code"], row["caliber"], row["product"], row["total"]) if x)
+    text = " ".join([row["code"]] + [x for x in text_lines(row) if x != row["code"]])
     return re.sub(r"[^A-Za-z0-9 ._-]+", "", text).strip()[:120] or row["code"]

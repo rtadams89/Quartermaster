@@ -8,7 +8,7 @@ let main;
 
 const NAV = [
   ['dashboard', 'Dashboard'], ['inventory', 'Inventory'], ['details', 'Needs details'], ['products', 'Products'],
-  ['calibers', 'Calibers'], ['history', 'History'], ['usage', 'Usage'], ['labels', 'Labels'], ['settings', 'Settings'],
+  ['calibers', 'Calibers'], ['history', 'History'], ['usage', 'Usage'], ['magazines', 'Magazines'], ['labels', 'Labels'], ['settings', 'Settings'],
 ];
 
 // ------------------------------------------------------------------ helpers
@@ -991,6 +991,19 @@ function paintUsage(holder, r) {
     wrap);
 }
 
+/** POST a request and save the file the server sends back. */
+async function downloadFile(path, body) {
+  const res = await post(path, body);
+  const blob = await res.blob();
+  const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') || '')?.[1] || 'quartermaster-labels';
+  const a = h('a', { href: URL.createObjectURL(blob), download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  toast(`Downloaded ${name}`, 'ok');
+}
+
 // ------------------------------------------------------------------- labels
 // The label list is kept while you move around the admin site, so you can leave and come back to it.
 const labelJob = { rows: [], output: 'sheet', type: 'code128', cols: 2, mode: 'one' };
@@ -1063,18 +1076,6 @@ async function labels() {
     clear(options, out, labelJob.output === 'sheet' ? [type, cols] : labelJob.output === 'ptouch' ? mode : '', h('span', { class: 'grow' }), status, go);
   };
 
-  const download = async (path, body) => {
-    const res = await post(path, body);
-    const blob = await res.blob();
-    const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') || '')?.[1] || 'quartermaster-labels';
-    const a = h('a', { href: URL.createObjectURL(blob), download: name });
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    toast(`Downloaded ${name}`, 'ok');
-  };
-
   const printSheet = async (rows) => {
     sheet.style.gridTemplateColumns = `repeat(${labelJob.cols}, minmax(0, 1fr))`;
     const imgs = [];
@@ -1098,8 +1099,8 @@ async function labels() {
     try {
       const list = items();
       if (labelJob.output === 'sheet') await printSheet((await post('/api/labels/resolve', { items: list })).rows);
-      else if (labelJob.output === 'csv') await download('/api/labels/csv', { items: list });
-      else await download('/api/labels/ptouch', { items: list, mode: labelJob.mode });
+      else if (labelJob.output === 'csv') await downloadFile('/api/labels/csv', { items: list });
+      else await downloadFile('/api/labels/ptouch', { items: list, mode: labelJob.mode });
     } catch (e) { toast(e.message, 'error'); }
     busy = false;
     paintOptions();
@@ -1120,6 +1121,93 @@ async function labels() {
     sheet);
   paintList();
   paintOptions();
+}
+
+// ---------------------------------------------------------------- magazines
+const magazineJob = { firearm: '', output: 'one' };
+
+async function magazines() {
+  const calibers = await get('/api/calibers');
+  const firearmSel = h('select', { 'aria-label': 'Firearm', onchange: () => { magazineJob.firearm = firearmSel.value; paint(); } });
+  const q = h('input', { type: 'search', placeholder: 'Search…', size: 22 });
+  const output = h('select', { 'aria-label': 'Label file', onchange: () => { magazineJob.output = output.value; } },
+    h('option', { value: 'one' }, 'P-touch file: one file with every label'), h('option', { value: 'many' }, 'P-touch files: one file per label'), h('option', { value: 'csv' }, 'CSV file'));
+  output.value = magazineJob.output;
+  const status = h('span', { class: 'muted' });
+  const holder = h('div');
+  const ticked = new Set();
+  let all = [];
+  const shown = () => {
+    const words = q.value.toLowerCase().split(/\s+/).filter(Boolean);
+    return all.filter((m) => (!magazineJob.firearm || m.firearm === magazineJob.firearm)
+      && words.every((w) => `${m.serial} ${m.firearm} ${m.caliber} ${m.manufacturer} ${m.model}`.toLowerCase().includes(w)));
+  };
+  const chosen = () => shown().filter((m) => ticked.has(m.serial));
+  const count = () => { status.textContent = `${chosen().length} selected`; };
+  const paint = () => {
+    const firearms = [...new Set(all.map((m) => m.firearm))].sort((a, b) => a.localeCompare(b));
+    if (magazineJob.firearm && !firearms.includes(magazineJob.firearm)) magazineJob.firearm = '';
+    clear(firearmSel, h('option', { value: '' }, 'All firearms'), firearms.map((f) => h('option', { value: f }, f)));
+    firearmSel.value = magazineJob.firearm;
+    const list = shown();
+    clear(holder, list.length ? [table(['', 'Serial', 'Firearm', 'Caliber', ['Capacity', 'num'], 'Manufacturer', 'Model', ''], list.map((m) => {
+      const box = h('input', { type: 'checkbox', checked: ticked.has(m.serial), 'aria-label': `Select ${m.serial}`, onchange: () => { box.checked ? ticked.add(m.serial) : ticked.delete(m.serial); count(); } });
+      return h('tr', {}, td(box), td(h('span', { class: 'code' }, m.serial)), td(h('b', {}, m.firearm)), td(m.caliber), td(fmtInt(m.capacity), 'num'), td(m.manufacturer || '—'), td(m.model || '—'),
+        td([h('button', { class: 'btn sm', onclick: () => magazineDialog(calibers, m, load) }, 'Edit'), ' ',
+          h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete magazine?', `Delete ${m.serial} (${[m.firearm, m.manufacturer, m.model].filter(Boolean).join(' ')})? Its label will no longer match anything.`, 'Delete', async () => { await del(`/api/magazines/${m.serial}`); ticked.delete(m.serial); load(); }) }, 'Delete')], 'actions'));
+    })), h('p', { class: 'sub', style: { marginTop: '8px' } }, `${fmtInt(list.length)} magazine${list.length === 1 ? '' : 's'}${magazineJob.firearm ? ` for ${magazineJob.firearm}` : ''}`)]
+      : empty(all.length ? 'No magazines match.' : 'No magazines yet. Add one with + New magazine.'));
+    count();
+  };
+  const load = async () => { all = await get('/api/magazines'); [...ticked].forEach((s) => { if (!all.some((m) => m.serial === s)) ticked.delete(s); }); paint(); };
+  const download = async () => {
+    try {
+      const serials = chosen().map((m) => m.serial);
+      if (!serials.length) throw new Error('Tick at least one magazine');
+      if (output.value === 'csv') await downloadFile('/api/magazines/labels.csv', { serials });
+      else await downloadFile('/api/magazines/labels', { serials, mode: output.value });
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  q.addEventListener('input', paint);
+  clear(main, h('h1', {}, 'Magazines'),
+    h('p', { class: 'sub' }, 'Every magazine is its own record with a short serial number. Tick the ones you want, choose a file type, and download labels: a small QR code of the serial with the firearm and the serial beside it.'),
+    h('div', { class: 'toolbar' }, firearmSel, q, h('span', { class: 'grow' }), h('button', { class: 'btn primary', onclick: () => magazineDialog(calibers, null, load, ticked) }, '+ New magazine')),
+    holder,
+    h('div', { class: 'toolbar' }, h('button', { class: 'btn sm', onclick: () => { shown().forEach((m) => ticked.add(m.serial)); paint(); } }, 'Select all shown'),
+      h('button', { class: 'btn sm', onclick: () => { shown().forEach((m) => ticked.delete(m.serial)); paint(); } }, 'Select none'), status, h('span', { class: 'grow' }), output,
+      h('button', { class: 'btn primary', onclick: download }, 'Download labels')));
+  await load();
+}
+
+async function magazineDialog(calibers, m, done, ticked) {
+  const cal = caliberPicker(calibers.filter((c) => c.active || c.id === m?.caliber_id), m?.caliber_id);
+  const firearmBox = suggestInput({ value: m?.firearm ?? '', placeholder: 'e.g. Glock 19', maxlength: 80 });
+  const makerBox = suggestInput({ value: m?.manufacturer ?? '', placeholder: 'e.g. Magpul', maxlength: 80 });
+  get('/api/magazines/suggestions').then((s) => { firearmBox.setOptions(s.firearms); makerBox.setOptions(s.manufacturers); }, () => {});
+  const capacity = h('input', { type: 'number', min: 1, max: 999, step: 1, value: m?.capacity ?? '', placeholder: 'rounds' });
+  const model = h('input', { value: m?.model ?? '', placeholder: 'e.g. PMAG', maxlength: 80 });
+  const copies = h('input', { type: 'number', min: 1, max: 100, step: 1, value: 1 });
+  const notes = h('textarea', { rows: 2 }, m?.notes ?? '');
+  dialog({
+    title: m ? `Edit ${m.serial}` : 'New magazine',
+    body: h('div', { class: 'form' }, labeled('Firearm it fits', firearmBox.el, '', 'Pick an earlier one from the list to keep names consistent.'), labeled('Caliber', cal.el),
+      labeled('Capacity (rounds)', capacity), labeled('Manufacturer', makerBox.el), labeled('Model', model),
+      m ? null : labeled('How many to add', copies, '', 'Each one is its own record with its own serial.'),
+      labeled('Notes', notes, 'full')),
+    onOk: async () => {
+      const firearm = firearmBox.input.value.trim();
+      if (!firearm) throw new Error('Firearm is required');
+      if (!Number.isInteger(Number(capacity.value)) || Number(capacity.value) < 1) throw new Error('Capacity must be 1 or more');
+      const body = { firearm, caliber_id: cal.value(), capacity: Number(capacity.value), manufacturer: makerBox.input.value.trim(), model: model.value.trim(), notes: notes.value };
+      if (m) await patch(`/api/magazines/${m.serial}`, body);
+      else {
+        const r = await post('/api/magazines', { ...body, copies: Number(copies.value) || 1 });
+        r.magazines.forEach((x) => ticked?.add(x.serial));
+        toast(r.magazines.length === 1 ? `Added ${r.magazines[0].serial}` : `Added ${r.magazines[0].serial} to ${r.magazines.at(-1).serial}`, 'ok');
+      }
+      done();
+    },
+  });
 }
 
 // ----------------------------------------------------------------- settings
@@ -1281,7 +1369,7 @@ function restoreDialog(file) {
 }
 
 // ------------------------------------------------------------------- router
-const pages = { dashboard, inventory, details: needsDetails, products, calibers, history, usage, labels, settings };
+const pages = { dashboard, inventory, details: needsDetails, products, calibers, history, usage, magazines, labels, settings };
 
 async function route() {
   const name = (location.hash.replace(/^#\//, '') || 'dashboard').split('?')[0];
