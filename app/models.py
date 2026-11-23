@@ -75,7 +75,7 @@ class Product(Base):
 
 
 class Magazine(Base):
-    """One physical magazine, with its own unique serial: the firearm it fits, caliber, capacity, maker and model."""
+    """One physical magazine, with its own unique serial: the platform it fits, caliber, capacity, maker, model and material."""
 
     __tablename__ = "magazine_items"
     serial: Mapped[str] = mapped_column(String(16), primary_key=True)
@@ -84,6 +84,7 @@ class Magazine(Base):
     capacity: Mapped[int] = mapped_column(Integer)
     manufacturer: Mapped[str] = mapped_column(String(80), default="")
     model: Mapped[str] = mapped_column(String(80), default="")
+    material: Mapped[str] = mapped_column(String(80), default="", server_default=text("''"))
     notes: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 

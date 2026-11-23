@@ -1128,7 +1128,7 @@ const magazineJob = { firearm: '', status: '', output: 'one' };
 
 async function magazines() {
   const calibers = await get('/api/calibers');
-  const firearmSel = h('select', { 'aria-label': 'Firearm', onchange: () => { magazineJob.firearm = firearmSel.value; paint(); } });
+  const firearmSel = h('select', { 'aria-label': 'Platform', onchange: () => { magazineJob.firearm = firearmSel.value; paint(); } });
   const statusSel = h('select', { 'aria-label': 'Status', onchange: () => { magazineJob.status = statusSel.value; paint(); } },
     h('option', { value: '' }, 'In and out'), h('option', { value: 'in' }, 'In'), h('option', { value: 'out' }, 'Out'));
   statusSel.value = magazineJob.status;
@@ -1143,19 +1143,19 @@ async function magazines() {
   const shown = () => {
     const words = q.value.toLowerCase().split(/\s+/).filter(Boolean);
     return all.filter((m) => (!magazineJob.firearm || m.firearm === magazineJob.firearm) && (!magazineJob.status || m.status === magazineJob.status)
-      && words.every((w) => `${m.serial} ${m.firearm} ${m.caliber} ${m.manufacturer} ${m.model}`.toLowerCase().includes(w)));
+      && words.every((w) => `${m.serial} ${m.firearm} ${m.caliber} ${m.manufacturer} ${m.model} ${m.material}`.toLowerCase().includes(w)));
   };
   const chosen = () => shown().filter((m) => ticked.has(m.serial));
   const count = () => { status.textContent = `${chosen().length} selected`; };
   const paint = () => {
     const firearms = [...new Set(all.map((m) => m.firearm))].sort((a, b) => a.localeCompare(b));
     if (magazineJob.firearm && !firearms.includes(magazineJob.firearm)) magazineJob.firearm = '';
-    clear(firearmSel, h('option', { value: '' }, 'All firearms'), firearms.map((f) => h('option', { value: f }, f)));
+    clear(firearmSel, h('option', { value: '' }, 'All platforms'), firearms.map((f) => h('option', { value: f }, f)));
     firearmSel.value = magazineJob.firearm;
     const list = shown();
-    clear(holder, list.length ? [table(['', 'Serial', 'Firearm', 'Caliber', ['Capacity', 'num'], 'Manufacturer', 'Model', 'Status', ''], list.map((m) => {
+    clear(holder, list.length ? [table(['', 'Serial', 'Platform', 'Caliber', ['Capacity', 'num'], 'Manufacturer', 'Model', 'Material / color', 'Status', ''], list.map((m) => {
       const box = h('input', { type: 'checkbox', checked: ticked.has(m.serial), 'aria-label': `Select ${m.serial}`, onchange: () => { box.checked ? ticked.add(m.serial) : ticked.delete(m.serial); count(); } });
-      return h('tr', {}, td(box), td(h('span', { class: 'code' }, m.serial)), td(h('b', {}, m.firearm)), td(m.caliber), td(fmtInt(m.capacity), 'num'), td(m.manufacturer || '—'), td(m.model || '—'),
+      return h('tr', {}, td(box), td(h('span', { class: 'code' }, m.serial)), td(h('b', {}, m.firearm)), td(m.caliber), td(fmtInt(m.capacity), 'num'), td(m.manufacturer || '—'), td(m.model || '—'), td(m.material || '—'),
         td([h('span', { class: 'tag ' + m.status }, m.status === 'out' ? 'Out' : 'In'), m.status_since && h('span', { class: 'muted' }, ` ${fmtWhen(m.status_since)}`)]),
         td([h('button', { class: 'btn sm', onclick: () => magazineHistory(m.serial) }, 'History'), ' ', h('button', { class: 'btn sm', onclick: () => magazineDialog(calibers, m, load) }, 'Edit'), ' ', h('button', { class: 'btn sm', onclick: () => magazineDialog(calibers, m, load, ticked, true) }, 'Clone'), ' ',
           h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete magazine?', `Delete ${m.serial} (${[m.firearm, m.manufacturer, m.model].filter(Boolean).join(' ')})? Its label will no longer match anything.`, 'Delete', async () => { await del(`/api/magazines/${m.serial}`); ticked.delete(m.serial); load(); }) }, 'Delete')], 'actions'));
@@ -1174,7 +1174,7 @@ async function magazines() {
   };
   q.addEventListener('input', paint);
   clear(main, h('h1', {}, 'Magazines'),
-    h('p', { class: 'sub' }, 'Every magazine is its own record with a short serial number. Tick the ones you want, choose a file type, and download labels: a small QR code of the serial with the firearm and the serial beside it.'),
+    h('p', { class: 'sub' }, 'Every magazine is its own record with a short serial number. Tick the ones you want, choose a file type, and download labels: a small QR code of the serial with the platform and the serial beside it.'),
     h('div', { class: 'toolbar' }, firearmSel, statusSel, q, h('span', { class: 'grow' }), h('button', { class: 'btn', onclick: () => magazineHistory() }, 'All history'), h('button', { class: 'btn primary', onclick: () => magazineDialog(calibers, null, load, ticked) }, '+ New magazine')),
     holder,
     h('div', { class: 'toolbar' }, h('button', { class: 'btn sm', onclick: () => { shown().forEach((m) => ticked.add(m.serial)); paint(); } }, 'Select all shown'),
@@ -1190,7 +1190,7 @@ async function magazineHistory(serial) {
     title: serial ? `${serial} history` : 'Magazine history',
     wide: true,
     ok: 'Close',
-    body: rows.length ? h('div', { class: 'serials' }, table(['When', 'Serial', 'Firearm', 'Change'], rows.map((e) => h('tr', {},
+    body: rows.length ? h('div', { class: 'serials' }, table(['When', 'Serial', 'Platform', 'Change'], rows.map((e) => h('tr', {},
       td(fmtWhen(e.ts)), td(h('span', { class: 'code' }, e.serial)), td([e.firearm, e.model && ` ${e.model}`]), td(h('span', { class: 'tag ' + e.kind }, e.kind === 'out' ? 'Checked out' : 'Checked in')))), { sort: false })) : empty('No check outs or ins yet.'),
     onOk: async () => {},
   });
@@ -1199,24 +1199,25 @@ async function magazineHistory(serial) {
 async function magazineDialog(calibers, m, done, ticked, clone) {
   const editing = m && !clone;
   const cal = caliberPicker(calibers.filter((c) => c.active || c.id === m?.caliber_id), m?.caliber_id);
-  const firearmBox = suggestInput({ value: m?.firearm ?? '', placeholder: 'e.g. Glock 19', maxlength: 80 });
+  const firearmBox = suggestInput({ value: m?.firearm ?? '', placeholder: 'e.g. AR-15', maxlength: 80 });
   const makerBox = suggestInput({ value: m?.manufacturer ?? '', placeholder: 'e.g. Magpul', maxlength: 80 });
-  get('/api/magazines/suggestions').then((s) => { firearmBox.setOptions(s.firearms); makerBox.setOptions(s.manufacturers); }, () => {});
+  const materialBox = suggestInput({ value: m?.material ?? '', placeholder: 'e.g. Black polymer', maxlength: 80 });
+  get('/api/magazines/suggestions').then((s) => { firearmBox.setOptions(s.firearms); makerBox.setOptions(s.manufacturers); materialBox.setOptions(s.materials); }, () => {});
   const capacity = h('input', { type: 'number', min: 1, max: 999, step: 1, value: m?.capacity ?? '', placeholder: 'rounds' });
   const model = h('input', { value: m?.model ?? '', placeholder: 'e.g. PMAG', maxlength: 80 });
   const copies = h('input', { type: 'number', min: 1, max: 100, step: 1, value: 1 });
   const notes = h('textarea', { rows: 2 }, m?.notes ?? '');
   dialog({
     title: editing ? `Edit ${m.serial}` : clone ? `New magazine (copy of ${m.serial})` : 'New magazine',
-    body: h('div', { class: 'form' }, labeled('Firearm it fits', firearmBox.el, '', 'Pick an earlier one from the list to keep names consistent.'), labeled('Caliber', cal.el),
-      labeled('Capacity (rounds)', capacity), labeled('Manufacturer', makerBox.el), labeled('Model', model),
+    body: h('div', { class: 'form' }, labeled('Platform it fits', firearmBox.el, '', 'Pick an earlier one from the list to keep names consistent.'), labeled('Caliber', cal.el),
+      labeled('Capacity (rounds)', capacity), labeled('Manufacturer', makerBox.el), labeled('Model', model), labeled('Material / color', materialBox.el),
       editing ? null : labeled('How many to add', copies, '', 'Each one is its own record with its own serial.'),
       labeled('Notes', notes, 'full')),
     onOk: async () => {
       const firearm = firearmBox.input.value.trim();
-      if (!firearm) throw new Error('Firearm is required');
+      if (!firearm) throw new Error('Platform is required');
       if (!Number.isInteger(Number(capacity.value)) || Number(capacity.value) < 1) throw new Error('Capacity must be 1 or more');
-      const body = { firearm, caliber_id: cal.value(), capacity: Number(capacity.value), manufacturer: makerBox.input.value.trim(), model: model.value.trim(), notes: notes.value };
+      const body = { firearm, caliber_id: cal.value(), capacity: Number(capacity.value), manufacturer: makerBox.input.value.trim(), model: model.value.trim(), material: materialBox.input.value.trim(), notes: notes.value };
       if (editing) await patch(`/api/magazines/${m.serial}`, body);
       else {
         const r = await post('/api/magazines', { ...body, copies: Number(copies.value) || 1 });

@@ -496,5 +496,5 @@ def magazine_states(db: Session) -> dict[str, tuple[str, datetime]]:
 def magazine_dict(m: Magazine, states: dict[str, tuple[str, datetime]]) -> dict:
     kind, since = states.get(m.serial, ("in", None))
     return {"serial": m.serial, "firearm": m.firearm, "caliber_id": m.caliber_id, "caliber": m.caliber.name,
-            "capacity": m.capacity, "manufacturer": m.manufacturer, "model": m.model, "notes": m.notes,
+            "capacity": m.capacity, "manufacturer": m.manufacturer, "model": m.model, "material": m.material, "notes": m.notes,
             "status": kind, "status_since": iso(since) if since else None}

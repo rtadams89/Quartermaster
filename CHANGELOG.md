@@ -2,6 +2,10 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.13.0
+- **Material / color.** Magazines have a new *Material / color* field (Steel, Clear polymer, Black polymer and so on), separate from *Model*, so *Model* can hold only the model name. It suggests names already used and takes the spelling already in use, appears as a column on the Magazines page, and can be searched. Older backups still restore, with the field empty.
+- **Firearm is now Platform.** The magazine field formerly called *Firearm* is now *Platform*, since a magazine can fit more than one firearm. This renames the filter, the list column, the form field and the *Firearm* column in the label CSV, which is now *Platform*. Label text is unchanged.
+
 ## 1.12.2
 - **Clone a magazine.** Each row on the Magazines page has a *Clone* button that opens the new magazine form filled in with that magazine's details, ready to change and save as a new magazine with its own serial.
 

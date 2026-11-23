@@ -15,7 +15,7 @@ from .labels import csv_download, files_download, lbx_download
 router = APIRouter(prefix="/api/magazines", dependencies=[Depends(security.require_auth)])
 
 COUNTER_KEY = "magazine_serial"
-CSV_COLUMNS = ["Serial", "Firearm", "Caliber", "Capacity", "Manufacturer", "Model"]
+CSV_COLUMNS = ["Serial", "Platform", "Caliber", "Capacity", "Manufacturer", "Model"]
 
 
 class MagazineIn(BaseModel):
@@ -24,6 +24,7 @@ class MagazineIn(BaseModel):
     capacity: int = Field(ge=1, le=999)
     manufacturer: str = Field(default="", max_length=80)
     model: str = Field(default="", max_length=80)
+    material: str = Field(default="", max_length=80)
     notes: str = Field(default="", max_length=2000)
     copies: int = Field(default=1, ge=1, le=100)
 
@@ -34,6 +35,7 @@ class MagazinePatch(BaseModel):
     capacity: int | None = Field(default=None, ge=1, le=999)
     manufacturer: str | None = Field(default=None, max_length=80)
     model: str | None = Field(default=None, max_length=80)
+    material: str | None = Field(default=None, max_length=80)
     notes: str | None = Field(default=None, max_length=2000)
 
 
@@ -47,7 +49,7 @@ def _tidy(text: str) -> str:
 
 
 def _spelling(db: Session, column, value: str, skip_serial: str | None = None) -> str:
-    """The spelling other magazines already use for this firearm or manufacturer ("glock 19" becomes "Glock 19")."""
+    """The spelling other magazines already use for this platform, manufacturer or material ("glock 19" becomes "Glock 19")."""
     value = _tidy(value)
     query = select(column).where(func.lower(column) == value.lower(), column != "")
     if skip_serial:
@@ -93,7 +95,7 @@ def history(serial: str | None = None, limit: int = Query(default=200, ge=1, le=
 def suggestions(db: Session = Depends(get_db)):
     def distinct(column):
         return sorted(db.scalars(select(column).where(column != "").distinct()), key=str.lower)
-    return {"firearms": distinct(Magazine.firearm), "manufacturers": distinct(Magazine.manufacturer)}
+    return {"firearms": distinct(Magazine.firearm), "manufacturers": distinct(Magazine.manufacturer), "materials": distinct(Magazine.material)}
 
 
 @router.post("")
@@ -101,9 +103,10 @@ def create_magazines(body: MagazineIn, db: Session = Depends(get_db)):
     _check_caliber(db, body.caliber_id)
     firearm = _spelling(db, Magazine.firearm, body.firearm)
     if not firearm:
-        raise HTTPException(422, "Firearm is required")
+        raise HTTPException(422, "Platform is required")
     made = [Magazine(serial=s, firearm=firearm, caliber_id=body.caliber_id, capacity=body.capacity,
-                     manufacturer=_spelling(db, Magazine.manufacturer, body.manufacturer), model=_tidy(body.model), notes=body.notes)
+                     manufacturer=_spelling(db, Magazine.manufacturer, body.manufacturer), model=_tidy(body.model),
+                     material=_spelling(db, Magazine.material, body.material), notes=body.notes)
             for s in _new_serials(db, body.copies)]
     db.add_all(made)
     db.commit()
@@ -121,7 +124,7 @@ def update_magazine(serial: str, body: MagazinePatch, db: Session = Depends(get_
         m.caliber_id = body.caliber_id
     if body.firearm is not None:
         if not _tidy(body.firearm):
-            raise HTTPException(422, "Firearm is required")
+            raise HTTPException(422, "Platform is required")
         m.firearm = _spelling(db, Magazine.firearm, body.firearm, m.serial)
     if body.capacity is not None:
         m.capacity = body.capacity
@@ -129,6 +132,8 @@ def update_magazine(serial: str, body: MagazinePatch, db: Session = Depends(get_
         m.manufacturer = _spelling(db, Magazine.manufacturer, body.manufacturer, m.serial)
     if body.model is not None:
         m.model = _tidy(body.model)
+    if body.material is not None:
+        m.material = _spelling(db, Magazine.material, body.material, m.serial)
     if body.notes is not None:
         m.notes = body.notes
     db.commit()

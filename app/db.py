@@ -48,6 +48,9 @@ def upgrade_schema() -> None:
         have = {r[1] for r in con.exec_driver_sql('PRAGMA table_info("products")')}
         if have and "indoor_safe" not in have:
             con.exec_driver_sql("ALTER TABLE products ADD COLUMN indoor_safe BOOLEAN NOT NULL DEFAULT 1")
+        have = {r[1] for r in con.exec_driver_sql('PRAGMA table_info("magazine_items")')}
+        if have and "material" not in have:
+            con.exec_driver_sql("ALTER TABLE magazine_items ADD COLUMN material VARCHAR(80) NOT NULL DEFAULT ''")
 
 
 def get_db():

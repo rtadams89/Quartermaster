@@ -70,7 +70,7 @@ def test_list_is_sorted_filtered_by_firearm_and_suggests_names(authed):
     assert [r["firearm"] for r in rows] == ["Alpha pistol", "Alpha pistol", "Zebra rifle"]
     assert [r["manufacturer"] for r in rows if r["firearm"] == "Alpha pistol"] == ["Magpul", "Magpul"]
     assert [r["serial"] for r in authed.get("/api/magazines?firearm=zebra RIFLE").json()] == ["M001"]
-    assert authed.get("/api/magazines/suggestions").json() == {"firearms": ["Alpha pistol", "Zebra rifle"], "manufacturers": ["Colt", "Magpul"]}
+    assert authed.get("/api/magazines/suggestions").json() == {"firearms": ["Alpha pistol", "Zebra rifle"], "manufacturers": ["Colt", "Magpul"], "materials": []}
 
 
 def test_edit_changes_details_but_not_the_serial_and_reuses_spellings(authed):
@@ -140,7 +140,7 @@ def test_csv_lists_each_serial_with_details(authed):
     new_mag(authed, firearm="=cmd", copies=2)
     rows = list(csv.DictReader(io.StringIO(authed.post("/api/magazines/labels.csv", json={"serials": ["M001", "M002"]}).text)))
     assert [r["Serial"] for r in rows] == ["M001", "M002"]
-    assert rows[0]["Firearm"] == "'=cmd" and rows[0]["Capacity"] == "15" and rows[0]["Manufacturer"] == "Magpul" and rows[0]["Model"] == "PMAG"
+    assert rows[0]["Platform"] == "'=cmd" and rows[0]["Capacity"] == "15" and rows[0]["Manufacturer"] == "Magpul" and rows[0]["Model"] == "PMAG"
 
 
 def test_backup_roundtrip_keeps_magazines_and_old_backups_still_restore(authed):
@@ -159,6 +159,26 @@ def test_backup_roundtrip_keeps_magazines_and_old_backups_still_restore(authed):
     con.close()
     assert authed.post("/api/restore", content=old.read_bytes()).status_code == 200
     assert authed.get("/api/magazines").json() == []
+
+
+def test_material_is_saved_edited_spelled_consistently_and_old_backups_restore(authed):
+    first = new_mag(authed, material="Clear polymer")[0]
+    assert first["material"] == "Clear polymer"
+    second = new_mag(authed, material="clear  POLYMER")[0]
+    assert second["material"] == "Clear polymer"
+    assert authed.patch("/api/magazines/M002", json={"material": "Steel"}).json()["material"] == "Steel"
+    assert authed.get("/api/magazines/suggestions").json()["materials"] == ["Clear polymer", "Steel"]
+    assert new_mag(authed)[0]["material"] == ""
+
+    backup = authed.get("/api/backup").content
+    old = Path(config.DB_PATH).parent / "nomaterial.db"
+    old.write_bytes(backup)
+    con = sqlite3.connect(old)
+    con.execute("ALTER TABLE magazine_items DROP COLUMN material")
+    con.commit()
+    con.close()
+    assert authed.post("/api/restore", content=old.read_bytes()).status_code == 200
+    assert [m["material"] for m in authed.get("/api/magazines").json()] == ["", "", ""]
 
 
 def scan(c, kind, *codes):
