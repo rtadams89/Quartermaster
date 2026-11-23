@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.14.1
+- The dashboard's *Products* box is replaced by *Magazines out*, the number of magazines currently checked out. Click it to see them on the Magazines page.
+
 ## 1.14.0
 - **Caliber groups.** Calibers that are the same cartridge with different loads (9mm Luger subsonic and supersonic, for example) can now be joined in a group. The Calibers page has a *Group* box on each caliber and a *Manage groups* button to add, rename and delete groups. Ammo, labels, inventory and low-stock levels still treat each caliber separately.
 - Magazines can be set to a group (*9mm Luger*) instead of one load. The Magazines page shows the group name, and the label CSV uses it. A magazine keeps the specific caliber it was entered with underneath, so taking a caliber out of its group shows it again.

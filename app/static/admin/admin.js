@@ -417,8 +417,8 @@ async function refreshBadge() {
 
 // ---------------------------------------------------------------- dashboard
 async function dashboard() {
-  const [top, need, prods, recent, low, gone] = await Promise.all([
-    get('/api/inventory/drill'), get('/api/needs-details'), get('/api/products'), get('/api/transactions?limit=8'), get('/api/low-stock'), get('/api/out-of-stock'),
+  const [top, need, mags, recent, low, gone] = await Promise.all([
+    get('/api/inventory/drill'), get('/api/needs-details'), get('/api/magazines'), get('/api/transactions?limit=8'), get('/api/low-stock'), get('/api/out-of-stock'),
   ]);
   const cal = top.rows.filter((r) => r.key !== 'unidentified');
   const nameList = (names) => names.length <= 3 ? names.join(', ') : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`;
@@ -426,7 +426,9 @@ async function dashboard() {
     h('h1', {}, 'Dashboard'),
     h('div', { class: 'cards' },
       card('Rounds on hand', fmtInt(top.total_rounds)),
-      card('Products', fmtInt(prods.length)),
+      h('div', { class: 'card' }, h('a', { href: '#/magazines', onclick: () => { Object.assign(magazineJob, { firearm: '', status: 'out' }); } },
+        h('div', { class: 'k' }, 'Magazines out'), h('div', { class: 'v' }, fmtInt(mags.filter((m) => m.status === 'out').length)),
+        h('div', { class: 'sub', style: { margin: '4px 0 0' } }, `of ${fmtInt(mags.length)} magazine${mags.length === 1 ? '' : 's'}`))),
       h('div', { class: 'card' + (low.count ? ' warn' : '') }, h('div', { class: 'k' }, 'Running low'), h('div', { class: 'v' }, fmtInt(low.count)),
         h('div', { class: 'sub', style: { margin: '4px 0 0' } }, low.count ? 'Below the level you set' : 'Nothing below its level')),
       h('div', { class: 'card' + (gone.length ? ' warn' : '') }, h('a', { href: '#/inventory', onclick: () => { Object.assign(invNav, { view: 'browse', caliber: null, weight: null, manufacturer: null }); } },
