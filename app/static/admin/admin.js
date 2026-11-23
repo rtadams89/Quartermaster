@@ -1157,7 +1157,7 @@ async function magazines() {
       const box = h('input', { type: 'checkbox', checked: ticked.has(m.serial), 'aria-label': `Select ${m.serial}`, onchange: () => { box.checked ? ticked.add(m.serial) : ticked.delete(m.serial); count(); } });
       return h('tr', {}, td(box), td(h('span', { class: 'code' }, m.serial)), td(h('b', {}, m.firearm)), td(m.caliber), td(fmtInt(m.capacity), 'num'), td(m.manufacturer || '—'), td(m.model || '—'),
         td([h('span', { class: 'tag ' + m.status }, m.status === 'out' ? 'Out' : 'In'), m.status_since && h('span', { class: 'muted' }, ` ${fmtWhen(m.status_since)}`)]),
-        td([h('button', { class: 'btn sm', onclick: () => magazineHistory(m.serial) }, 'History'), ' ', h('button', { class: 'btn sm', onclick: () => magazineDialog(calibers, m, load) }, 'Edit'), ' ',
+        td([h('button', { class: 'btn sm', onclick: () => magazineHistory(m.serial) }, 'History'), ' ', h('button', { class: 'btn sm', onclick: () => magazineDialog(calibers, m, load) }, 'Edit'), ' ', h('button', { class: 'btn sm', onclick: () => magazineDialog(calibers, m, load, ticked, true) }, 'Clone'), ' ',
           h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete magazine?', `Delete ${m.serial} (${[m.firearm, m.manufacturer, m.model].filter(Boolean).join(' ')})? Its label will no longer match anything.`, 'Delete', async () => { await del(`/api/magazines/${m.serial}`); ticked.delete(m.serial); load(); }) }, 'Delete')], 'actions'));
     })), h('p', { class: 'sub', style: { marginTop: '8px' } }, `${fmtInt(list.length)} magazine${list.length === 1 ? '' : 's'}${magazineJob.firearm ? ` for ${magazineJob.firearm}` : ''}`)]
       : empty(all.length ? 'No magazines match.' : 'No magazines yet. Add one with + New magazine.'));
@@ -1196,7 +1196,8 @@ async function magazineHistory(serial) {
   });
 }
 
-async function magazineDialog(calibers, m, done, ticked) {
+async function magazineDialog(calibers, m, done, ticked, clone) {
+  const editing = m && !clone;
   const cal = caliberPicker(calibers.filter((c) => c.active || c.id === m?.caliber_id), m?.caliber_id);
   const firearmBox = suggestInput({ value: m?.firearm ?? '', placeholder: 'e.g. Glock 19', maxlength: 80 });
   const makerBox = suggestInput({ value: m?.manufacturer ?? '', placeholder: 'e.g. Magpul', maxlength: 80 });
@@ -1206,17 +1207,17 @@ async function magazineDialog(calibers, m, done, ticked) {
   const copies = h('input', { type: 'number', min: 1, max: 100, step: 1, value: 1 });
   const notes = h('textarea', { rows: 2 }, m?.notes ?? '');
   dialog({
-    title: m ? `Edit ${m.serial}` : 'New magazine',
+    title: editing ? `Edit ${m.serial}` : clone ? `New magazine (copy of ${m.serial})` : 'New magazine',
     body: h('div', { class: 'form' }, labeled('Firearm it fits', firearmBox.el, '', 'Pick an earlier one from the list to keep names consistent.'), labeled('Caliber', cal.el),
       labeled('Capacity (rounds)', capacity), labeled('Manufacturer', makerBox.el), labeled('Model', model),
-      m ? null : labeled('How many to add', copies, '', 'Each one is its own record with its own serial.'),
+      editing ? null : labeled('How many to add', copies, '', 'Each one is its own record with its own serial.'),
       labeled('Notes', notes, 'full')),
     onOk: async () => {
       const firearm = firearmBox.input.value.trim();
       if (!firearm) throw new Error('Firearm is required');
       if (!Number.isInteger(Number(capacity.value)) || Number(capacity.value) < 1) throw new Error('Capacity must be 1 or more');
       const body = { firearm, caliber_id: cal.value(), capacity: Number(capacity.value), manufacturer: makerBox.input.value.trim(), model: model.value.trim(), notes: notes.value };
-      if (m) await patch(`/api/magazines/${m.serial}`, body);
+      if (editing) await patch(`/api/magazines/${m.serial}`, body);
       else {
         const r = await post('/api/magazines', { ...body, copies: Number(copies.value) || 1 });
         r.magazines.forEach((x) => ticked?.add(x.serial));
