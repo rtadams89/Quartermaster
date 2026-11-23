@@ -2,6 +2,11 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.14.0
+- **Caliber groups.** Calibers that are the same cartridge with different loads (9mm Luger subsonic and supersonic, for example) can now be joined in a group. The Calibers page has a *Group* box on each caliber and a *Manage groups* button to add, rename and delete groups. Ammo, labels, inventory and low-stock levels still treat each caliber separately.
+- Magazines can be set to a group (*9mm Luger*) instead of one load. The Magazines page shows the group name, and the label CSV uses it. A magazine keeps the specific caliber it was entered with underneath, so taking a caliber out of its group shows it again.
+- Older backups still restore, with no groups.
+
 ## 1.13.0
 - **Material / color.** Magazines have a new *Material / color* field (Steel, Clear polymer, Black polymer and so on), separate from *Model*, so *Model* can hold only the model name. It suggests names already used and takes the spelling already in use, appears as a column on the Magazines page, and can be searched. Older backups still restore, with the field empty.
 - **Firearm is now Platform.** The magazine field formerly called *Firearm* is now *Platform*, since a magazine can fit more than one firearm. This renames the filter, the list column, the form field and the *Firearm* column in the label CSV, which is now *Platform*. Label text is unchanged.

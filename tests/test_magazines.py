@@ -181,6 +181,65 @@ def test_material_is_saved_edited_spelled_consistently_and_old_backups_restore(a
     assert [m["material"] for m in authed.get("/api/magazines").json()] == ["", "", ""]
 
 
+def make_calibers(c, *names):
+    return [c.post("/api/calibers", json={"name": n}).json()["id"] for n in names]
+
+
+def test_caliber_groups_rename_delete_and_members(authed):
+    a, b = make_calibers(authed, "9mm Luger Subsonic", "9mm Luger Supersonic")
+    g = authed.post("/api/caliber-groups", json={"name": " 9mm  Luger "}).json()
+    assert g["name"] == "9mm Luger" and g["calibers"] == 0
+    assert authed.post("/api/caliber-groups", json={"name": "9MM luger"}).status_code == 409
+    assert authed.post("/api/caliber-groups", json={"name": "  "}).status_code in (409, 422)
+    for cid in (a, b):
+        r = authed.patch(f"/api/calibers/{cid}", json={"group_id": g["id"]}).json()
+        assert r["group_id"] == g["id"] and r["group"] == "9mm Luger"
+    assert authed.patch(f"/api/calibers/{a}", json={"group_id": 999}).status_code == 400
+    assert authed.get("/api/caliber-groups").json()[0]["calibers"] == 2
+    assert authed.patch(f"/api/caliber-groups/{g['id']}", json={"name": "9mm"}).json()["name"] == "9mm"
+    assert authed.patch(f"/api/calibers/{a}", json={"group_id": None}).json()["group_id"] is None
+    assert authed.delete(f"/api/caliber-groups/{g['id']}").status_code == 200
+    assert {c["id"]: c["group_id"] for c in authed.get("/api/calibers").json()}[b] is None
+
+
+def test_magazine_in_a_caliber_group_shows_the_group_and_keeps_its_caliber(authed):
+    sub, sup, other = make_calibers(authed, "9mm Subsonic", "9mm Supersonic", ".45 Auto")
+    g = authed.post("/api/caliber-groups", json={"name": "9mm Luger"}).json()["id"]
+    for cid in (sub, sup):
+        authed.patch(f"/api/calibers/{cid}", json={"group_id": g})
+    made = authed.post("/api/magazines", json={"firearm": "Uzi", "group_id": g, "capacity": 25, "copies": 2}).json()["magazines"]
+    assert [x["caliber"] for x in made] == ["9mm Luger", "9mm Luger"]
+    assert made[0]["caliber_id"] == sub and made[0]["caliber_choice"] == f"g{g}"
+    authed.patch(f"/api/magazines/{made[1]['serial']}", json={"caliber_id": sup})
+    again = authed.patch(f"/api/magazines/{made[1]['serial']}", json={"group_id": g}).json()
+    assert again["caliber_id"] == sup and again["caliber"] == "9mm Luger"
+    plain = authed.post("/api/magazines", json={"firearm": "1911", "caliber_id": other, "capacity": 8}).json()["magazines"][0]
+    assert plain["caliber"] == ".45 Auto" and plain["caliber_choice"] == f"c{other}"
+    assert authed.post("/api/magazines", json={"firearm": "X", "capacity": 8}).status_code == 400
+    assert authed.post("/api/magazines", json={"firearm": "X", "group_id": 999, "capacity": 8}).status_code == 400
+    empty = authed.post("/api/caliber-groups", json={"name": "Empty"}).json()["id"]
+    assert authed.post("/api/magazines", json={"firearm": "X", "group_id": empty, "capacity": 8}).status_code == 400
+    csv_rows = list(csv.DictReader(io.StringIO(authed.post("/api/magazines/labels.csv", json={"serials": [made[0]["serial"]]}).text)))
+    assert csv_rows[0]["Caliber"] == "9mm Luger"
+    backup = authed.get("/api/backup").content
+    assert authed.post("/api/restore", content=backup).status_code == 200
+    assert authed.get("/api/magazines").json()[0]["caliber"] in ("9mm Luger", ".45 Auto")
+    old = Path(config.DB_PATH).parent / "nogroups.db"
+    old.write_bytes(backup)
+    con = sqlite3.connect(old)
+    con.execute("PRAGMA foreign_keys=OFF")
+    con.execute("PRAGMA legacy_alter_table=ON")
+    con.execute("CREATE TABLE calibers_new (id INTEGER PRIMARY KEY, name VARCHAR(64) NOT NULL UNIQUE, sort_order INTEGER NOT NULL, active BOOLEAN NOT NULL)")
+    con.execute("INSERT INTO calibers_new SELECT id, name, sort_order, active FROM calibers")
+    con.execute("DROP TABLE calibers")
+    con.execute("ALTER TABLE calibers_new RENAME TO calibers")
+    con.execute("DROP TABLE caliber_groups")
+    con.commit()
+    con.close()
+    assert authed.post("/api/restore", content=old.read_bytes()).status_code == 200
+    assert {m["caliber"] for m in authed.get("/api/magazines").json()} == {"9mm Subsonic", "9mm Supersonic", ".45 Auto"}
+
+
 def scan(c, kind, *codes):
     b = c.post("/api/batches", json={"kind": kind}).json()
     out = [c.post(f"/api/batches/{b['id']}/scan", json={"code": code}) for code in codes]

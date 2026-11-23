@@ -825,7 +825,7 @@ function productDialog(calibers, p, done) {
 
 // ----------------------------------------------------------------- calibers
 async function calibers() {
-  const list = await get('/api/calibers');
+  const [list, groups] = await Promise.all([get('/api/calibers'), get('/api/caliber-groups')]);
   const move = async (i, d) => {
     const ids = list.map((c) => c.id);
     [ids[i], ids[i + d]] = [ids[i + d], ids[i]];
@@ -840,16 +840,41 @@ async function calibers() {
   nameIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
   clear(main, h('h1', {}, 'Calibers'),
     h('p', { class: 'sub' }, 'This list feeds the caliber picker and the kiosk drill-down, in this order. Inactive calibers stay on existing products but can\'t be picked for new ones. "Alert below" flags a caliber as low when its rounds on hand drop under that number.'),
-    h('div', { class: 'toolbar' }, nameIn, h('button', { class: 'btn primary', onclick: add }, 'Add')),
-    table(['Order', 'Caliber', ['Products', 'num'], 'Active', 'Alert below (rounds)', ''], list.map((c, i) =>
+    h('div', { class: 'toolbar' }, nameIn, h('button', { class: 'btn primary', onclick: add }, 'Add'), h('span', { class: 'grow' }), h('button', { class: 'btn', onclick: () => caliberGroups(calibers) }, 'Manage groups')),
+    table(['Order', 'Caliber', 'Group', ['Products', 'num'], 'Active', 'Alert below (rounds)', ''], list.map((c, i) =>
       h('tr', {}, td([h('button', { class: 'btn sm', disabled: i === 0, onclick: () => move(i, -1), 'aria-label': 'Move up' }, '↑'), ' ',
         h('button', { class: 'btn sm', disabled: i === list.length - 1, onclick: () => move(i, 1), 'aria-label': 'Move down' }, '↓')]),
-        td(h('b', {}, c.name)), td(c.products, 'num'),
+        td(h('b', {}, c.name)),
+        td(h('select', { 'aria-label': `Group for ${c.name}`, onchange: async (e) => { try { await patch(`/api/calibers/${c.id}`, { group_id: e.target.value ? Number(e.target.value) : null }); toast('Saved', 'ok'); } catch (er) { toast(er.message, 'error'); } } },
+          h('option', { value: '' }, '—'), groups.map((g) => h('option', { value: g.id, selected: g.id === c.group_id }, g.name)))),
+        td(c.products, 'num'),
         td(h('input', { type: 'checkbox', checked: c.active, onchange: async (e) => { try { await patch(`/api/calibers/${c.id}`, { active: e.target.checked }); } catch (er) { toast(er.message, 'error'); e.target.checked = !e.target.checked; } } })),
         td(h('input', { type: 'number', min: 0, step: 1, value: c.min_rounds ?? '', placeholder: 'none', style: { width: '110px' }, 'aria-label': `Alert below, rounds, for ${c.name}`,
           onchange: async (e) => { try { await patch(`/api/calibers/${c.id}`, { min_rounds: e.target.value === '' ? null : Number(e.target.value) }); toast('Saved', 'ok'); } catch (er) { toast(er.message, 'error'); } } })),
         td([h('button', { class: 'btn sm', onclick: () => renameCaliber(c) }, 'Rename'), ' ',
           h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete caliber?', c.products ? `${c.name} is used by ${c.products} product(s) and can't be deleted. Mark it inactive instead.` : `Delete ${c.name}?`, 'Delete', async () => { await del(`/api/calibers/${c.id}`); calibers(); }) }, 'Delete')], 'actions'))), { sort: false }));
+}
+
+/** Add, rename and delete caliber groups (a cartridge whose loads are separate calibers, such as 9mm Luger). */
+async function caliberGroups(done) {
+  let groups = await get('/api/caliber-groups');
+  const holder = h('div', { class: 'serials' });
+  const run = async (fn) => { try { await fn(); groups = await get('/api/caliber-groups'); paint(); done(); } catch (e) { toast(e.message, 'error'); } };
+  const noEnter = (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } };
+  const paint = () => clear(holder, groups.length ? table(['Group', ['Calibers', 'num'], ['Magazines', 'num'], ''], groups.map((g) => {
+    const name = h('input', { value: g.name, maxlength: 64, 'aria-label': 'Group name', onkeydown: noEnter, onchange: () => run(() => patch(`/api/caliber-groups/${g.id}`, { name: name.value })) });
+    return h('tr', {}, td(name), td(g.calibers, 'num'), td(g.magazines, 'num'),
+      td(h('button', { class: 'btn sm danger', type: 'button', onclick: () => confirmBox('Delete group?',
+        `Delete ${g.name}? Its ${g.calibers} caliber${g.calibers === 1 ? '' : 's'} stay${g.calibers === 1 ? 's' : ''} as they are, just no longer grouped${g.magazines ? `, and its ${g.magazines} magazine${g.magazines === 1 ? '' : 's'} will show the specific caliber instead` : ''}.`,
+        'Delete', () => run(() => del(`/api/caliber-groups/${g.id}`))) }, 'Delete'), 'actions'));
+  }), { sort: false }) : empty('No groups yet.'));
+  const newName = h('input', { placeholder: 'New group, e.g. 9mm Luger', maxlength: 64, size: 26 });
+  const add = () => { if (newName.value.trim()) run(async () => { await post('/api/caliber-groups', { name: newName.value }); newName.value = ''; }); };
+  newName.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+  paint();
+  dialog({ title: 'Caliber groups', ok: 'Close', wide: true, onOk: async () => {},
+    body: h('div', {}, h('p', { class: 'sub' }, 'A group joins calibers that are the same cartridge with different loads (for example 9mm Luger subsonic and supersonic). Magazines can be set to a group instead of one load. Put a caliber in a group from its Group box on the Calibers page.'),
+      h('div', { class: 'toolbar' }, newName, h('button', { class: 'btn primary', type: 'button', onclick: add }, 'Add')), holder) });
 }
 
 function renameCaliber(c) {
@@ -1198,7 +1223,14 @@ async function magazineHistory(serial) {
 
 async function magazineDialog(calibers, m, done, ticked, clone) {
   const editing = m && !clone;
-  const cal = caliberPicker(calibers.filter((c) => c.active || c.id === m?.caliber_id), m?.caliber_id);
+  const groups = (await get('/api/caliber-groups')).filter((g) => g.calibers);
+  const choices = [...groups.map((g) => ({ id: `g${g.id}`, name: g.name })),
+    ...calibers.filter((c) => !c.group_id && (c.active || c.id === m?.caliber_id)).map((c) => ({ id: `c${c.id}`, name: c.name, active: c.active }))]
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const cal = searchPicker(choices, m?.caliber_choice, {
+    placeholder: 'Type to search, e.g. 9mm or 45', none: 'No matching caliber', empty: 'No calibers yet. Add one on the Calibers page.',
+    bad: (t) => `"${t}" is not one of your calibers. Pick one from the list.`, missing: 'Pick a caliber (add one on the Calibers page first)',
+  });
   const firearmBox = suggestInput({ value: m?.firearm ?? '', placeholder: 'e.g. AR-15', maxlength: 80 });
   const makerBox = suggestInput({ value: m?.manufacturer ?? '', placeholder: 'e.g. Magpul', maxlength: 80 });
   const materialBox = suggestInput({ value: m?.material ?? '', placeholder: 'e.g. Black polymer', maxlength: 80 });
@@ -1217,7 +1249,8 @@ async function magazineDialog(calibers, m, done, ticked, clone) {
       const firearm = firearmBox.input.value.trim();
       if (!firearm) throw new Error('Platform is required');
       if (!Number.isInteger(Number(capacity.value)) || Number(capacity.value) < 1) throw new Error('Capacity must be 1 or more');
-      const body = { firearm, caliber_id: cal.value(), capacity: Number(capacity.value), manufacturer: makerBox.input.value.trim(), model: model.value.trim(), material: materialBox.input.value.trim(), notes: notes.value };
+      const pick = cal.value();
+      const body = { firearm, ...(pick.startsWith('g') ? { group_id: Number(pick.slice(1)) } : { caliber_id: Number(pick.slice(1)) }), capacity: Number(capacity.value), manufacturer: makerBox.input.value.trim(), model: model.value.trim(), material: materialBox.input.value.trim(), notes: notes.value };
       if (editing) await patch(`/api/magazines/${m.serial}`, body);
       else {
         const r = await post('/api/magazines', { ...body, copies: Number(copies.value) || 1 });

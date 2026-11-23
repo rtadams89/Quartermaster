@@ -28,8 +28,8 @@ router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
 
 EPHEMERAL_TABLES = {"auth_sessions", "login_attempts"}
 # Columns added after a backup was made are filled with their default when it is restored.
-OPTIONAL_COLUMNS = {("products", "indoor_safe"), ("magazine_items", "material")}
-OPTIONAL_TABLES = {"pack_codes", "magazine_items", "magazine_events", "batch_magazines"}
+OPTIONAL_COLUMNS = {("products", "indoor_safe"), ("magazine_items", "material"), ("calibers", "group_id")}
+OPTIONAL_TABLES = {"caliber_groups", "pack_codes", "magazine_items", "magazine_events", "batch_magazines"}
 CORE_TABLES = {"calibers", "products", "barcodes", "transactions"}
 MAX_RESTORE_BYTES = 1024 * 1024 * 1024
 KEEP_SAFETY_COPIES = 5

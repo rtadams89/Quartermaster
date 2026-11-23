@@ -45,13 +45,23 @@ class LoginAttempt(Base):
     last_failure_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class CaliberGroup(Base):
+    """One cartridge whose loads are separate calibers (9mm Luger: subsonic and supersonic); magazines can use the group."""
+
+    __tablename__ = "caliber_groups"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True)
+
+
 class Caliber(Base):
     __tablename__ = "calibers"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(64), unique=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    group_id: Mapped[int | None] = mapped_column(ForeignKey("caliber_groups.id"), nullable=True, index=True)
 
+    group: Mapped[CaliberGroup | None] = relationship()
     products: Mapped[list["Product"]] = relationship(back_populates="caliber")
 
 

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from .. import config, lookup, security
 from ..codes import is_magazine_code, normalize_code
 from ..db import get_db
-from ..models import Barcode, BarcodePhoto, BatchItem, Caliber, Magazine, PackCode, Product, Transaction, UpcLookup
+from ..models import Barcode, BarcodePhoto, BatchItem, Caliber, CaliberGroup, Magazine, PackCode, Product, Transaction, UpcLookup
 from .photos import process_image, store_photo
 from ..services import (brand_spellings, canonical_brand, inventory_by_product, minimums, missing_details, photo_codes,
                         product_dict, set_minimum, spec_text)
@@ -27,6 +27,7 @@ class CaliberIn(BaseModel):
 class CaliberPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=64)
     active: bool | None = None
+    group_id: int | None = None  # sent as null to take it out of its group
     min_rounds: int | None = MIN_ROUNDS  # sent as null to clear it
 
 
@@ -36,7 +37,7 @@ class ReorderIn(BaseModel):
 
 def _caliber_dict(c: Caliber, count: int = 0, floor: int | None = None) -> dict:
     return {"id": c.id, "name": c.name, "active": c.active, "sort_order": c.sort_order, "products": count,
-            "min_rounds": floor}
+            "min_rounds": floor, "group_id": c.group_id, "group": c.group.name if c.group else None}
 
 
 @router.get("/calibers")
@@ -74,6 +75,10 @@ def update_caliber(cid: int, body: CaliberPatch, db: Session = Depends(get_db)):
         c.name = name
     if body.active is not None:
         c.active = body.active
+    if "group_id" in body.model_fields_set:
+        if body.group_id is not None and not db.get(CaliberGroup, body.group_id):
+            raise HTTPException(400, "Unknown group")
+        c.group_id = body.group_id
     if "min_rounds" in body.model_fields_set:
         set_minimum(db, "caliber", cid, body.min_rounds)
     db.commit()
@@ -100,6 +105,65 @@ def delete_caliber(cid: int, db: Session = Depends(get_db)):
         raise HTTPException(409, "Products or magazines use this caliber. Mark it inactive instead, or move them first.")
     set_minimum(db, "caliber", cid, None)
     db.delete(c)
+    db.commit()
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ caliber groups
+class GroupIn(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+
+def _group_name(db: Session, text: str, skip: int | None = None) -> str:
+    name = " ".join((text or "").split())
+    if not name:
+        raise HTTPException(422, "Name is required")
+    dup = select(CaliberGroup).where(func.lower(CaliberGroup.name) == name.lower())
+    if skip is not None:
+        dup = dup.where(CaliberGroup.id != skip)
+    if db.scalar(dup):
+        raise HTTPException(409, "That group already exists")
+    return name
+
+
+def _group_dict(db: Session, g: CaliberGroup) -> dict:
+    members = db.scalar(select(func.count(Caliber.id)).where(Caliber.group_id == g.id))
+    mags = db.scalar(select(func.count(Magazine.serial)).join(Caliber, Magazine.caliber_id == Caliber.id).where(Caliber.group_id == g.id))
+    return {"id": g.id, "name": g.name, "calibers": members, "magazines": mags}
+
+
+@router.get("/caliber-groups")
+def list_groups(db: Session = Depends(get_db)):
+    return [_group_dict(db, g) for g in db.scalars(select(CaliberGroup).order_by(func.lower(CaliberGroup.name)))]
+
+
+@router.post("/caliber-groups")
+def create_group(body: GroupIn, db: Session = Depends(get_db)):
+    g = CaliberGroup(name=_group_name(db, body.name))
+    db.add(g)
+    db.commit()
+    return _group_dict(db, g)
+
+
+@router.patch("/caliber-groups/{gid}")
+def rename_group(gid: int, body: GroupIn, db: Session = Depends(get_db)):
+    g = db.get(CaliberGroup, gid)
+    if not g:
+        raise HTTPException(404, "Group not found")
+    g.name = _group_name(db, body.name, gid)
+    db.commit()
+    return _group_dict(db, g)
+
+
+@router.delete("/caliber-groups/{gid}")
+def delete_group(gid: int, db: Session = Depends(get_db)):
+    g = db.get(CaliberGroup, gid)
+    if not g:
+        raise HTTPException(404, "Group not found")
+    for c in db.scalars(select(Caliber).where(Caliber.group_id == gid)):
+        c.group_id = None
+    db.flush()
+    db.delete(g)
     db.commit()
     return {"ok": True}
 

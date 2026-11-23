@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from .. import ptouch, security
 from ..db import get_db, iso
-from ..models import BatchMagazine, Caliber, Magazine, MagazineEvent, Setting
+from ..models import BatchMagazine, Caliber, CaliberGroup, Magazine, MagazineEvent, Setting
 from ..services import magazine_dict, magazine_states
 from .labels import csv_download, files_download, lbx_download
 
@@ -20,7 +20,8 @@ CSV_COLUMNS = ["Serial", "Platform", "Caliber", "Capacity", "Manufacturer", "Mod
 
 class MagazineIn(BaseModel):
     firearm: str = Field(min_length=1, max_length=80)
-    caliber_id: int
+    caliber_id: int | None = None
+    group_id: int | None = None
     capacity: int = Field(ge=1, le=999)
     manufacturer: str = Field(default="", max_length=80)
     model: str = Field(default="", max_length=80)
@@ -32,6 +33,7 @@ class MagazineIn(BaseModel):
 class MagazinePatch(BaseModel):
     firearm: str | None = Field(default=None, min_length=1, max_length=80)
     caliber_id: int | None = None
+    group_id: int | None = None
     capacity: int | None = Field(default=None, ge=1, le=999)
     manufacturer: str | None = Field(default=None, max_length=80)
     model: str | None = Field(default=None, max_length=80)
@@ -68,9 +70,18 @@ def _new_serials(db: Session, count: int) -> list[str]:
     return serials
 
 
-def _check_caliber(db: Session, caliber_id: int) -> None:
-    if not db.get(Caliber, caliber_id):
+def _caliber_for(db: Session, caliber_id: int | None, group_id: int | None, current: int | None = None) -> int:
+    """The caliber a magazine is stored under: the one given, or for a group the magazine's own if it is a member, else the group's first active one."""
+    if group_id is not None:
+        if not db.get(CaliberGroup, group_id):
+            raise HTTPException(400, "Unknown caliber group")
+        members = list(db.scalars(select(Caliber).where(Caliber.group_id == group_id).order_by(Caliber.active.desc(), Caliber.id)))
+        if not members:
+            raise HTTPException(400, "That caliber group has no calibers")
+        return current if current in {c.id for c in members} else members[0].id
+    if caliber_id is None or not db.get(Caliber, caliber_id):
         raise HTTPException(400, "Unknown caliber")
+    return caliber_id
 
 
 @router.get("")
@@ -100,11 +111,11 @@ def suggestions(db: Session = Depends(get_db)):
 
 @router.post("")
 def create_magazines(body: MagazineIn, db: Session = Depends(get_db)):
-    _check_caliber(db, body.caliber_id)
+    caliber_id = _caliber_for(db, body.caliber_id, body.group_id)
     firearm = _spelling(db, Magazine.firearm, body.firearm)
     if not firearm:
         raise HTTPException(422, "Platform is required")
-    made = [Magazine(serial=s, firearm=firearm, caliber_id=body.caliber_id, capacity=body.capacity,
+    made = [Magazine(serial=s, firearm=firearm, caliber_id=caliber_id, capacity=body.capacity,
                      manufacturer=_spelling(db, Magazine.manufacturer, body.manufacturer), model=_tidy(body.model),
                      material=_spelling(db, Magazine.material, body.material), notes=body.notes)
             for s in _new_serials(db, body.copies)]
@@ -119,9 +130,8 @@ def update_magazine(serial: str, body: MagazinePatch, db: Session = Depends(get_
     m = db.get(Magazine, serial.upper())
     if not m:
         raise HTTPException(404, "Magazine not found")
-    if body.caliber_id is not None:
-        _check_caliber(db, body.caliber_id)
-        m.caliber_id = body.caliber_id
+    if body.caliber_id is not None or body.group_id is not None:
+        m.caliber_id = _caliber_for(db, body.caliber_id, body.group_id, m.caliber_id)
     if body.firearm is not None:
         if not _tidy(body.firearm):
             raise HTTPException(422, "Platform is required")
@@ -154,6 +164,10 @@ def delete_magazine(serial: str, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+def _caliber_name(m: Magazine) -> str:
+    return m.caliber.group.name if m.caliber.group else m.caliber.name
+
+
 def _label_rows(db: Session, serials: list[str]) -> list[dict]:
     rows = []
     for serial in dict.fromkeys(s.strip().upper() for s in serials):
@@ -174,5 +188,5 @@ def labels_file(body: LabelsIn, db: Session = Depends(get_db)):
 
 @router.post("/labels.csv")
 def labels_csv(body: LabelsIn, db: Session = Depends(get_db)):
-    return csv_download(CSV_COLUMNS, [[r["code"], r["magazine"].firearm, r["magazine"].caliber.name, r["magazine"].capacity,
+    return csv_download(CSV_COLUMNS, [[r["code"], r["magazine"].firearm, _caliber_name(r["magazine"]), r["magazine"].capacity,
                                        r["magazine"].manufacturer, r["magazine"].model] for r in _label_rows(db, body.serials)])
