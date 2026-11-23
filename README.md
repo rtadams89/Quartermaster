@@ -4,7 +4,7 @@ Keep track of your ammunition by scanning boxes in and out.
 
 ![The Quartermaster admin dashboard, with the kiosk home screen in front](docs/images/overview.png)
 
-- **Kiosk:** a small touchscreen with a barcode scanner. Tap *Ammo In* or *Ammo Out*, scan boxes, check the list, tap *Finish*. A quick *Inventory* view shows what you have by caliber, bullet weight and product.
+- **Kiosk:** a small touchscreen with a barcode scanner. Tap *Check In* or *Check Out*, scan boxes, check the list, tap *Finish*. A quick *Inventory* view shows what you have by caliber, bullet weight and product.
 - **Admin site:** a website for your computer to name unknown barcodes, manage products and calibers, fix counts, see history, print labels, and make backups.
 
 Both are served by one small server that runs in Docker. The touchscreen just displays a web page from it.
@@ -39,7 +39,7 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 
 ## Using it
 
-**Ammo In / Ammo Out.** Tap one, then scan boxes. Each scan adds one box to the list; scan the same box again to add another, or tap the number to type a quantity. Tap *Review & Finish* to check the list, then *Finish* to save it. Nothing is recorded until you finish.
+**Check In / Check Out.** Tap one, then scan boxes. Each scan adds one box to the list; scan the same box again to add another, or tap the number to type a quantity. Tap *Review & Finish* to check the list, then *Finish* to save it. Nothing is recorded until you finish.
 
 ![Kiosk review screen, and the warning shown for outdoor-only ammo](docs/images/kiosk-checkout.png)
 
@@ -47,7 +47,7 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 
 ![Browsing to a product on the kiosk](docs/images/kiosk-browse.png)
 
-**Returning ammo you checked out.** On the Ammo In screen, tap *Recent* to see everything checked out in the last 7 days, newest first. Tap one and it appears as if you had just scanned it, with the full quantity that was checked out. Change the number if you are only putting some of it back, then *Review & Finish*.
+**Returning ammo you checked out.** On the Check In screen, tap *Recent* to see everything checked out in the last 7 days, newest first. Tap one and it appears as if you had just scanned it, with the full quantity that was checked out. Change the number if you are only putting some of it back, then *Review & Finish*.
 
 **Unknown barcodes.** A barcode the system hasn't seen is still recorded, as "Unknown item". When it is new, the kiosk offers to take a photo of the box (if you have a camera). Later, open **Needs details** in the admin site and name it, and everything already scanned picks up the details. The server looks the barcode up online (only the number is sent) and offers to fill in the form for you (and keeps the listing's photo if the box has none yet); set `QM_UPC_LOOKUP=false` in `.env` to turn that off.
 
@@ -71,7 +71,7 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 
 **Bullet weight N/A and ammo counted by the round.** For ammo with no traditional bullet weight (shot, slugs, flares), enter *0* (or *N/A*) as the bullet weight on the product form; it is shown as N/A. For ammo you count loose, set *Rounds per box* to 1: it is then shown and counted in rounds everywhere (the kiosk asks "How many rounds?") and is left out of box totals.
 
-**Indoor range safe.** Each product has an *Indoor range safe* checkbox, on by default. Uncheck it for ammo that indoor ranges do not allow (steel core, tracer, some shot loads). If an Ammo Out batch includes anything unchecked, the kiosk shows a warning naming it when you tap *Finish*, and you choose *Go back* or *Take it anyway*.
+**Indoor range safe.** Each product has an *Indoor range safe* checkbox, on by default. Uncheck it for ammo that indoor ranges do not allow (steel core, tracer, some shot loads). If a Check Out batch includes anything unchecked, the kiosk shows a warning naming it when you tap *Finish*, and you choose *Go back* or *Take it anyway*.
 
 ![Editing a product: cost per round is worked out for you, and Indoor range safe is unchecked](docs/images/admin-product.png)
 
@@ -91,7 +91,7 @@ Follow [docs/pi-kiosk.md](docs/pi-kiosk.md). In short, you copy one file to the 
 
 **Printing labels in P-touch Editor.** Under **Print** on **Labels**, choose *P-touch file* for Brother P-touch Editor files set up for 12 mm tape on a PT-E500: a QR code (regular QR, error correction 25%) with the caliber, product and, for pack labels, the total beside it. *One file with every label* is a single file with one page per label (and copy), so the printer cuts between labels. *One file per label* downloads a zip with a file for each different label, with the number of copies in the file name. Open a file in P-touch Editor and print. *CSV file* (a row per label and copy: code, type, caliber, product, details and total) works with any label printing program; in P-touch Editor, connect it with *File > Database > Connect*. These files are made without access to P-touch Editor, so open one and check the size, the text and a test scan before printing a batch.
 
-**Magazines.** In the admin site, **Magazines** keeps a record of each magazine you own. On the kiosk, scan a magazine label on the Ammo Out or Ammo In screen to check it out or in (mixed with boxes in the same batch); the Magazines page shows each one's In/Out status, with per-magazine and full history. Every magazine is its own record with a short serial number (M001, M002 and so on, never reused) plus the firearm it fits, caliber, capacity, manufacturer, model and notes. *+ New magazine* can add several identical magazines at once, each with its own serial. Firearm and manufacturer suggest names you have used before, and a name that differs only by capital letters or spacing takes the spelling already in use. Filter the list by firearm, edit or delete any magazine, tick the ones you want and download labels: a small QR code of the serial with the firearm and the serial beside it, as a P-touch Editor file (one file with every label, or one per label) laid out for 12 mm tape, or as a CSV. Codes of an M and three or more digits are reserved for magazines, so a magazine label can never be added as ammo. A caliber that magazines use can't be deleted.
+**Magazines.** In the admin site, **Magazines** keeps a record of each magazine you own. On the kiosk, scan a magazine label on the Check Out or Check In screen to check it out or in (mixed with boxes in the same batch); the Magazines page shows each one's In/Out status, with per-magazine and full history. Every magazine is its own record with a short serial number (M001, M002 and so on, never reused) plus the firearm it fits, caliber, capacity, manufacturer, model and notes. *+ New magazine* can add several identical magazines at once, each with its own serial. Firearm and manufacturer suggest names you have used before, and a name that differs only by capital letters or spacing takes the spelling already in use. Filter the list by firearm, edit or delete any magazine, tick the ones you want and download labels: a small QR code of the serial with the firearm and the serial beside it, as a P-touch Editor file (one file with every label, or one per label) laid out for 12 mm tape, or as a CSV. Codes of an M and three or more digits are reserved for magazines, so a magazine label can never be added as ammo. A caliber that magazines use can't be deleted.
 
 **Backup and restore.** *Settings* has a button to download a backup of everything (except the PIN) and one to restore from it. Backups are manual.
 

@@ -448,7 +448,7 @@ async function dashboard() {
       top.unpriced ? h('p', { class: 'sub', style: { marginTop: '8px' } }, `Value counts only products with a cost entered. ${fmtInt(top.unpriced)} product${top.unpriced === 1 ? '' : 's'} in stock ${top.unpriced === 1 ? 'has' : 'have'} none.`) : null,
     ] : empty('Nothing in stock yet.'),
     h('h2', {}, 'Recent activity'),
-    recent.length ? txTable(recent) : empty('No activity yet. Scan some ammo in from the kiosk.'));
+    recent.length ? txTable(recent) : empty('No activity yet. Check some ammo in from the kiosk.'));
 }
 /** Overall {low, high} cost per round across rows that each carry their own range. */
 /** A row's stock value, or a dash when it has stock but none of it has a cost entered. */
@@ -690,7 +690,7 @@ async function identifyDialog(code, done, hasPhoto = false) {
     title: 'Identify code', wide: true, ok: 'Save',
     body: h('div', {},
       hasPhoto && h('img', { class: 'id-photo', src: photoUrl(code), alt: 'Photo of the box' }), hint,
-      h('p', { class: 'sub', style: { margin: '0 0 12px' } }, ['Barcode ', h('b', {}, code), '. Every ammo in and ammo out already logged for it will pick up these details.']), seg, wrap),
+      h('p', { class: 'sub', style: { margin: '0 0 12px' } }, ['Barcode ', h('b', {}, code), '. Every check in and check out already logged for it will pick up these details.']), seg, wrap),
     onOk: async () => {
       let pid;
       if (mode === 'existing') pid = pick.value();

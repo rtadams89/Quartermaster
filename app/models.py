@@ -149,7 +149,7 @@ class UpcLookup(Base):
 
 
 class Batch(Base):
-    """One ammo in / ammo out session. Items are queued here until finished."""
+    """One check in / check out session. Items are queued here until finished."""
 
     __tablename__ = "batches"
     id: Mapped[int] = mapped_column(primary_key=True)

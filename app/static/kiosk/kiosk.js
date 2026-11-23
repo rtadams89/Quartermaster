@@ -64,7 +64,7 @@ const S = {
   photoPrompt: true,  // ask for a box photo when a brand-new barcode is scanned (admin setting)
   cam: null,          // { kind, at } cached camera detection
   warnedNoCam: false,
-  batch: null,        // the draft ammo in/out batch being built (lives on the server)
+  batch: null,        // the draft check in/out batch being built (lives on the server)
   last: null,         // most recently scanned item, shown on the scan screen
   lastMag: null,      // serial of the most recently scanned magazine
   inv: { caliber: null, weight: null, hit: null }, // hit: the row to highlight after a scan
@@ -237,8 +237,8 @@ function showHome() {
       h('button', { class: 'btn primary', onclick: () => showScan() }, 'Resume'),
       h('button', { class: 'btn danger', onclick: discardDraft }, 'Discard')),
     h('div', { class: 'home' },
-      h('button', { class: 'tile in', onclick: () => startBatch('in') }, h('span', { class: 'ico' }, '⬇'), 'Ammo In', h('small', {}, 'Add boxes')),
-      h('button', { class: 'tile out', onclick: () => startBatch('out') }, h('span', { class: 'ico' }, '⬆'), 'Ammo Out', h('small', {}, 'Remove boxes')),
+      h('button', { class: 'tile in', onclick: () => startBatch('in') }, h('span', { class: 'ico' }, '⬇'), 'Check In', h('small', {}, 'Add to stock')),
+      h('button', { class: 'tile out', onclick: () => startBatch('out') }, h('span', { class: 'ico' }, '⬆'), 'Check Out', h('small', {}, 'Take from stock')),
       h('button', { class: 'tile inv', onclick: () => { S.inv = { caliber: null, weight: null, hit: null }; showInventory(); } }, h('span', { class: 'ico' }, '☰'), 'Inventory', invSub)));
   get('/api/low-stock').then((l) => {
     if (l.count && S.screen === 'home') { invSub.textContent = `${l.count} running low`; invSub.classList.add('warn'); }
@@ -513,7 +513,7 @@ function paintScan() {
   mount(
     bar({
       kind,
-      title: kind === 'in' ? 'AMMO IN' : 'AMMO OUT',
+      title: kind === 'in' ? 'CHECK IN' : 'CHECK OUT',
       left: h('button', { class: 'btn', onclick: cancelBatch }, '✕ Cancel'),
       right: [
         kind === 'in' && h('button', { class: 'btn', onclick: showRecent }, '↺ Recent'),
@@ -578,13 +578,13 @@ function paintReview() {
   mount(
     bar({
       kind,
-      title: kind === 'in' ? 'REVIEW AMMO IN' : 'REVIEW AMMO OUT',
+      title: kind === 'in' ? 'REVIEW CHECK IN' : 'REVIEW CHECK OUT',
       left: h('button', { class: 'btn', onclick: showScan }, '← Keep scanning'),
     }),
     h('div', { class: 'body' }, h('div', { class: 'list' }, rows, magRows)),
     h('div', { class: 'foot' },
       h('div', { class: 'grow summary' }, h('b', {}, batchText(b))),
-      h('button', { class: 'btn big ' + kind, onclick: finish }, `Finish ammo ${kind}`)));
+      h('button', { class: 'btn big ' + kind, onclick: finish }, kind === 'in' ? 'Finish check in' : 'Finish check out')));
 }
 
 let finishing = false;
@@ -656,7 +656,7 @@ async function showInventory() {
     h('div', { class: 'body' }, h('div', { class: 'list' },
       d.rows.length ? d.rows.map((r) =>
         invRow(r, r.key === S.inv.hit && !r.drillable, r.drillable ? () => open(r) : null))
-        : h('div', { class: 'empty' }, 'Nothing in stock yet. Use Ammo In to add boxes.'))));
+        : h('div', { class: 'empty' }, 'Nothing in stock yet. Use Check In to add boxes.'))));
   app.querySelector('.inv-row.hit')?.scrollIntoView({ block: 'center' });
 }
 

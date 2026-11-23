@@ -1,4 +1,4 @@
-"""Kiosk ammo in / ammo out: scans are queued in a draft batch, then committed."""
+"""Kiosk check in / check out: scans are queued in a draft batch, then committed."""
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
