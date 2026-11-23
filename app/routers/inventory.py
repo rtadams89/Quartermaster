@@ -9,12 +9,12 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from .. import security
-from ..codes import normalize_code
+from ..codes import is_magazine_code, normalize_code
 from ..csvsafe import safe_row
 from ..db import get_db, iso
-from ..models import Barcode, Batch, BatchItem, PackCode, Transaction
+from ..models import Barcode, Batch, BatchItem, BatchMagazine, Magazine, MagazineEvent, PackCode, Transaction
 from ..services import (box_count, drill, inventory_by_product, locate, low_stock, on_hand_by_code, out_of_stock_calibers,
-                        price_range, stock_money)
+                        magazine_dict, magazine_states, price_range, stock_money)
 
 router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
 
@@ -49,6 +49,9 @@ def inventory_code(code: str, db: Session = Depends(get_db)):
         code = normalize_code(code)
     except ValueError:
         raise HTTPException(400, "Invalid code")
+    if is_magazine_code(code):
+        m = db.get(Magazine, code)
+        return {"found": False, "magazine": magazine_dict(m, magazine_states(db)) if m else None}
     pack = db.get(PackCode, code)
     return locate(db, code, pack.product_id if pack else None)
 
@@ -189,8 +192,13 @@ def clear_history(body: ClearHistoryIn, db: Session = Depends(get_db)):
     stock = on_hand_by_code(db)
     removed = db.scalar(select(func.count(Transaction.id))) or 0
     db.execute(delete(Transaction))
+    out_now = {s: ts for s, (kind, ts) in magazine_states(db).items() if kind == "out"}
+    db.execute(delete(MagazineEvent))
+    for serial, ts in out_now.items():
+        db.add(MagazineEvent(serial=serial, kind="out", ts=ts))
     done = select(Batch.id).where(Batch.status != "draft")
     db.execute(delete(BatchItem).where(BatchItem.batch_id.in_(done)))
+    db.execute(delete(BatchMagazine).where(BatchMagazine.batch_id.in_(done)))
     db.execute(delete(Batch).where(Batch.status != "draft"))
     kept = 0
     for code, boxes in sorted(stock.items()):

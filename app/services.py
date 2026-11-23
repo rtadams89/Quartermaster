@@ -1,11 +1,13 @@
 """Inventory maths shared by the routers."""
 import re
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .db import iso
-from .models import Barcode, BarcodePhoto, Caliber, PackCode, Product, Setting, StockMinimum, Transaction
+from .models import (Barcode, BarcodePhoto, Caliber, Magazine, MagazineEvent, PackCode, Product, Setting, StockMinimum,
+                     Transaction)
 
 UNIDENTIFIED = "unidentified"
 NO_BRAND = "(none)"  # drill-down key for products with no manufacturer
@@ -482,3 +484,17 @@ def _drill_result(level: str, crumbs: list[str], rows: list[dict]) -> dict:
         "unpriced": sum(r.get("unpriced") or 0 for r in rows),
         "rows": rows,
     }
+
+
+def magazine_states(db: Session) -> dict[str, tuple[str, datetime]]:
+    """Each checked-out or checked-in magazine's status and when it last changed. A magazine never checked out is not listed."""
+    latest = select(func.max(MagazineEvent.id)).group_by(MagazineEvent.serial)
+    rows = db.execute(select(MagazineEvent.serial, MagazineEvent.kind, MagazineEvent.ts).where(MagazineEvent.id.in_(latest)))
+    return {serial: (kind, ts) for serial, kind, ts in rows}
+
+
+def magazine_dict(m: Magazine, states: dict[str, tuple[str, datetime]]) -> dict:
+    kind, since = states.get(m.serial, ("in", None))
+    return {"serial": m.serial, "firearm": m.firearm, "caliber_id": m.caliber_id, "caliber": m.caliber.name,
+            "capacity": m.capacity, "manufacturer": m.manufacturer, "model": m.model, "notes": m.notes,
+            "status": kind, "status_since": iso(since) if since else None}

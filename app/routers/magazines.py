@@ -1,14 +1,15 @@
 """Magazines: each one is its own record with a unique serial, and its label."""
 import re
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import ptouch, security
-from ..db import get_db
-from ..models import Caliber, Magazine, Setting
+from ..db import get_db, iso
+from ..models import BatchMagazine, Caliber, Magazine, MagazineEvent, Setting
+from ..services import magazine_dict, magazine_states
 from .labels import csv_download, files_download, lbx_download
 
 router = APIRouter(prefix="/api/magazines", dependencies=[Depends(security.require_auth)])
@@ -39,11 +40,6 @@ class MagazinePatch(BaseModel):
 class LabelsIn(BaseModel):
     serials: list[str] = Field(min_length=1, max_length=500)
     mode: str = Field(default="one", pattern="^(one|many)$")
-
-
-def _dict(m: Magazine) -> dict:
-    return {"serial": m.serial, "firearm": m.firearm, "caliber_id": m.caliber_id, "caliber": m.caliber.name,
-            "capacity": m.capacity, "manufacturer": m.manufacturer, "model": m.model, "notes": m.notes}
 
 
 def _tidy(text: str) -> str:
@@ -80,8 +76,17 @@ def list_magazines(firearm: str | None = None, db: Session = Depends(get_db)):
     query = select(Magazine)
     if firearm:
         query = query.where(func.lower(Magazine.firearm) == firearm.lower())
-    rows = [_dict(m) for m in db.scalars(query)]
+    states = magazine_states(db)
+    rows = [magazine_dict(m, states) for m in db.scalars(query)]
     return sorted(rows, key=lambda r: (r["firearm"].lower(), r["caliber"].lower(), r["capacity"], r["manufacturer"].lower(), r["model"].lower(), r["serial"]))
+
+
+@router.get("/history")
+def history(serial: str | None = None, limit: int = Query(default=200, ge=1, le=1000), db: Session = Depends(get_db)):
+    query = select(MagazineEvent, Magazine).join(Magazine, Magazine.serial == MagazineEvent.serial).order_by(MagazineEvent.id.desc()).limit(limit)
+    if serial:
+        query = query.where(MagazineEvent.serial == serial.strip().upper())
+    return [{"serial": e.serial, "firearm": m.firearm, "model": m.model, "kind": e.kind, "ts": iso(e.ts)} for e, m in db.execute(query)]
 
 
 @router.get("/suggestions")
@@ -102,7 +107,8 @@ def create_magazines(body: MagazineIn, db: Session = Depends(get_db)):
             for s in _new_serials(db, body.copies)]
     db.add_all(made)
     db.commit()
-    return {"magazines": [_dict(m) for m in made]}
+    states = magazine_states(db)
+    return {"magazines": [magazine_dict(m, states) for m in made]}
 
 
 @router.patch("/{serial}")
@@ -126,7 +132,7 @@ def update_magazine(serial: str, body: MagazinePatch, db: Session = Depends(get_
     if body.notes is not None:
         m.notes = body.notes
     db.commit()
-    return _dict(m)
+    return magazine_dict(m, magazine_states(db))
 
 
 @router.delete("/{serial}")
@@ -134,6 +140,10 @@ def delete_magazine(serial: str, db: Session = Depends(get_db)):
     m = db.get(Magazine, serial.upper())
     if not m:
         raise HTTPException(404, "Magazine not found")
+    for row in (*db.scalars(select(MagazineEvent).where(MagazineEvent.serial == m.serial)),
+                *db.scalars(select(BatchMagazine).where(BatchMagazine.serial == m.serial))):
+        db.delete(row)
+    db.flush()
     db.delete(m)
     db.commit()
     return {"ok": True}

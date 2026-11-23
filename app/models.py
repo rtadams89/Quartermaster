@@ -161,6 +161,9 @@ class Batch(Base):
     items: Mapped[list["BatchItem"]] = relationship(
         back_populates="batch", cascade="all, delete-orphan", order_by="BatchItem.id"
     )
+    magazines: Mapped[list["BatchMagazine"]] = relationship(
+        back_populates="batch", cascade="all, delete-orphan", order_by="BatchMagazine.id"
+    )
 
 
 class BatchItem(Base):
@@ -172,6 +175,29 @@ class BatchItem(Base):
     quantity: Mapped[int] = mapped_column(Integer, default=1)
 
     batch: Mapped[Batch] = relationship(back_populates="items")
+
+
+class BatchMagazine(Base):
+    """A magazine scanned into a batch, checked out or in when the batch is finished."""
+
+    __tablename__ = "batch_magazines"
+    __table_args__ = (UniqueConstraint("batch_id", "serial"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    batch_id: Mapped[int] = mapped_column(ForeignKey("batches.id"))
+    serial: Mapped[str] = mapped_column(ForeignKey("magazine_items.serial"))
+
+    batch: Mapped[Batch] = relationship(back_populates="magazines")
+
+
+class MagazineEvent(Base):
+    """Every check out and check in of a magazine. The latest one is its status."""
+
+    __tablename__ = "magazine_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    serial: Mapped[str] = mapped_column(ForeignKey("magazine_items.serial"), index=True)
+    kind: Mapped[str] = mapped_column(String(8))  # in | out
+    batch_id: Mapped[int | None] = mapped_column(ForeignKey("batches.id"), nullable=True)
 
 
 class Transaction(Base):

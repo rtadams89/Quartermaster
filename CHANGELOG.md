@@ -2,6 +2,11 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.12.0
+- **Check magazines out and in on the kiosk.** Scan a magazine's label on the Ammo Out or Ammo In screen, just like a box. Boxes and magazines can be mixed in one batch, and *Finish* applies both. Scanning a magazine that is already out (on Ammo Out) or already in (on Ammo In), or twice in the same batch, shows a warning and isn't counted. Scanning a magazine from the kiosk inventory screen shows its current status.
+- **Status column.** The admin Magazines page shows whether each magazine is In or Out, and since when. Each magazine has a *History* button, and *All history* lists every check out and in.
+- Clearing the history log keeps which magazines are out. Backups include the magazine history. Deleting a magazine also deletes its history.
+
 ## 1.11.1
 - **Magazines reworked.** Each magazine is now its own record with its own short serial (M001, M002, …, growing a digit after M999) instead of a kind with a quantity. *+ New magazine* can add several at once. You can edit and delete any magazine, filter the list by firearm, and tick the ones to print labels for.
 - The firearm and manufacturer boxes suggest names already used, and the same name typed with different capitals or spacing takes the spelling already in use.

@@ -1124,11 +1124,14 @@ async function labels() {
 }
 
 // ---------------------------------------------------------------- magazines
-const magazineJob = { firearm: '', output: 'one' };
+const magazineJob = { firearm: '', status: '', output: 'one' };
 
 async function magazines() {
   const calibers = await get('/api/calibers');
   const firearmSel = h('select', { 'aria-label': 'Firearm', onchange: () => { magazineJob.firearm = firearmSel.value; paint(); } });
+  const statusSel = h('select', { 'aria-label': 'Status', onchange: () => { magazineJob.status = statusSel.value; paint(); } },
+    h('option', { value: '' }, 'In and out'), h('option', { value: 'in' }, 'In'), h('option', { value: 'out' }, 'Out'));
+  statusSel.value = magazineJob.status;
   const q = h('input', { type: 'search', placeholder: 'Search…', size: 22 });
   const output = h('select', { 'aria-label': 'Label file', onchange: () => { magazineJob.output = output.value; } },
     h('option', { value: 'one' }, 'P-touch file: one file with every label'), h('option', { value: 'many' }, 'P-touch files: one file per label'), h('option', { value: 'csv' }, 'CSV file'));
@@ -1139,7 +1142,7 @@ async function magazines() {
   let all = [];
   const shown = () => {
     const words = q.value.toLowerCase().split(/\s+/).filter(Boolean);
-    return all.filter((m) => (!magazineJob.firearm || m.firearm === magazineJob.firearm)
+    return all.filter((m) => (!magazineJob.firearm || m.firearm === magazineJob.firearm) && (!magazineJob.status || m.status === magazineJob.status)
       && words.every((w) => `${m.serial} ${m.firearm} ${m.caliber} ${m.manufacturer} ${m.model}`.toLowerCase().includes(w)));
   };
   const chosen = () => shown().filter((m) => ticked.has(m.serial));
@@ -1150,10 +1153,11 @@ async function magazines() {
     clear(firearmSel, h('option', { value: '' }, 'All firearms'), firearms.map((f) => h('option', { value: f }, f)));
     firearmSel.value = magazineJob.firearm;
     const list = shown();
-    clear(holder, list.length ? [table(['', 'Serial', 'Firearm', 'Caliber', ['Capacity', 'num'], 'Manufacturer', 'Model', ''], list.map((m) => {
+    clear(holder, list.length ? [table(['', 'Serial', 'Firearm', 'Caliber', ['Capacity', 'num'], 'Manufacturer', 'Model', 'Status', ''], list.map((m) => {
       const box = h('input', { type: 'checkbox', checked: ticked.has(m.serial), 'aria-label': `Select ${m.serial}`, onchange: () => { box.checked ? ticked.add(m.serial) : ticked.delete(m.serial); count(); } });
       return h('tr', {}, td(box), td(h('span', { class: 'code' }, m.serial)), td(h('b', {}, m.firearm)), td(m.caliber), td(fmtInt(m.capacity), 'num'), td(m.manufacturer || '—'), td(m.model || '—'),
-        td([h('button', { class: 'btn sm', onclick: () => magazineDialog(calibers, m, load) }, 'Edit'), ' ',
+        td([h('span', { class: 'tag ' + m.status }, m.status === 'out' ? 'Out' : 'In'), m.status_since && h('span', { class: 'muted' }, ` ${fmtWhen(m.status_since)}`)]),
+        td([h('button', { class: 'btn sm', onclick: () => magazineHistory(m.serial) }, 'History'), ' ', h('button', { class: 'btn sm', onclick: () => magazineDialog(calibers, m, load) }, 'Edit'), ' ',
           h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete magazine?', `Delete ${m.serial} (${[m.firearm, m.manufacturer, m.model].filter(Boolean).join(' ')})? Its label will no longer match anything.`, 'Delete', async () => { await del(`/api/magazines/${m.serial}`); ticked.delete(m.serial); load(); }) }, 'Delete')], 'actions'));
     })), h('p', { class: 'sub', style: { marginTop: '8px' } }, `${fmtInt(list.length)} magazine${list.length === 1 ? '' : 's'}${magazineJob.firearm ? ` for ${magazineJob.firearm}` : ''}`)]
       : empty(all.length ? 'No magazines match.' : 'No magazines yet. Add one with + New magazine.'));
@@ -1171,12 +1175,25 @@ async function magazines() {
   q.addEventListener('input', paint);
   clear(main, h('h1', {}, 'Magazines'),
     h('p', { class: 'sub' }, 'Every magazine is its own record with a short serial number. Tick the ones you want, choose a file type, and download labels: a small QR code of the serial with the firearm and the serial beside it.'),
-    h('div', { class: 'toolbar' }, firearmSel, q, h('span', { class: 'grow' }), h('button', { class: 'btn primary', onclick: () => magazineDialog(calibers, null, load, ticked) }, '+ New magazine')),
+    h('div', { class: 'toolbar' }, firearmSel, statusSel, q, h('span', { class: 'grow' }), h('button', { class: 'btn', onclick: () => magazineHistory() }, 'All history'), h('button', { class: 'btn primary', onclick: () => magazineDialog(calibers, null, load, ticked) }, '+ New magazine')),
     holder,
     h('div', { class: 'toolbar' }, h('button', { class: 'btn sm', onclick: () => { shown().forEach((m) => ticked.add(m.serial)); paint(); } }, 'Select all shown'),
       h('button', { class: 'btn sm', onclick: () => { shown().forEach((m) => ticked.delete(m.serial)); paint(); } }, 'Select none'), status, h('span', { class: 'grow' }), output,
       h('button', { class: 'btn primary', onclick: download }, 'Download labels')));
   await load();
+}
+
+/** Every check out and in, newest first: for one magazine, or for all of them. */
+async function magazineHistory(serial) {
+  const rows = await get('/api/magazines/history' + (serial ? `?serial=${encodeURIComponent(serial)}` : ''));
+  dialog({
+    title: serial ? `${serial} history` : 'Magazine history',
+    wide: true,
+    ok: 'Close',
+    body: rows.length ? h('div', { class: 'serials' }, table(['When', 'Serial', 'Firearm', 'Change'], rows.map((e) => h('tr', {},
+      td(fmtWhen(e.ts)), td(h('span', { class: 'code' }, e.serial)), td([e.firearm, e.model && ` ${e.model}`]), td(h('span', { class: 'tag ' + e.kind }, e.kind === 'out' ? 'Checked out' : 'Checked in')))), { sort: false })) : empty('No check outs or ins yet.'),
+    onOk: async () => {},
+  });
 }
 
 async function magazineDialog(calibers, m, done, ticked) {
@@ -1306,7 +1323,7 @@ async function settings(restored) {
     h('h2', {}, 'Data'),
     h('div', { class: 'toolbar' }, h('a', { class: 'btn', href: '/api/export/inventory.csv' }, 'Inventory CSV'), h('a', { class: 'btn', href: '/api/export/transactions.csv' }, 'Full history CSV')),
     h('h2', {}, 'History'),
-    h('p', { class: 'sub' }, 'Erases the history log (every in, out and correction entry) but keeps what is on hand: each code\'s current count is kept as a single "opening balance" entry. Products, barcodes, photos and alert levels are not touched. This cannot be undone, so download a backup first if you might want the log.'),
+    h('p', { class: 'sub' }, 'Erases the history log (every in, out and correction entry) but keeps what is on hand: each code\'s current count is kept as a single "opening balance" entry. Magazines that are checked out stay checked out. Products, barcodes, photos and alert levels are not touched. This cannot be undone, so download a backup first if you might want the log.'),
     h('div', { class: 'toolbar' }, h('button', { class: 'btn danger', type: 'button', onclick: clearHistoryDialog }, 'Clear history…')),
     h('h2', {}, 'Reset'),
     h('p', { class: 'sub' }, 'Returns Quartermaster to a fresh install: all history, products, barcodes, photos, calibers and preferences are erased, and so is the PIN, so you will choose a new one. No copy is kept, so download a backup first if you might want anything back.'),

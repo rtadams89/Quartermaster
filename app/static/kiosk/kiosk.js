@@ -1,4 +1,4 @@
-import { get, post, patch, sendBlob, watchSession, watchBuild } from '/shared/api.js';
+import { get, post, patch, del, sendBlob, watchSession, watchBuild } from '/shared/api.js';
 import { h, clear, fmtInt, fmtPriceRange, toast } from '/shared/dom.js';
 import { renderLogin } from '/shared/login.js';
 import { detectCamera, createCamera } from '/kiosk/camera.js';
@@ -66,6 +66,7 @@ const S = {
   warnedNoCam: false,
   batch: null,        // the draft ammo in/out batch being built (lives on the server)
   last: null,         // most recently scanned item, shown on the scan screen
+  lastMag: null,      // serial of the most recently scanned magazine
   inv: { caliber: null, weight: null, hit: null }, // hit: the row to highlight after a scan
   pick: { kind: null, caliber: null, weight: null },
   screen: 'lock',
@@ -122,6 +123,9 @@ const qtyText = (b) => {
   const rounds = b.items.filter(isSingle).reduce((n, i) => n + i.quantity, 0);
   return [boxes > 0 && plural(boxes, 'box'), rounds > 0 && plural(rounds, 'round')].filter(Boolean).join(' · ') || plural(0, 'box');
 };
+/** Everything on a batch: "3 items · 5 boxes" and "2 magazines". */
+const batchText = (b) => [b.items.length > 0 && `${plural(b.items.length, 'item')} · ${qtyText(b)}`, b.magazines.length > 0 && plural(b.magazines.length, 'magazine')].filter(Boolean).join(' · ');
+const hasWork = (b) => b.items.length > 0 || b.magazines.length > 0;
 const plural = (n, w) => `${fmtInt(n)} ${n === 1 ? w : w + (w.endsWith('x') ? 'es' : 's')}`;
 
 function describe(item) {
@@ -219,7 +223,8 @@ function showHome() {
   loadSettings(); // pick up admin changes without a new login
   const invSub = h('small', {}, 'See what you have');
   S.last = null;
-  const b = S.batch && S.batch.items.length ? S.batch : null;
+  S.lastMag = null;
+  const b = S.batch && hasWork(S.batch) ? S.batch : null;
   mount(
     bar({
       title: ['Quartermaster', S.version && h('span', { class: 'ver' }, 'v' + S.version)],
@@ -228,7 +233,7 @@ function showHome() {
         h('button', { class: 'btn', 'aria-label': 'Lock', onclick: lockNow }, '🔒')],
     }),
     b && h('div', { class: 'resume' },
-      h('div', { class: 'grow' }, `Unfinished ammo ${b.kind}: ${plural(b.items.length, 'item')}, ${qtyText(b)}`),
+      h('div', { class: 'grow' }, `Unfinished ammo ${b.kind}: ${batchText(b)}`),
       h('button', { class: 'btn primary', onclick: () => showScan() }, 'Resume'),
       h('button', { class: 'btn danger', onclick: discardDraft }, 'Discard')),
     h('div', { class: 'home' },
@@ -306,6 +311,16 @@ function flash(kind) {
 async function doScan(code, quantity = 1) {
   try {
     const r = await post(`/api/batches/${S.batch.id}/scan`, { code, quantity });
+    if (r.magazine) {
+      S.batch.magazines.push(r.magazine);
+      S.last = null;
+      S.lastMag = r.magazine.serial;
+      if (S.screen === 'scan') paintScan();
+      flash('ok');
+      beep(880);
+      return;
+    }
+    S.lastMag = null;
     const i = S.batch.items.findIndex((x) => x.id === r.item.id);
     if (i >= 0) S.batch.items[i] = r.item; else S.batch.items.push(r.item);
     S.last = r.item;
@@ -333,6 +348,7 @@ async function findInInventory(code) {
   try {
     const r = await get(`/api/inventory/code/${encodeURIComponent(code)}`);
     if (S.screen !== 'inventory') return;
+    if (r.magazine) { beep(880); toast(`${r.magazine.serial} · ${r.magazine.firearm}: checked ${r.magazine.status}`, 'info'); return; }
     if (!r.found) { beep(200, 220); toast(`${code} is not in the system`, 'error'); return; }
     if (r.boxes === 0) { beep(520); toast(`${r.label}: none in stock`, 'info'); return; }
     beep(880);
@@ -442,10 +458,21 @@ async function takeBoxPhoto(code) {
   });
 }
 
+async function removeMagazine(m) {
+  try {
+    S.batch = await del(`/api/batches/${S.batch.id}/magazines/${encodeURIComponent(m.serial)}`);
+    if (S.lastMag === m.serial) S.lastMag = null;
+    S.screen === 'review' ? paintReview() : paintScan();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
 async function setQty(item, qty) {
   try {
     S.batch = await patch(`/api/batches/${S.batch.id}/items/${item.id}`, { quantity: qty });
     S.last = S.batch.items.find((x) => x.id === item.id) || null;
+    S.lastMag = null;
     S.screen === 'review' ? paintReview() : paintScan();
   } catch (e) {
     toast(e.message, 'error');
@@ -454,12 +481,19 @@ async function setQty(item, qty) {
 
 function paintScan() {
   const kind = S.batch.kind;
-  const n = S.batch.items.length;
+  const n = S.batch.items.length + S.batch.magazines.length;
   const it = S.last && S.batch.items.find((x) => x.id === S.last.id);
+  const mag = S.lastMag && S.batch.magazines.find((x) => x.serial === S.lastMag);
   let main;
-  if (!it) {
+  if (mag) {
+    main = h('div', { class: 'last' },
+      h('div', { class: 'mid' },
+        h('div', { class: 'name' }, `${mag.serial} · ${mag.firearm}`),
+        h('div', { class: 'sub' }, [mag.caliber, `${fmtInt(mag.capacity)} rounds`, mag.manufacturer, mag.model].filter(Boolean).join(' · ')),
+        h('div', { class: 'note' }, kind === 'in' ? 'Magazine will be checked in' : 'Magazine will be checked out')));
+  } else if (!it) {
     main = h('div', { class: 'scan-prompt' },
-      h('div', { class: 'big' }, kind === 'in' ? 'Scan boxes going in' : 'Scan boxes going out'),
+      h('div', { class: 'big' }, kind === 'in' ? 'Scan boxes or magazines going in' : 'Scan boxes or magazines going out'),
       h('div', { class: 'pulse' }, 'Ready for scanner…'));
   } else {
     const d = describe(it);
@@ -489,13 +523,13 @@ function paintScan() {
     }),
     h('div', { class: 'body' }, h('div', { class: 'scan' }, main)),
     h('div', { class: 'foot' },
-      h('div', { class: 'grow summary' }, n ? [h('b', {}, plural(n, 'item')), ` · ${qtyText(S.batch)}`] : h('span', { class: 'muted' }, 'Nothing scanned yet')),
+      h('div', { class: 'grow summary' }, n ? h('b', {}, batchText(S.batch)) : h('span', { class: 'muted' }, 'Nothing scanned yet')),
       h('button', { class: 'btn big ' + kind, disabled: !n, onclick: showReview }, 'Review & Finish →')));
 }
 
 async function cancelBatch() {
-  if (S.batch.items.length) {
-    const ok = await confirmDialog({ title: 'Discard this batch?', text: `${plural(S.batch.items.length, 'scanned item')} will not be recorded.`, ok: 'Discard', cancel: 'Keep scanning', danger: true });
+  if (hasWork(S.batch)) {
+    const ok = await confirmDialog({ title: 'Discard this batch?', text: `${batchText(S.batch)} will not be recorded.`, ok: 'Discard', cancel: 'Keep scanning', danger: true });
     if (!ok) return;
   }
   await post(`/api/batches/${S.batch.id}/cancel`).catch(() => {});
@@ -519,7 +553,7 @@ function showReview() {
 
 function paintReview() {
   const b = S.batch;
-  if (!b || !b.items.length) { showScan(); return; }
+  if (!b || !hasWork(b)) { showScan(); return; }
   const kind = b.kind;
   const rows = b.items.map((it) => {
     const d = describe(it);
@@ -536,15 +570,20 @@ function paintReview() {
         h('button', { 'aria-label': 'More', onclick: () => setQty(it, it.quantity + 1) }, '+'),
         h('button', { class: 'rm', 'aria-label': 'Remove', onclick: () => setQty(it, 0) }, '🗑')));
   });
+  const magRows = b.magazines.map((m) => h('div', { class: 'row' },
+    h('div', { class: 'info' },
+      h('div', { class: 'title' }, `${m.serial} · ${m.firearm}`),
+      h('div', { class: 'sub' }, [m.caliber, `${fmtInt(m.capacity)} rounds`, m.manufacturer, m.model, kind === 'in' ? 'check in' : 'check out'].filter(Boolean).join(' · '))),
+    h('div', { class: 'stepper sm' }, h('button', { class: 'rm', 'aria-label': 'Remove', onclick: () => removeMagazine(m) }, '🗑'))));
   mount(
     bar({
       kind,
       title: kind === 'in' ? 'REVIEW AMMO IN' : 'REVIEW AMMO OUT',
       left: h('button', { class: 'btn', onclick: showScan }, '← Keep scanning'),
     }),
-    h('div', { class: 'body' }, h('div', { class: 'list' }, rows)),
+    h('div', { class: 'body' }, h('div', { class: 'list' }, rows, magRows)),
     h('div', { class: 'foot' },
-      h('div', { class: 'grow summary' }, h('b', {}, plural(b.items.length, 'item')), ` · ${qtyText(b)}`),
+      h('div', { class: 'grow summary' }, h('b', {}, batchText(b))),
       h('button', { class: 'btn big ' + kind, onclick: finish }, `Finish ammo ${kind}`)));
 }
 
@@ -567,8 +606,9 @@ async function finish() {
     beep(990, 140);
     const done = h('div', { class: 'done', onclick: () => { done.remove(); showHome(); } },
       h('div', { class: 'tick' }, '✓'),
-      h('div', { class: 'big' }, `${[r.boxes > 0 && plural(r.boxes, 'box'), r.rounds > 0 && plural(r.rounds, 'round')].filter(Boolean).join(' · ')} ${r.kind === 'in' ? 'added' : 'removed'}`),
-      h('div', { class: 'muted' }, plural(r.items, 'item')));
+      r.items > 0 && h('div', { class: 'big' }, `${[r.boxes > 0 && plural(r.boxes, 'box'), r.rounds > 0 && plural(r.rounds, 'round')].filter(Boolean).join(' · ')} ${r.kind === 'in' ? 'added' : 'removed'}`),
+      r.magazines > 0 && h('div', { class: 'big' }, `${plural(r.magazines, 'magazine')} checked ${r.kind}`),
+      r.items > 0 && h('div', { class: 'muted' }, plural(r.items, 'item')));
     app.append(done);
     setTimeout(() => { if (done.isConnected) { done.remove(); showHome(); } }, 1600);
   } catch (e) {
@@ -706,6 +746,7 @@ async function addProduct(product) {
     const i = S.batch.items.findIndex((x) => x.id === r.item.id);
     if (i >= 0) S.batch.items[i] = r.item; else S.batch.items.push(r.item);
     S.last = r.item;
+    S.lastMag = null;
     beep(880);
     showScan();
     flash('ok');
