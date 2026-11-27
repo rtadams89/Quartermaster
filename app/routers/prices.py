@@ -198,7 +198,7 @@ def plan(body: ScopeIn, db: Session = Depends(get_db)):
         items.append({"id": p["id"], "label": p["label"], "caliber": p["caliber"], "current": p["current"],
                       "price_updated": p["price_updated"], "note": note, "key": key})
     return {"products": len(products), "calls": calls, "minutes": round(calls / per_minute, 1), "unmatched": pending, "skipped": skipped,
-            "per_minute": per_minute, "items": items,
+            "per_minute": per_minute, "items": items, "daily_remaining": pricing.daily_left(),
             "key_set": bool(_get(db, PRICE_KEY)), "options_loaded": bool(_json(db, OPTIONS_KEY, []))}
 
 

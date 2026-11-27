@@ -557,7 +557,7 @@ def test_a_long_retry_after_stops_at_once_without_retrying(monkeypatch):
     monkeypatch.setattr(pricing, "_pause", lambda s, c=None: pauses.append(s))
     with pytest.raises(pricing.PriceError) as err:
         pricing.search("k", "9mm-luger", {})
-    assert err.value.rate_limited and "14 h 50 min" in str(err.value)
+    assert err.value.rate_limited and "14 h 51 min" in str(err.value)
     assert pauses == [] and calls["n"] == 1
 
 
@@ -597,3 +597,43 @@ def test_a_daily_limit_stops_at_once_even_with_a_short_retry_after(monkeypatch):
 def test_the_error_body_tells_a_daily_limit_from_a_burst_limit():
     assert pricing._error_info('{"error": {"limit_type": "daily", "retry_after": 5}, "status_code": 429}')["limit_type"] == "daily"
     assert pricing._error_info("not json") == {} and pricing._error_info("[]") == {}
+
+
+def test_a_wait_over_five_minutes_aborts_with_when_to_retry(monkeypatch):
+    fake, calls = _limited(99, retry_after=301)
+    pauses = []
+    monkeypatch.setattr(pricing, "fetch", fake)
+    monkeypatch.setattr(pricing, "_pause", lambda s, c=None: pauses.append(s))
+    with pytest.raises(pricing.PriceError) as err:
+        pricing.search("k", "9mm-luger", {})
+    assert "5 min" in str(err.value) and "UTC" in str(err.value) and "by hand" in str(err.value)
+    assert pauses == [] and calls["n"] == 1
+
+
+def test_a_wait_of_five_minutes_or_less_is_waited_out(monkeypatch):
+    fake, calls = _limited(1, retry_after=300)
+    pauses = []
+    monkeypatch.setattr(pricing, "fetch", fake)
+    monkeypatch.setattr(pricing, "_pause", lambda s, c=None: pauses.append(s))
+    assert len(pricing.search("k", "9mm-luger", {})) == 1 and pauses == [300]
+
+
+def test_response_headers_record_the_daily_allowance():
+    pricing.LIMITS.update({"daily_remaining": None, "credits_remaining": None, "seen": None})
+    assert pricing.daily_left() is None
+    pricing._note_limits({"X-RateLimit-Daily-Remaining": "42", "X-Credits-Remaining": "88.5"})
+    assert pricing.daily_left() == 42 and pricing.LIMITS["credits_remaining"] == 88.5
+    pricing.LIMITS["seen"] = pricing.LIMITS["seen"].replace(year=2000)
+    assert pricing.daily_left() is None
+    pricing._note_limits({})
+
+
+def test_a_job_stops_before_searching_when_no_daily_requests_remain(monkeypatch):
+    called = []
+    monkeypatch.setattr(pricing, "search", lambda *a, **k: called.append(1) or [])
+    pricing.LIMITS.update({"daily_remaining": 0, "seen": pricing.datetime.now(pricing.timezone.utc).date()})
+    products = [{"id": 1, "label": "P", "brand": "Federal", "name": "N", "grain": 115, "bullet_type": "FMJ", "slug": "9mm-luger", "words": {}, "current": None}]
+    job = pricing.Job(products, "k", 5)
+    pricing._run(job)
+    pricing.LIMITS.update({"daily_remaining": None, "seen": None})
+    assert job.state == "stopped" and "daily request limit" in job.message and "UTC" in job.message and not called

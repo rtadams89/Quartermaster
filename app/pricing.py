@@ -9,7 +9,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 
 BASE_URL = "https://api.parse.bot/scraper/0a603c5c-dac6-4a0a-a758-05abdfc3060e/"
@@ -20,7 +20,7 @@ SHIPPING_BUCKET = "high"  # service filter: rating above 4
 BAND = 2  # factor above and below the current price
 CASINGS_SENT = {"brass", "steel", "aluminum", "composite", "alloy"}
 RETRY_WAITS = (20, 40, 60)  # seconds to wait after each 429 before trying again
-MAX_RETRY_AFTER = 120  # longest Retry-After that is waited out
+MAX_RETRY_AFTER = 300  # longest Retry-After that is waited out
 SKIPPED_BRANDS = {"", "misc", "miscellaneous", "surplus", "unknown", "other", "handload", "handloads", "reload", "reloads"}
 GENERIC_WORDS = {"loose", "box", "boxes", "ammo", "ammunition", "bulk", "the", "and", "for", "round", "rounds", "case", "cases"}
 TYPE_WORDS = {
@@ -45,6 +45,44 @@ class PriceError(Exception):
         self.stale = stale
 
 
+LIMITS: dict = {"daily_remaining": None, "credits_remaining": None, "seen": None}
+
+
+def _note_limits(headers) -> None:
+    """Remember the request and credit allowance the service reports in its response headers."""
+    if not headers:
+        return
+    for name, field in (("X-RateLimit-Daily-Remaining", "daily_remaining"), ("X-Credits-Remaining", "credits_remaining")):
+        try:
+            LIMITS[field] = float(headers.get(name)) if field == "credits_remaining" else int(headers.get(name))
+        except (TypeError, ValueError):
+            continue
+        LIMITS["seen"] = datetime.now(timezone.utc).date()
+
+
+def daily_left() -> int | None:
+    """Requests the service said were left today (UTC), or None when unknown or from an earlier day."""
+    if LIMITS["seen"] != datetime.now(timezone.utc).date():
+        return None
+    return LIMITS["daily_remaining"]
+
+
+def _until_reset(seconds: float) -> str:
+    minutes = round(seconds / 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours} h {minutes} min" if hours else f"{max(minutes, 1)} min"
+
+
+def limit_message(seconds: float | None, daily: bool) -> str:
+    """Why a check stopped on a limit and when to try again by hand."""
+    kind = "daily request limit" if daily else "request limit"
+    if not seconds:
+        return f"The price service's {kind} was reached. Try again later."
+    when = datetime.now(timezone.utc) + timedelta(seconds=seconds)
+    return (f"The price service's {kind} was reached, and it will not accept requests for about {_until_reset(seconds)}. "
+            f"This check was stopped; try it again by hand after about {when:%H:%M} UTC.")
+
+
 def _pause(seconds: float, cancel: threading.Event | None = None) -> None:
     """Sleep, returning early if `cancel` is set."""
     if cancel is None:
@@ -59,9 +97,11 @@ def fetch(endpoint: str, params: dict, key: str):
     req = urllib.request.Request(f"{BASE_URL}{endpoint}" + (f"?{query}" if query else ""), headers={"X-API-Key": key, "Accept": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            _note_limits(resp.headers)
             return _checked(json.loads(resp.read().decode("utf-8", "replace")))
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", "replace")[:500] if hasattr(e, "read") else ""
+        _note_limits(getattr(e, "headers", None))
         shown = {k: v for k, v in (e.headers.items() if getattr(e, "headers", None) else []) if k.lower() != "set-cookie"}
         detail = f"HTTP {e.code} {e.reason}; headers {json.dumps(shown)}; body {body!r}"
         if e.code in (401, 403):
@@ -154,13 +194,6 @@ def describe(it: dict) -> str:
             f"| {it.get('casing', '?')} | {it.get('condition', '?')}")
 
 
-def _reset_text(seconds: int | None) -> str:
-    if not seconds:
-        return ""
-    hours, minutes = divmod(seconds // 60, 60)
-    return f" and resets in about {hours} h {minutes} min" if hours else f" and resets in about {minutes} min"
-
-
 def search(key: str, slug: str, query: dict, log: list[str] | None = None, cancel: threading.Event | None = None) -> list[dict]:
     """The first page (40 listings, cheapest first) of in-stock listings for a caliber, narrowed by the query."""
     log = [] if log is None else log
@@ -177,7 +210,7 @@ def search(key: str, slug: str, query: dict, log: list[str] | None = None, cance
                 log.append(f"  service replied: {e.detail}")
             if e.rate_limited and (e.daily or (e.retry_after or 0) > MAX_RETRY_AFTER):
                 log.append(f"  FAILED: {e}")
-                raise PriceError(f"The price service's {'daily ' if e.daily else ''}request limit was reached{_reset_text(e.retry_after)}. Try again then.", rate_limited=True)
+                raise PriceError(limit_message(e.retry_after, e.daily), rate_limited=True)
             if e.rate_limited and retries < len(RETRY_WAITS):
                 wait = min(e.retry_after, MAX_RETRY_AFTER) if e.retry_after else RETRY_WAITS[retries]
                 retries += 1
@@ -187,7 +220,7 @@ def search(key: str, slug: str, query: dict, log: list[str] | None = None, cance
                     raise PriceError("Cancelled.", fatal=True)
             elif e.rate_limited:
                 log.append(f"  FAILED: {e}")
-                raise PriceError("The price service's rate limit did not clear after waiting; try again later (a monthly credit limit looks the same).", rate_limited=True)
+                raise PriceError("The price service's rate limit did not clear after waiting. This check was stopped; try it again by hand in a few minutes.", rate_limited=True)
             elif e.stale and "casing" in params and not dropped:
                 dropped = True
                 params.pop("casing")
@@ -430,7 +463,7 @@ class Job:
 
     def view(self) -> dict:
         return {"id": self.id, "state": self.state, "message": self.message, "total": len(self.products),
-                "done": len(self.results), "calls": self.calls, "results": self.results}
+                "done": len(self.results), "calls": self.calls, "results": self.results, "daily_remaining": daily_left()}
 
     def log_text(self) -> str:
         return "\n".join(self.log) + "\n"
@@ -484,6 +517,10 @@ def _run(job: Job) -> None:
             query = query_for(p, words)
             ck = search_key(p["slug"], query)
             if ck not in cache:
+                if daily_left() == 0:
+                    job.state, job.message = "stopped", limit_message((datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1) - datetime.now(timezone.utc)).total_seconds(), True)
+                    job.log.append(f"  stopped: {job.message}")
+                    return
                 wait = job.gap - (time.monotonic() - last)
                 if last and wait > 0:
                     _pause(wait, job.cancel)

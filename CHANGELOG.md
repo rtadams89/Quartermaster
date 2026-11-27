@@ -2,6 +2,10 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.17.0
+- The service's allowance is now tracked from its response headers. Update prices shows how many requests it says are left today (in red if the run needs more than that), and the review screen repeats it. A run stops before sending a request when none are left today.
+- A rate-limit wait of more than 5 minutes (or any daily cap) now stops the check with a clear message: which limit was reached, how long it will last, and roughly what time (UTC) to try again by hand. Waits of 5 minutes or less are still waited out and retried.
+
 ## 1.16.6
 - Rate-limit replies are now read the way parse.bot documents them: the `limit_type` in the error body tells a daily cap (stop at once and report when it resets) from a burst limit (wait the `Retry-After` seconds, then retry). `retry_after` from the body is used when the header is missing.
 

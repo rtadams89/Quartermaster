@@ -1346,7 +1346,8 @@ async function priceDialog(calibers, preset = {}, done = () => {}) {
     const calls = sel ? new Set(sel.map((i) => i.key)).size : plan.calls;
     const minutes = calls / (plan.per_minute || 5);
     clear(summary, h('b', {}, sel ? `${fmtInt(sel.length)} of ${fmtInt(plan.items.length)} products selected` : `${fmtInt(plan.products)} product${plan.products === 1 ? '' : 's'}`),
-      ` to check, using up to ${fmtInt(calls)} search${calls === 1 ? '' : 'es'} of your plan` + (calls ? ` (about ${minutes < 1 ? 'a minute' : `${Math.round(minutes * 10) / 10} minutes`})` : ''));
+      ` to check, using up to ${fmtInt(calls)} search${calls === 1 ? '' : 'es'} of your plan` + (calls ? ` (about ${minutes < 1 ? 'a minute' : `${Math.round(minutes * 10) / 10} minutes`})` : ''),
+      plan.daily_remaining != null ? h('span', { class: calls > plan.daily_remaining ? 'err' : 'muted' }, ` The service reported ${fmtInt(plan.daily_remaining)} request${plan.daily_remaining === 1 ? '' : 's'} left today.`) : null);
     startBtn.disabled = !(plan.key_set && calls > 0);
   };
   const mark = (on) => { boxes.forEach((b, id) => { if (!b.disabled) { b.checked = on; if (on) unchecked.delete(id); else unchecked.add(id); } }); drawSummary(); };
@@ -1425,7 +1426,7 @@ async function priceDialog(calibers, preset = {}, done = () => {}) {
     modal.show(h('div', {},
       job.message ? h('p', { class: 'err' }, job.message) : null,
       job.state === 'cancelled' ? h('p', { class: 'sub' }, 'Cancelled. These are the products checked before it stopped.') : null,
-      h('p', { class: 'sub' }, `${fmtInt(job.calls)} search${job.calls === 1 ? '' : 'es'} used. Prices are the average per round of matching in-stock listings with shipping 5.0+ and no purchase limit, ignoring single-round counts and prices under half or over double the current one; tick the ones to save. Low-confidence matches are not ticked. `, priceLogLink(job)),
+      h('p', { class: 'sub' }, `${fmtInt(job.calls)} search${job.calls === 1 ? '' : 'es'} used${job.daily_remaining != null ? `; the service reports ${fmtInt(job.daily_remaining)} request${job.daily_remaining === 1 ? '' : 's'} left today` : ''}. Prices are the average per round of matching in-stock listings with shipping 5.0+ and no purchase limit, ignoring single-round counts and prices under half or over double the current one; tick the ones to save. Low-confidence matches are not ticked. `, priceLogLink(job)),
       h('div', { class: 'toolbar' }, h('button', { class: 'btn sm', type: 'button', onclick: () => mark(true) }, 'Tick all'), h('button', { class: 'btn sm', type: 'button', onclick: () => mark(false) }, 'Tick none')),
       h('div', { class: 'serials' }, rows.length ? table(['', 'Product', ['Now', 'num'], ['New', 'num'], ['Change', 'num'], ['Listings', 'num'], 'Match'], trs, { sort: false }) : empty('Nothing was checked.'))),
     [h('button', { class: 'btn', type: 'button', onclick: modal.close }, 'Close'), apply]);
