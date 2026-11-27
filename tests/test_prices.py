@@ -98,7 +98,7 @@ def wait_done(c, job):
 def test_price_check_review_and_apply(authed, fake_service):
     c = authed
     cal = c.get("/api/calibers").json()[0]
-    p = make_product(c, cost_per_box=5.0)
+    p = make_product(c, cost_per_box=20.0)
     other = make_product(c, brand="Misc", name="Loose", bullet_weight_gr=0, rounds_per_box=1)
 
     assert c.post("/api/prices/jobs", json={"scope": "product", "id": p["id"]}).status_code == 400
@@ -117,7 +117,7 @@ def test_price_check_review_and_apply(authed, fake_service):
     assert done["state"] == "done" and done["calls"] == 1
     by_id = {r["id"]: r for r in done["results"]}
     assert by_id[p["id"]]["price"] == pytest.approx(0.42) and by_id[p["id"]]["confidence"] == "high"
-    assert by_id[p["id"]]["current"] == pytest.approx(0.1)
+    assert by_id[p["id"]]["current"] == pytest.approx(0.4)
     assert by_id[other["id"]]["price"] is None and "surplus" in by_id[other["id"]]["note"]
     search = [x for x in fake_service if x[0] == "search_ammo"][0]
     assert search[1]["caliber"] == "9mm-luger" and search[1]["grains"] == 115 and search[1]["include"] == "Federal"
@@ -324,3 +324,47 @@ def test_startup_upgrade_adds_case_material_and_blank(tmp_path, monkeypatch):
     db.upgrade_schema()
     with eng.begin() as con:
         assert con.execute(text("SELECT case_material, is_blank FROM products")).one() == ("", 0)
+
+
+def test_conditionally_free_shipping_is_read_by_its_score():
+    assert pricing.good_shipping({"shipping_rating": "cf 76"}) and pricing.good_shipping({"shipping_rating": "CF 50"})
+    assert not pricing.good_shipping({"shipping_rating": "cf 49"}) and not pricing.good_shipping({"shipping_rating": "cf"})
+
+
+def test_one_round_listings_and_prices_far_from_the_current_one_are_ignored():
+    sterling = {"brand": "Sterling", "name": "", "grain": 115, "bullet_type": "FMJ", "rounds_per_box": 50, "current": 0.3994, "case_material": "Brass"}
+    items = [
+        {"retailer": "G", "descr": "Sterling 9mm Luger Brass FMJ 115 Grain 50 Rounds", "mfg": "Sterling", "grains": 115, "count": 50, "price": "$15.95",
+         "shipping_rating": "cf 76", "purchaselimit": "-", "casing": "brass", "condition": "new"},
+        {"retailer": "G", "descr": "Sterling 9mm Luger Brass FMJ 115 Grain 800 Rounds", "mfg": "Sterling", "grains": 115, "count": 800, "price": "$255.20",
+         "shipping_rating": "free", "purchaselimit": "-", "casing": "brass", "condition": "new"},
+        {"retailer": "O", "descr": "Sterling 9x19mm Luger 115 Grain FMJ Brass", "mfg": "Sterling", "grains": 115, "count": 1, "price": "$17.50",
+         "shipping_rating": "71", "purchaselimit": "-", "casing": "brass", "condition": "new"},
+        {"retailer": "O", "descr": "Sterling 9x19mm Luger 115 Grain FMJ Brass", "mfg": "Sterling", "grains": 115, "count": 1, "price": "$350.00",
+         "shipping_rating": "71", "purchaselimit": "-", "casing": "brass", "condition": "new"},
+    ]
+    trace: list[str] = []
+    r = pricing.estimate(sterling, items, trace=trace)
+    assert r["price"] == pytest.approx(0.319) and r["listings"] == 2
+    assert "counts 1 round" in "\n".join(trace)
+    # a count of 1 is fine for a product counted by the round, and the band alone catches a wrong per-round price
+    loose = sterling | {"rounds_per_box": 1}
+    assert "counts 1 round" not in "\n".join(_trace(loose, items[2:3]))
+    items[3]["count"] = 50
+    assert pricing.estimate(sterling, items[:1] + items[3:4])["listings"] == 1
+    far = pricing.estimate(sterling, items[3:4])
+    assert far["price"] is None and "half or over double" in far["note"]
+
+
+def _trace(product, items):
+    trace: list[str] = []
+    pricing.estimate(product, items, trace=trace)
+    return trace
+
+
+def test_without_a_current_price_outliers_are_dropped_by_the_median():
+    items = [listing("Federal American Eagle 9mm 115gr FMJ", "Federal", 115, f"${p}", 50) for p in (20, 21, 22, 23, 90)]
+    trace: list[str] = []
+    assert pricing.estimate(FEDERAL, items, trace=trace)["price"] == pytest.approx(0.43, abs=0.01)
+    assert "no current price" in "\n".join(trace)
+    assert pricing.estimate(FEDERAL | {"current": 0.44}, items)["listings"] == 5 - 1

@@ -20,6 +20,7 @@ TIMEOUT = 40
 PAGE_LENGTH = 40
 MIN_SHIPPING = 50  # AmmoSeek shipping score in tenths; higher is cheaper shipping
 SHIPPING_BUCKET = "high"  # the service's own filter: rating above 4
+BAND = 2  # with a recorded price, listings under half or over double it are ignored
 CASINGS_SENT = {"brass", "steel", "aluminum", "composite", "alloy"}
 RETRY_WAIT = 20  # seconds to wait after a 429 before trying once more
 SKIPPED_BRANDS = {"", "misc", "miscellaneous", "surplus", "unknown", "other", "handload", "handloads", "reload", "reloads"}
@@ -197,12 +198,12 @@ def has_purchase_limit(item: dict) -> bool:
 
 
 def good_shipping(item: dict) -> bool:
-    """Free shipping, or a shipping score of 5.0 or better (the service sends tenths: 50 is 5.0)."""
+    """Free shipping, or a shipping score of 5.0 or better (the service sends tenths: 50 is 5.0; "cf 76" is conditionally free, score 7.6)."""
     rating = str(item.get("shipping_rating") or "").strip().lower()
     if rating == "free":
         return True
-    m = re.fullmatch(r"\d+(\.\d+)?", rating)
-    return bool(m) and float(rating) >= MIN_SHIPPING
+    m = re.fullmatch(r"(?:cf\s*)?(\d+(?:\.\d+)?)", rating)
+    return bool(m) and float(m.group(1)) >= MIN_SHIPPING
 
 
 def eligible(item: dict) -> bool:
@@ -281,8 +282,18 @@ def reject_reason(product: dict, it: dict, words: dict) -> str | None:
                 return f"grain {it.get('grains')} is not within 1 of {round(grain)}"
         except (TypeError, ValueError):
             return "listing has no grain weight"
-    if not per_round(it):
+    each = per_round(it)
+    if not each:
         return "no price per round"
+    try:
+        count = int(it.get("count"))
+    except (TypeError, ValueError):
+        count = 0
+    if (product.get("rounds_per_box") or 0) > 1 and count <= 1:
+        return f"listing counts {count} round but the product is sold by the box"
+    current = product.get("current")
+    if current and not current / BAND <= each <= current * BAND:
+        return f"price ${each:.4f}/rd is less than half or more than double the current ${current:.4f}/rd"
     return None
 
 
@@ -291,9 +302,11 @@ def estimate(product: dict, items: list[dict], words: dict | None = None, trace:
     words = words or {}
     trace = [] if trace is None else trace
     tiers: list[list[float]] = [[], [], []]
+    out_of_band = 0
     for it in items:
         why = reject_reason(product, it, words)
         if why:
+            out_of_band += why.startswith("price ")
             trace.append(f"    skip: {why} | {describe(it)}")
             continue
         descr = str(it.get("descr") or "").lower()
@@ -309,9 +322,16 @@ def estimate(product: dict, items: list[dict], words: dict | None = None, trace:
     trace.append("    usable listings by match level: " + "; ".join(f"{names[i]}: {len(t)}" for i, t in enumerate(tiers)))
     tier = next((i for i, t in enumerate(tiers) if len(t) >= 3), next((i for i, t in enumerate(tiers) if t), None))
     if tier is None:
-        note = "No matching listings with shipping 5.0+ and no purchase limit" if items else "No in-stock listings found"
+        note = ("No in-stock listings found" if not items else "Listings found, but all were under half or over double the current price" if out_of_band
+                else "No matching listings with shipping 5.0+ and no purchase limit")
         return {"price": None, "listings": 0, "confidence": "none", "note": note}
     prices = sorted(tiers[tier])
+    if not product.get("current") and len(prices) >= 5:
+        middle = statistics.median(prices)
+        kept = [x for x in prices if middle / BAND <= x <= middle * BAND] or prices
+        if len(kept) != len(prices):
+            trace.append(f"    no current price, so {len(prices) - len(kept)} price(s) under half or over double the median ${middle:.4f}/rd were dropped")
+        prices = kept
     mid = statistics.mean(prices)
     n = len(prices)
     trace.append(f"    chosen: the first match level with 3 or more listings, else the first with any ({names[tier]}); "
@@ -357,7 +377,7 @@ class Job:
         self.log: list[str] = [f"Quartermaster price check {self.id} started {datetime.now():%Y-%m-%d %H:%M:%S}",
                                f"{len(products)} product(s); at most {per_minute} search(es) a minute.",
                                "Searches ask for the first 40 listings (cheapest first), new condition, purchase limits hidden and shipping rating above 4;",
-                               "listings are then checked again here (shipping 5.0+ or free, no limit) and averaged per round.", ""]
+                               "listings are then checked again here (shipping 5.0+ or free, no limit, not a one-round count, within half to double the current price) and averaged per round.", ""]
 
     def view(self) -> dict:
         return {"id": self.id, "state": self.state, "message": self.message, "total": len(self.products),

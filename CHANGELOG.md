@@ -2,6 +2,10 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.15.5
+- Price checks now ignore bad listings: a listing that counts one round when the product is sold by the box is skipped, and so is any price under half or over double the product's current price per round. A product with no price yet falls back to dropping prices outside half to double the median when there are five or more listings.
+- Shipping ratings like "cf 76" (conditionally free, score 7.6) are now read by their score instead of being rejected.
+
 ## 1.15.4
 - The *Case material* dropdown now lists just Brass, Steel, Aluminum, Composite and Alloy, with a blank choice for none, and the extra hint text on it and on *Blank* is gone.
 

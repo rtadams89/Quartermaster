@@ -1386,7 +1386,7 @@ async function priceDialog(calibers, preset = {}, done = () => {}) {
     modal.show(h('div', {},
       job.message ? h('p', { class: 'err' }, job.message) : null,
       job.state === 'cancelled' ? h('p', { class: 'sub' }, 'Cancelled. These are the products checked before it stopped.') : null,
-      h('p', { class: 'sub' }, `${fmtInt(job.calls)} search${job.calls === 1 ? '' : 'es'} used. Prices are the average per round of matching in-stock listings with shipping 5.0+ and no purchase limit; tick the ones to save. Low-confidence matches are not ticked. `, priceLogLink(job)),
+      h('p', { class: 'sub' }, `${fmtInt(job.calls)} search${job.calls === 1 ? '' : 'es'} used. Prices are the average per round of matching in-stock listings with shipping 5.0+ and no purchase limit, ignoring single-round counts and prices under half or over double the current one; tick the ones to save. Low-confidence matches are not ticked. `, priceLogLink(job)),
       h('div', { class: 'toolbar' }, h('button', { class: 'btn sm', type: 'button', onclick: () => mark(true) }, 'Tick all'), h('button', { class: 'btn sm', type: 'button', onclick: () => mark(false) }, 'Tick none')),
       h('div', { class: 'serials' }, rows.length ? table(['', 'Product', ['Now', 'num'], ['New', 'num'], ['Change', 'num'], ['Listings', 'num'], 'Match'], trs, { sort: false }) : empty('Nothing was checked.'))),
     [h('button', { class: 'btn', type: 'button', onclick: modal.close }, 'Close'), apply]);
