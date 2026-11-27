@@ -136,6 +136,20 @@ def box_count(items: list[dict]) -> int:
     return sum(i["boxes"] for i in items if i["rounds_per_box"] != 1)
 
 
+CASE_MATERIALS = ["Brass", "Steel", "Aluminum", "Composite", "Alloy"]  # the case materials AmmoSeek offers
+
+
+def canonical_case(value: str | None) -> str:
+    """The AmmoSeek spelling of a case material ("" for none); raises ValueError for anything else."""
+    text = (value or "").strip()
+    if not text:
+        return ""
+    for name in CASE_MATERIALS:
+        if name.lower() == text.lower():
+            return name
+    raise ValueError("Case material must be one of: " + ", ".join(CASE_MATERIALS))
+
+
 def spec_text(p: Product) -> str:
     """e.g. '115 gr FMJ · 50 rd/box'"""
     bits = []

@@ -287,6 +287,8 @@ function moneyInput(initial) {
   return { el: input, value: () => parseMoney(input.value) };
 }
 
+const CASE_MATERIALS = ['Brass', 'Steel', 'Aluminum', 'Composite', 'Alloy']; // as offered by AmmoSeek
+
 function productFields(calibers, p = {}) {
   const cal = caliberPicker(calibers.filter((c) => c.active || c.id === p.caliber_id), p.caliber_id);
   const brandBox = suggestInput({ value: p.brand ?? '', placeholder: 'e.g. Federal', maxlength: 80 });
@@ -305,7 +307,8 @@ function productFields(calibers, p = {}) {
   };
   weight.addEventListener('blur', () => { if (weightValue() === 0) weight.value = 'N/A'; });
   const type = h('input', { value: p.bullet_type ?? '', list: 'bullet-types', placeholder: 'FMJ, JHP…', maxlength: 40 });
-  const casing = h('input', { value: p.case_material ?? '', list: 'case-materials', placeholder: 'Brass, Steel…', maxlength: 40 });
+  const casing = h('select', {}, h('option', { value: '' }, '(any)'), ...CASE_MATERIALS.map((t) => h('option', { value: t }, `${t} case only`)));
+  casing.value = CASE_MATERIALS.includes(p.case_material) ? p.case_material : '';
   const blank = h('input', { type: 'checkbox', checked: p.is_blank === true });
   const rpb = h('input', { type: 'number', min: 1, step: 1, required: true, value: p.rounds_per_box ?? '', placeholder: 'e.g. 50' });
   const cost = moneyInput(p.cost_per_box);
@@ -330,14 +333,13 @@ function productFields(calibers, p = {}) {
     labeled('Rounds per box', rpb, '', 'Use 1 for ammo you count by the individual round; it then shows round counts instead of boxes.'),
     labeled('Manufacturer', brandBox.el), labeled('Product / line', name),
     labeled('Bullet weight (gr)', weight, '', '0 or N/A means no traditional bullet weight (shot, slugs, flares…).'), labeled('Bullet type', type),
-    labeled('Case material', casing, '', 'Optional. Used when looking up market prices.'),
+    labeled('Case material', casing, '', 'Optional. (any) means don\'t narrow market price lookups by case. The choices match AmmoSeek\'s.'),
     h('label', { class: 'check' }, blank, h('span', {}, h('b', {}, 'Blank (no projectile)'), h('small', { class: 'hint' }, 'Blanks are priced from blank listings only.'))),
     costRow,
     labeled('Alert when below (rounds)', minr, '', 'Optional. Leave blank for no alert. Otherwise this product is flagged as low when its rounds on hand drop under this number.'),
     h('label', { class: 'check full' }, indoor, h('span', {}, h('b', {}, 'Indoor range safe'),
       h('small', { class: 'hint' }, 'Uncheck for ammo that indoor ranges do not allow (steel core, bimetal, tracer, incendiary, some shot…). The kiosk asks for confirmation when it is checked out.'))),
     labeled('Notes', notes, 'full'),
-    h('datalist', { id: 'case-materials' }, ['Brass', 'Steel', 'Aluminum', 'Nickel', 'Plastic'].map((t) => h('option', { value: t }))),
     h('datalist', { id: 'bullet-types' }, ['FMJ', 'TMJ', 'JHP', 'HP', 'SP', 'LRN', 'LSWC', 'BTHP', 'SMK', 'Birdshot', 'Buckshot', 'Slug'].map((t) => h('option', { value: t }))));
   cost.el.addEventListener('input', showPerRound);
   cost.el.addEventListener('blur', showPerRound);
@@ -350,7 +352,7 @@ function productFields(calibers, p = {}) {
       caliber_id: caliberId, brand: brand.value.trim(), name: name.value.trim(),
       bullet_weight_gr: weightValue(), bullet_type: type.value.trim(),
       rounds_per_box: Number(rpb.value), cost_per_box: cost.value(), notes: notes.value, indoor_safe: indoor.checked,
-      case_material: casing.value.trim(), is_blank: blank.checked,
+      case_material: casing.value, is_blank: blank.checked,
       min_rounds: minr.value === '' ? null : Number(minr.value),
     };
   };

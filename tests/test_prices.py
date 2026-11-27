@@ -196,6 +196,7 @@ def test_query_carries_the_fixed_filters_blank_flag_case_and_words():
     blank = pricing.query_for({**FEDERAL, "is_blank": True, "case_material": "Brass"}, {"include": "shot", "exclude": "buck slug"})
     assert blank["show_blanks"] == "true" and blank["casing"] == "brass" and blank["include"] == "shot" and blank["exclude"] == "buck slug"
     assert pricing.query_for({**FEDERAL, "case_material": "Plastic hull"})["casing"] == ""
+    assert pricing.query_for({**FEDERAL, "case_material": "Composite"})["casing"] == "composite"
     assert pricing.search_key("9mm-luger", q) != pricing.search_key("9mm-luger", blank)
 
 
@@ -282,6 +283,18 @@ def test_case_material_and_blank_are_saved_exported_and_imported(authed):
     after = {x["id"]: x for x in c.get("/api/products").json()}[p["id"]]
     assert after["case_material"] == "Steel" and after["is_blank"] is False
     assert c.post("/api/import/products", content=csv_text.replace(",Brass,yes", ",Brass,maybe").encode()).json()["error_count"] == 1
+    assert c.post("/api/import/products", content=csv_text.replace(",Brass,yes", ",Plastic,yes").encode()).json()["error_count"] == 1
+    lower = c.post("/api/import/products?apply=true", content=csv_text.replace(",Brass,yes", ",ALLOY,yes").encode())
+    assert lower.status_code == 200 and {x["id"]: x for x in c.get("/api/products").json()}[p["id"]]["case_material"] == "Alloy"
+
+
+def test_case_material_must_be_one_of_the_ammoseek_choices(authed):
+    cal = authed.get("/api/calibers").json()[0]["id"]
+    body = {"caliber_id": cal, "brand": "X", "name": "Y", "bullet_weight_gr": 115, "bullet_type": "FMJ", "rounds_per_box": 50}
+    assert authed.post("/api/products", json={**body, "case_material": "Plastic"}).status_code == 422
+    made = authed.post("/api/products", json={**body, "case_material": " composite "})
+    assert made.status_code == 200 and made.json()["case_material"] == "Composite"
+    assert authed.put(f"/api/products/{made.json()['id']}", json={**body, "case_material": ""}).json()["case_material"] == ""
 
 
 def test_a_backup_from_before_case_material_and_blank_still_restores(authed, tmp_path):

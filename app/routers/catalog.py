@@ -1,6 +1,6 @@
 """Calibers, products, and barcode <-> product assignment (admin site)."""
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
@@ -9,7 +9,7 @@ from ..codes import is_magazine_code, normalize_code
 from ..db import get_db, utcnow
 from ..models import Barcode, BarcodePhoto, BatchItem, Caliber, CaliberGroup, Magazine, PackCode, Product, Transaction, UpcLookup
 from .photos import process_image, store_photo
-from ..services import (brand_spellings, canonical_brand, inventory_by_product, minimums, missing_details, photo_codes,
+from ..services import (brand_spellings, canonical_brand, canonical_case, inventory_by_product, minimums, missing_details, photo_codes,
                         product_dict, set_minimum, spec_text)
 
 router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
@@ -181,6 +181,12 @@ class ProductIn(BaseModel):
     indoor_safe: bool = True
     case_material: str = Field(default="", max_length=40)
     is_blank: bool = False
+
+    @field_validator("case_material")
+    @classmethod
+    def _case(cls, v: str) -> str:
+        return canonical_case(v)
+
     min_rounds: int | None = MIN_ROUNDS
 
 
@@ -257,7 +263,6 @@ def create_product(body: ProductIn, db: Session = Depends(get_db)):
     _check_caliber(db, body.caliber_id)
     fields = body.model_dump(exclude={"min_rounds"})
     fields["brand"] = canonical_brand(db, body.brand)
-    fields["case_material"] = body.case_material.strip()
     p = Product(**fields)
     if p.cost_per_box is not None:
         p.price_updated = utcnow()
@@ -276,7 +281,6 @@ def update_product(pid: int, body: ProductIn, db: Session = Depends(get_db)):
     _check_caliber(db, body.caliber_id)
     fields = body.model_dump(exclude={"min_rounds"})
     fields["brand"] = canonical_brand(db, body.brand, pid)
-    fields["case_material"] = body.case_material.strip()
     if fields["cost_per_box"] != p.cost_per_box:
         p.price_updated = utcnow() if fields["cost_per_box"] is not None else None
     for k, v in fields.items():
