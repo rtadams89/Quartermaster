@@ -1330,6 +1330,14 @@ async function priceDialog(calibers, preset = {}, done = () => {}) {
   }, 250); };
   const lastNote = (r) => [r.confidence === 'none' ? null : h('span', { class: 'tag ' + (r.confidence === 'high' ? 'in' : 'out') }, r.confidence), r.note ? ` ${r.note}` : ''];
 
+  // The setup screen is built once and only its summary is refreshed, so the caliber box keeps focus while you type.
+  const info = h('div');
+  const setupEl = h('div', {},
+    h('p', { class: 'sub' }, 'Looks up current in-stock prices on AmmoSeek and sets each product to the average price per round of its matching listings (only those with shipping rating 5.0 or better and no purchase limit). You review the prices before anything is saved.'),
+    h('div', { class: 'toolbar' }, scope, pickHolder, stockLabel), info);
+  const cancelBtn = h('button', { class: 'btn', type: 'button', onclick: () => modal.close() }, 'Cancel');
+  const startBtn = h('button', { class: 'btn primary', type: 'button', disabled: true, onclick: () => start() }, 'Check prices');
+  let view = '';
   const drawSetup = () => {
     const parts = [];
     if (plan && !plan.key_set) parts.push(h('p', { class: 'err' }, 'Enter your parse.bot API key under Settings first.'));
@@ -1341,11 +1349,9 @@ async function priceDialog(calibers, preset = {}, done = () => {}) {
       else if (plan.unmatched.length) parts.push(h('p', { class: 'sub' }, `Not matched to an AmmoSeek caliber yet, so skipped: ${plan.unmatched.join(', ')}. `,
         h('button', { class: 'btn sm', type: 'button', onclick: () => priceCalibers(refresh) }, 'Match calibers')));
     }
-    modal.show(h('div', {},
-      h('p', { class: 'sub' }, 'Looks up current in-stock prices on AmmoSeek and sets each product to the average price per round of its matching listings (only those with shipping rating 5.0 or better and no purchase limit). You review the prices before anything is saved.'),
-      h('div', { class: 'toolbar' }, scope, pickHolder, stockLabel), parts),
-    [h('button', { class: 'btn', type: 'button', onclick: modal.close }, 'Cancel'),
-      h('button', { class: 'btn primary', type: 'button', disabled: !(plan && plan.key_set && plan.calls > 0), onclick: start }, 'Check prices')]);
+    clear(info, parts);
+    startBtn.disabled = !(plan && plan.key_set && plan.calls > 0);
+    if (view !== 'setup') { view = 'setup'; modal.show(setupEl, [cancelBtn, startBtn]); }
   };
 
   const start = async () => {
@@ -1354,17 +1360,18 @@ async function priceDialog(calibers, preset = {}, done = () => {}) {
     drawRunning();
     poll();
   };
-  const drawRunning = () => modal.show(h('div', {},
+  const drawRunning = () => { view = ''; modal.show(h('div', {},
     h('p', {}, job.state === 'running' ? `Checked ${fmtInt(job.done)} of ${fmtInt(job.total)} products (${fmtInt(job.calls)} search${job.calls === 1 ? '' : 'es'})…` : 'Finishing…'),
     h('progress', { max: job.total || 1, value: job.done, style: { width: '100%' } }),
     h('p', { class: 'sub' }, 'The service allows only a few searches a minute, so this can take a while. You can keep this window open or cancel and review what has been found so far. ', priceLogLink(job))),
-  [h('button', { class: 'btn', type: 'button', onclick: () => post(`/api/prices/jobs/${job.id}/cancel`).catch(() => {}) }, 'Cancel')]);
+  [h('button', { class: 'btn', type: 'button', onclick: () => post(`/api/prices/jobs/${job.id}/cancel`).catch(() => {}) }, 'Cancel')]); };
   const poll = async () => {
     try { job = await get(`/api/prices/jobs/${job.id}`); } catch (e) { modal.show(h('p', { class: 'err' }, e.message), [h('button', { class: 'btn', type: 'button', onclick: modal.close }, 'Close')]); return; }
     if (job.state === 'running') { drawRunning(); timer = setTimeout(poll, 1500); } else drawReview();
   };
 
   const drawReview = () => {
+    view = '';
     const rows = job.results;
     const boxes = new Map();
     const apply = h('button', { class: 'btn primary', type: 'button' });

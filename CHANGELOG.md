@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.15.6
+- Update prices: typing a caliber or product to search for no longer loses focus after each character.
+
 ## 1.15.5
 - Price checks now ignore bad listings: a listing that counts one round when the product is sold by the box is skipped, and so is any price under half or over double the product's current price per round. A product with no price yet falls back to dropping prices outside half to double the median when there are five or more listings.
 - Shipping ratings like "cf 76" (conditionally free, score 7.6) are now read by their score instead of being rejected.
