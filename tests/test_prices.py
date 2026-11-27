@@ -83,7 +83,7 @@ def fake_service(monkeypatch):
             listing("Federal American Eagle 9mm 115gr FMJ", "Federal", 115, "$22.00", 50)]}}
 
     monkeypatch.setattr(pricing, "fetch", fetch)
-    monkeypatch.setattr(pricing, "_pause", lambda s: None)
+    monkeypatch.setattr(pricing, "_pause", lambda s, c=None: None)
     return calls
 
 
@@ -154,7 +154,7 @@ def test_unmatched_calibers_are_reported_and_a_bad_key_stops_the_job(authed, mon
         raise pricing.PriceError("The price service did not accept the API key.", fatal=True)
 
     monkeypatch.setattr(pricing, "fetch", reject)
-    monkeypatch.setattr(pricing, "_pause", lambda s: None)
+    monkeypatch.setattr(pricing, "_pause", lambda s, c=None: None)
     c.put("/api/prices/settings", json={"key": "bad", "per_minute": 250})
     cal = c.get("/api/calibers").json()[0]
     c.put(f"/api/prices/calibers/{cal['id']}", json={"slug": "9mm-luger"})
@@ -461,7 +461,7 @@ def test_a_rate_limit_backs_off_20_then_40_seconds_and_then_succeeds(monkeypatch
     fake, calls = _limited(2)
     pauses = []
     monkeypatch.setattr(pricing, "fetch", fake)
-    monkeypatch.setattr(pricing, "_pause", pauses.append)
+    monkeypatch.setattr(pricing, "_pause", lambda s, c=None: pauses.append(s))
     assert len(pricing.search("k", "9mm-luger", {})) == 1
     assert pauses == [20, 40] and calls["n"] == 3
 
@@ -470,7 +470,7 @@ def test_a_rate_limit_honours_retry_after_up_to_a_cap(monkeypatch):
     fake, _ = _limited(2, retry_after=7)
     pauses = []
     monkeypatch.setattr(pricing, "fetch", fake)
-    monkeypatch.setattr(pricing, "_pause", pauses.append)
+    monkeypatch.setattr(pricing, "_pause", lambda s, c=None: pauses.append(s))
     pricing.search("k", "9mm-luger", {})
     assert pauses == [7, 7]
     fake, _ = _limited(1, retry_after=9999)
@@ -484,7 +484,7 @@ def test_a_rate_limit_that_never_clears_stops_after_three_waits(monkeypatch):
     fake, calls = _limited(99)
     pauses = []
     monkeypatch.setattr(pricing, "fetch", fake)
-    monkeypatch.setattr(pricing, "_pause", pauses.append)
+    monkeypatch.setattr(pricing, "_pause", lambda s, c=None: pauses.append(s))
     with pytest.raises(pricing.PriceError) as err:
         pricing.search("k", "9mm-luger", {})
     assert err.value.rate_limited and "did not clear" in str(err.value)
@@ -495,13 +495,13 @@ def test_pacing_restarts_after_a_retry(monkeypatch):
     clock = {"t": 1000.0}
     pauses = []
 
-    def pause(s):
+    def pause(s, c=None):
         pauses.append(s)
         clock["t"] += s
 
     state = {"n": 0}
 
-    def fake_search(key, slug, query, log):
+    def fake_search(key, slug, query, log, cancel=None):
         state["n"] += 1
         if state["n"] == 2:
             clock["t"] += 20
@@ -527,3 +527,17 @@ def test_every_listing_the_service_sends_is_used(monkeypatch):
     many = [listing("Federal 9mm", "Federal", 115, "$20.00", 50) for _ in range(100)]
     monkeypatch.setattr(pricing, "fetch", lambda e, p, k: {"items": many})
     assert len(pricing.search("k", "9mm-luger", {})) == 100
+
+
+def test_cancel_interrupts_a_rate_limit_wait(monkeypatch):
+    fake, calls = _limited(99)
+    cancel = pricing.threading.Event()
+
+    def pause(s, c=None):
+        cancel.set()
+
+    monkeypatch.setattr(pricing, "fetch", fake)
+    monkeypatch.setattr(pricing, "_pause", pause)
+    with pytest.raises(pricing.PriceError) as err:
+        pricing.search("k", "9mm-luger", {}, cancel=cancel)
+    assert str(err.value) == "Cancelled." and calls["n"] == 1

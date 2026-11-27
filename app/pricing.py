@@ -43,8 +43,12 @@ class PriceError(Exception):
         self.stale = stale
 
 
-def _pause(seconds: float) -> None:
-    time.sleep(seconds)
+def _pause(seconds: float, cancel: threading.Event | None = None) -> None:
+    """Sleep, returning early if `cancel` is set."""
+    if cancel is None:
+        time.sleep(seconds)
+    else:
+        cancel.wait(seconds)
 
 
 def fetch(endpoint: str, params: dict, key: str):
@@ -135,7 +139,7 @@ def describe(it: dict) -> str:
             f"| {it.get('casing', '?')} | {it.get('condition', '?')}")
 
 
-def search(key: str, slug: str, query: dict, log: list[str] | None = None) -> list[dict]:
+def search(key: str, slug: str, query: dict, log: list[str] | None = None, cancel: threading.Event | None = None) -> list[dict]:
     """The first page (40 listings, cheapest first) of in-stock listings for a caliber, narrowed by the query."""
     log = [] if log is None else log
     params = {"caliber": slug, "length": PAGE_LENGTH, "start": 0, **{k: v for k, v in query.items() if v not in (None, "")}}
@@ -151,7 +155,9 @@ def search(key: str, slug: str, query: dict, log: list[str] | None = None) -> li
                 wait = min(e.retry_after, MAX_RETRY_AFTER) if e.retry_after else RETRY_WAITS[retries]
                 retries += 1
                 log.append(f"  rate limited; waiting {wait} seconds, then trying again ({retries} of {len(RETRY_WAITS)})")
-                _pause(wait)
+                _pause(wait, cancel)
+                if cancel is not None and cancel.is_set():
+                    raise PriceError("Cancelled.", fatal=True)
             elif e.rate_limited:
                 log.append(f"  FAILED: {e}")
                 raise PriceError("The price service's rate limit did not clear after waiting; try again later (a monthly credit limit looks the same).", rate_limited=True)
@@ -453,15 +459,17 @@ def _run(job: Job) -> None:
             if ck not in cache:
                 wait = job.gap - (time.monotonic() - last)
                 if last and wait > 0:
-                    _pause(wait)
-                lg: list[str] = []
+                    _pause(wait, job.cancel)
+                first = len(job.log)
                 try:
-                    cache[ck] = search(job.key, p["slug"], query, lg)
-                    last = time.monotonic()
+                    cache[ck] = search(job.key, p["slug"], query, job.log, job.cancel)
                 except PriceError as e:
                     last = time.monotonic()
-                    job.calls += sum(1 for x in lg if "REQUEST" in x)
-                    job.log.extend(lg)
+                    job.calls += sum("REQUEST" in x for x in job.log[first:])
+                    if job.cancel.is_set():
+                        job.state = "cancelled"
+                        job.log.append("Cancelled.")
+                        return
                     job.results.append({**row, "price": None, "listings": 0, "confidence": "none", "note": str(e)})
                     if e.fatal or e.rate_limited:
                         job.state, job.message = "stopped", str(e)
@@ -469,8 +477,8 @@ def _run(job: Job) -> None:
                         return
                     job.log.extend([f"  no result: {e}", ""])
                     continue
-                job.calls += sum(1 for x in lg if "REQUEST" in x)
-                job.log.extend(lg)
+                last = time.monotonic()
+                job.calls += sum("REQUEST" in x for x in job.log[first:])
             else:
                 job.log.append("  search: same options as an earlier product, so that search's listings are reused (no new request)")
             trace: list[str] = []

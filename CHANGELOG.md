@@ -2,6 +2,10 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.16.3
+- The search log now shows each request as it is sent, and any rate-limit waits as they happen. Before, a search's lines appeared only after it finished, so a long wait looked like a freeze.
+- Cancel now works during a rate-limit wait or the pause between searches instead of waiting for it to end.
+
 ## 1.16.2
 - Fix: a caliber's *Must include* words replaced the product's brand in the search, so a caliber with keywords (for example 12ga Birdshot with "shot") searched every maker. The brand is now always sent, and the keywords are added to it.
 - Searches still ask for 40 listings; if the service sends more, all of them are used.
