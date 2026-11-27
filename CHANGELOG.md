@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.15.7
+- Update prices: blank products with no real brand (such as Surplus blanks) can now be priced. With no brand to match, they are priced from all new blank listings of the caliber and shown as medium confidence at best. Other mixed, surplus or unbranded products are still skipped, and the dialog now lists which products were skipped instead of just showing 0 searches.
+
 ## 1.15.6
 - Update prices: typing a caliber or product to search for no longer loses focus after each character.
 

@@ -179,7 +179,8 @@ def plan(body: ScopeIn, db: Session = Depends(get_db)):
     pending = sorted({p["caliber"] for p in products if not p["slug"] and not pricing.skip_reason(p)})
     per_minute = _per_minute(db)
     calls = pricing.planned_calls(products)
-    return {"products": len(products), "calls": calls, "minutes": round(calls / per_minute, 1), "unmatched": pending,
+    skipped = [{"label": p["label"], "reason": pricing.skip_reason(p)} for p in products if pricing.skip_reason(p)]
+    return {"products": len(products), "calls": calls, "minutes": round(calls / per_minute, 1), "unmatched": pending, "skipped": skipped,
             "key_set": bool(_get(db, PRICE_KEY)), "options_loaded": bool(_json(db, OPTIONS_KEY, []))}
 
 

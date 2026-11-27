@@ -30,6 +30,7 @@ TYPE_WORDS = {
     "sp": ("soft point", "sp", "jsp"), "jsp": ("jsp", "soft point"), "lrn": ("lrn", "lead round nose"),
     "rn": ("round nose", "rn"), "lfn": ("lfn", "flat nose"), "rnfp": ("rnfp", "flat point", "flat nose"),
     "tmj": ("tmj", "total metal jacket"), "bthp": ("bthp", "hollow point"), "ap": ("ap", "armor piercing"),
+    "blank": ("blank", "blanks"), "blanks": ("blank", "blanks"),
 }
 
 
@@ -110,7 +111,7 @@ def query_for(product: dict, words: dict | None = None) -> dict:
     grains, brand_word = search_words(product)
     words = words or {}
     casing = str(product.get("case_material") or "").strip().lower()
-    return {"grains": grains, "include": (words.get("include") or "").strip() or brand_word,
+    return {"grains": grains, "include": (words.get("include") or "").strip() or ("blank" if brandless(product) else brand_word),
             "exclude": (words.get("exclude") or "").strip(), "condition": "new", "hide_purchase_limits": "true",
             "shipping_rating": SHIPPING_BUCKET, "show_blanks": "true" if product.get("is_blank") else "false",
             "casing": casing if casing in CASINGS_SENT else ""}
@@ -218,8 +219,13 @@ def search_words(product: dict) -> tuple[int | None, str]:
     return grains, (words[0] if words else "")
 
 
+def brandless(product: dict) -> bool:
+    return squash(product.get("brand")) in {squash(b) for b in SKIPPED_BRANDS}
+
+
 def skip_reason(product: dict) -> str | None:
-    if squash(product.get("brand")) in {squash(b) for b in SKIPPED_BRANDS}:
+    """Mixed, surplus and unbranded ammo has nothing to match on, except blanks, which are priced across all blank listings."""
+    if brandless(product) and not product.get("is_blank"):
         return "Mixed, surplus or unbranded ammo can't be priced automatically"
     return None
 
@@ -267,7 +273,7 @@ def reject_reason(product: dict, it: dict, words: dict) -> str | None:
     case, listed = str(product.get("case_material") or "").strip().lower(), str(it.get("casing") or "").strip().lower()
     if case and listed and case not in listed and listed not in case:
         return f"case is {listed}, not {case}"
-    if not (brand and ((maker and (brand in maker or maker in brand)) or brand in squash(descr))):
+    if not brandless(product) and not (brand and ((maker and (brand in maker or maker in brand)) or brand in squash(descr))):
         return "brand does not match"
     text = f"{descr} {str(it.get('mfg') or '').lower()}"
     missing = _has_words(words.get("include") or "", text)
@@ -344,6 +350,9 @@ def estimate(product: dict, items: list[dict], words: dict | None = None, trace:
         confidence = "low"
     notes = {0: "", 1: "Matched on brand, grain and part of the name", 2: "Matched on brand and grain only"}
     note = notes[tier] + ("; " if notes[tier] and n < 3 else "") + (f"only {n} listing{'s' if n != 1 else ''}" if n < 3 else "")
+    if brandless(product):
+        confidence = "low" if confidence == "low" else "medium"
+        note = (note + "; " if note else "") + "no brand to match, so priced from all blank listings for the caliber"
     return {"price": round(mid, 4), "low": round(prices[0], 4), "high": round(prices[-1], 4), "listings": n, "confidence": confidence, "note": note}
 
 

@@ -62,6 +62,7 @@ def test_search_words_skip_reason_and_caliber_guess():
     assert pricing.search_words({"brand": "Sellier & Bellot", "grain": 260.0}) == (260, "Sellier")
     assert pricing.search_words({"brand": "Misc", "grain": 0}) == (None, "Misc")
     assert pricing.skip_reason({"brand": "Misc"}) and pricing.skip_reason({"brand": ""}) and not pricing.skip_reason({"brand": "Federal"})
+    assert not pricing.skip_reason({"brand": "Surplus", "is_blank": True})
     options = [{"label": "9mm Luger", "slug": "9mm-luger"}, {"label": ".45 ACP", "slug": "45acp"}]
     assert pricing.guess_slug(["", "9mm Luger Subsonic"], options) == "9mm-luger"
     assert pricing.guess_slug(["26.5mm"], options) is None
@@ -368,3 +369,23 @@ def test_without_a_current_price_outliers_are_dropped_by_the_median():
     assert pricing.estimate(FEDERAL, items, trace=trace)["price"] == pytest.approx(0.43, abs=0.01)
     assert "no current price" in "\n".join(trace)
     assert pricing.estimate(FEDERAL | {"current": 0.44}, items)["listings"] == 5 - 1
+
+
+def test_blank_products_with_no_brand_are_priced_from_all_blank_listings(authed, fake_service, monkeypatch):
+    surplus_blank = {"brand": "Surplus", "name": "", "grain": 0, "bullet_type": "Blanks", "is_blank": True, "rounds_per_box": 1}
+    q = pricing.query_for(surplus_blank)
+    assert q["include"] == "blank" and q["show_blanks"] == "true" and q["grains"] is None
+    items = [listing(f"5.56 NATO blank cartridges {n}", mk, 0, f"${p}", 50) for n, mk, p in ((1, "A", 20), (2, "B", 25), (3, "C", 30))]
+    items.append(listing("5.56 NATO ball 55gr", "D", 55, "$5.00", 50))
+    r = pricing.estimate(surplus_blank, items)
+    assert r["price"] == pytest.approx(0.5) and r["listings"] == 3 and r["confidence"] == "medium" and "all blank listings" in r["note"]
+
+    c = authed
+    c.put("/api/prices/settings", json={"key": "secret-key", "per_minute": 250})
+    cal = c.get("/api/calibers").json()[0]
+    c.put(f"/api/prices/calibers/{cal['id']}", json={"slug": "9mm-luger"})
+    make_product(c, brand="Surplus", name="", bullet_weight_gr=0, bullet_type="Blanks", rounds_per_box=1, is_blank=True)
+    make_product(c, brand="Surplus", name="Loose", bullet_weight_gr=0, rounds_per_box=1)
+    plan = c.post("/api/prices/plan", json={"scope": "all", "in_stock_only": False}).json()
+    assert plan["products"] == 2 and plan["calls"] == 1
+    assert [s["label"] for s in plan["skipped"]] == ["Surplus Loose"]

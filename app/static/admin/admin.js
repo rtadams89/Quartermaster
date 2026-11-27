@@ -1345,6 +1345,7 @@ async function priceDialog(calibers, preset = {}, done = () => {}) {
     if (plan) {
       parts.push(h('p', {}, h('b', {}, `${fmtInt(plan.products)} product${plan.products === 1 ? '' : 's'}`),
         ` to check, using up to ${fmtInt(plan.calls)} search${plan.calls === 1 ? '' : 'es'} of your plan` + (plan.calls ? ` (about ${plan.minutes < 1 ? 'a minute' : `${plan.minutes} minutes`})` : '')));
+      if (plan.skipped.length) parts.push(h('p', { class: 'sub' }, `Can't be priced automatically (mixed, surplus or unbranded ammo): ${plan.skipped.map((s) => s.label).join(', ')}.`));
       if (!plan.options_loaded && plan.key_set) parts.push(h('p', { class: 'sub' }, 'Your calibers aren\'t matched to AmmoSeek yet. ', h('button', { class: 'btn sm', type: 'button', onclick: () => priceCalibers(refresh) }, 'Match calibers')));
       else if (plan.unmatched.length) parts.push(h('p', { class: 'sub' }, `Not matched to an AmmoSeek caliber yet, so skipped: ${plan.unmatched.join(', ')}. `,
         h('button', { class: 'btn sm', type: 'button', onclick: () => priceCalibers(refresh) }, 'Match calibers')));
