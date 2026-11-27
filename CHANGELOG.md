@@ -2,6 +2,10 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.16.5
+- Fix: the service's `Retry-After` was missed because the header came in lower case, so the long daily-limit wait was ignored and retries were tried anyway (each retry also counts against the daily request cap). It is now read in any case.
+- When the service says to wait longer than two minutes (for example the daily request cap), the price check stops at once and reports when the limit resets, instead of retrying.
+
 ## 1.16.4
 - When the price service answers with an error (including a rate limit), the search log now records its full reply: the HTTP status, the response headers (such as Retry-After) and the first 500 characters of the body.
 

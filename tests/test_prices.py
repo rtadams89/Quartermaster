@@ -466,18 +466,13 @@ def test_a_rate_limit_backs_off_20_then_40_seconds_and_then_succeeds(monkeypatch
     assert pauses == [20, 40] and calls["n"] == 3
 
 
-def test_a_rate_limit_honours_retry_after_up_to_a_cap(monkeypatch):
+def test_a_rate_limit_honours_retry_after(monkeypatch):
     fake, _ = _limited(2, retry_after=7)
     pauses = []
     monkeypatch.setattr(pricing, "fetch", fake)
     monkeypatch.setattr(pricing, "_pause", lambda s, c=None: pauses.append(s))
     pricing.search("k", "9mm-luger", {})
     assert pauses == [7, 7]
-    fake, _ = _limited(1, retry_after=9999)
-    pauses.clear()
-    monkeypatch.setattr(pricing, "fetch", fake)
-    pricing.search("k", "9mm-luger", {})
-    assert pauses == [pricing.MAX_RETRY_AFTER]
 
 
 def test_a_rate_limit_that_never_clears_stops_after_three_waits(monkeypatch):
@@ -553,3 +548,35 @@ def test_the_service_reply_to_an_error_is_logged(monkeypatch):
     with pytest.raises(pricing.PriceError):
         pricing.search("k", "9mm-luger", {}, log)
     assert any("service replied: HTTP 429" in x and "slow down" in x for x in log)
+
+
+def test_a_long_retry_after_stops_at_once_without_retrying(monkeypatch):
+    fake, calls = _limited(99, retry_after=53451)
+    pauses = []
+    monkeypatch.setattr(pricing, "fetch", fake)
+    monkeypatch.setattr(pricing, "_pause", lambda s, c=None: pauses.append(s))
+    with pytest.raises(pricing.PriceError) as err:
+        pricing.search("k", "9mm-luger", {})
+    assert err.value.rate_limited and "14 h 50 min" in str(err.value)
+    assert pauses == [] and calls["n"] == 1
+
+
+def test_retry_after_is_read_whatever_the_header_case(monkeypatch):
+    import http.server
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(429)
+            self.send_header("retry-after", "53451")
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    pricing.threading.Thread(target=srv.serve_forever, daemon=True).start()
+    monkeypatch.setattr(pricing, "BASE_URL", f"http://127.0.0.1:{srv.server_port}/")
+    with pytest.raises(pricing.PriceError) as err:
+        pricing.fetch("x", {}, "k")
+    srv.shutdown()
+    assert err.value.retry_after == 53451

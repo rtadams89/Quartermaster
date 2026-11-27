@@ -20,7 +20,7 @@ SHIPPING_BUCKET = "high"  # service filter: rating above 4
 BAND = 2  # factor above and below the current price
 CASINGS_SENT = {"brass", "steel", "aluminum", "composite", "alloy"}
 RETRY_WAITS = (20, 40, 60)  # seconds to wait after each 429 before trying again
-MAX_RETRY_AFTER = 120  # longest Retry-After the service may ask for
+MAX_RETRY_AFTER = 120  # longest Retry-After that is waited out
 SKIPPED_BRANDS = {"", "misc", "miscellaneous", "surplus", "unknown", "other", "handload", "handloads", "reload", "reloads"}
 GENERIC_WORDS = {"loose", "box", "boxes", "ammo", "ammunition", "bulk", "the", "and", "for", "round", "rounds", "case", "cases"}
 TYPE_WORDS = {
@@ -66,7 +66,7 @@ def fetch(endpoint: str, params: dict, key: str):
         if e.code in (401, 403):
             raise PriceError("The price service did not accept the API key.", fatal=True, detail=detail)
         if e.code == 429:
-            after = str(shown.get("Retry-After", "")).strip()
+            after = str(e.headers.get("Retry-After", "") if getattr(e, "headers", None) else "").strip()
             raise PriceError("The price service's rate limit was reached.", rate_limited=True, retry_after=int(after) if after.isdigit() else None, detail=detail)
         raise PriceError(f"The price service answered with an error ({e.code}).", stale="stale_input" in body, detail=detail)
     except (urllib.error.URLError, TimeoutError, OSError):
@@ -156,6 +156,11 @@ def search(key: str, slug: str, query: dict, log: list[str] | None = None, cance
         except PriceError as e:
             if e.detail:
                 log.append(f"  service replied: {e.detail}")
+            if e.rate_limited and e.retry_after and e.retry_after > MAX_RETRY_AFTER:
+                hours, minutes = divmod(e.retry_after // 60, 60)
+                reset = f"{hours} h {minutes} min" if hours else f"{minutes} min"
+                log.append(f"  FAILED: {e}")
+                raise PriceError(f"The price service's request limit was reached and resets in about {reset}. Try again then.", rate_limited=True)
             if e.rate_limited and retries < len(RETRY_WAITS):
                 wait = min(e.retry_after, MAX_RETRY_AFTER) if e.retry_after else RETRY_WAITS[retries]
                 retries += 1
