@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.16.6
+- Rate-limit replies are now read the way parse.bot documents them: the `limit_type` in the error body tells a daily cap (stop at once and report when it resets) from a burst limit (wait the `Retry-After` seconds, then retry). `retry_after` from the body is used when the header is missing.
+
 ## 1.16.5
 - Fix: the service's `Retry-After` was missed because the header came in lower case, so the long daily-limit wait was ignored and retries were tried anyway (each retry also counts against the daily request cap). It is now read in any case.
 - When the service says to wait longer than two minutes (for example the daily request cap), the price check stops at once and reports when the limit resets, instead of retrying.

@@ -35,8 +35,9 @@ TYPE_WORDS = {
 class PriceError(Exception):
     """A search failed. `fatal`: no further search will work."""
 
-    def __init__(self, message: str, fatal: bool = False, rate_limited: bool = False, stale: bool = False, retry_after: int | None = None, detail: str = ""):
+    def __init__(self, message: str, fatal: bool = False, rate_limited: bool = False, stale: bool = False, retry_after: int | None = None, detail: str = "", daily: bool = False):
         super().__init__(message)
+        self.daily = daily
         self.detail = detail
         self.retry_after = retry_after
         self.fatal = fatal
@@ -67,12 +68,23 @@ def fetch(endpoint: str, params: dict, key: str):
             raise PriceError("The price service did not accept the API key.", fatal=True, detail=detail)
         if e.code == 429:
             after = str(e.headers.get("Retry-After", "") if getattr(e, "headers", None) else "").strip()
-            raise PriceError("The price service's rate limit was reached.", rate_limited=True, retry_after=int(after) if after.isdigit() else None, detail=detail)
+            info = _error_info(body)
+            seconds = int(after) if after.isdigit() else info.get("retry_after") if isinstance(info.get("retry_after"), int) else None
+            raise PriceError("The price service's rate limit was reached.", rate_limited=True, retry_after=seconds, detail=detail, daily=info.get("limit_type") == "daily")
         raise PriceError(f"The price service answered with an error ({e.code}).", stale="stale_input" in body, detail=detail)
     except (urllib.error.URLError, TimeoutError, OSError):
         raise PriceError("Could not reach the price service from the server.", fatal=True)
     except ValueError:
         raise PriceError("The price service sent a reply that could not be read.")
+
+
+def _error_info(body: str) -> dict:
+    """The `error` object of a service error reply, or {}."""
+    try:
+        info = json.loads(body).get("error")
+    except (ValueError, AttributeError):
+        return {}
+    return info if isinstance(info, dict) else {}
 
 
 def _checked(js):
@@ -142,6 +154,13 @@ def describe(it: dict) -> str:
             f"| {it.get('casing', '?')} | {it.get('condition', '?')}")
 
 
+def _reset_text(seconds: int | None) -> str:
+    if not seconds:
+        return ""
+    hours, minutes = divmod(seconds // 60, 60)
+    return f" and resets in about {hours} h {minutes} min" if hours else f" and resets in about {minutes} min"
+
+
 def search(key: str, slug: str, query: dict, log: list[str] | None = None, cancel: threading.Event | None = None) -> list[dict]:
     """The first page (40 listings, cheapest first) of in-stock listings for a caliber, narrowed by the query."""
     log = [] if log is None else log
@@ -156,11 +175,9 @@ def search(key: str, slug: str, query: dict, log: list[str] | None = None, cance
         except PriceError as e:
             if e.detail:
                 log.append(f"  service replied: {e.detail}")
-            if e.rate_limited and e.retry_after and e.retry_after > MAX_RETRY_AFTER:
-                hours, minutes = divmod(e.retry_after // 60, 60)
-                reset = f"{hours} h {minutes} min" if hours else f"{minutes} min"
+            if e.rate_limited and (e.daily or (e.retry_after or 0) > MAX_RETRY_AFTER):
                 log.append(f"  FAILED: {e}")
-                raise PriceError(f"The price service's request limit was reached and resets in about {reset}. Try again then.", rate_limited=True)
+                raise PriceError(f"The price service's {'daily ' if e.daily else ''}request limit was reached{_reset_text(e.retry_after)}. Try again then.", rate_limited=True)
             if e.rate_limited and retries < len(RETRY_WAITS):
                 wait = min(e.retry_after, MAX_RETRY_AFTER) if e.retry_after else RETRY_WAITS[retries]
                 retries += 1

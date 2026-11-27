@@ -580,3 +580,20 @@ def test_retry_after_is_read_whatever_the_header_case(monkeypatch):
         pricing.fetch("x", {}, "k")
     srv.shutdown()
     assert err.value.retry_after == 53451
+
+
+def test_a_daily_limit_stops_at_once_even_with_a_short_retry_after(monkeypatch):
+    def fake(endpoint, params, key):
+        raise pricing.PriceError("limit", rate_limited=True, retry_after=60, daily=True)
+
+    pauses = []
+    monkeypatch.setattr(pricing, "fetch", fake)
+    monkeypatch.setattr(pricing, "_pause", lambda s, c=None: pauses.append(s))
+    with pytest.raises(pricing.PriceError) as err:
+        pricing.search("k", "9mm-luger", {})
+    assert "daily request limit" in str(err.value) and "1 min" in str(err.value) and pauses == []
+
+
+def test_the_error_body_tells_a_daily_limit_from_a_burst_limit():
+    assert pricing._error_info('{"error": {"limit_type": "daily", "retry_after": 5}, "status_code": 429}')["limit_type"] == "daily"
+    assert pricing._error_info("not json") == {} and pricing._error_info("[]") == {}
