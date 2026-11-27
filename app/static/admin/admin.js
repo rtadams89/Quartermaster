@@ -104,7 +104,7 @@ function makeSortable(tbl, ths, labels) {
 }
 const empty = (msg) => h('div', { class: 'empty' }, msg);
 const boxesCell = (n) => td(h('span', { class: n < 0 ? 'neg' : '' }, fmtInt(n)), 'num');
-const specOf = (p, { naWeight = true } = {}) => [p.bullet_weight_gr === 0 ? (naWeight ? 'N/A' : '') : p.bullet_weight_gr ? `${p.bullet_weight_gr} gr` : '', p.bullet_type, p.rounds_per_box === 1 ? 'by the round' : `${p.rounds_per_box}/box`, naWeight && p.indoor_safe === false ? 'Outdoor only' : ''].filter(Boolean).join(' · ');
+const specOf = (p, { naWeight = true } = {}) => [p.bullet_weight_gr === 0 ? (naWeight ? 'N/A' : '') : p.bullet_weight_gr ? `${p.bullet_weight_gr} gr` : '', p.bullet_type, p.is_blank ? 'Blank' : '', p.rounds_per_box === 1 ? 'by the round' : `${p.rounds_per_box}/box`, naWeight && p.indoor_safe === false ? 'Outdoor only' : ''].filter(Boolean).join(' · ');
 /** The same, for a printed label: no weight line at all when the weight is N/A. */
 const labelSpecOf = (p) => specOf(p, { naWeight: false });
 // Products with 1 round per box are counted, and shown, by the round.
@@ -305,6 +305,8 @@ function productFields(calibers, p = {}) {
   };
   weight.addEventListener('blur', () => { if (weightValue() === 0) weight.value = 'N/A'; });
   const type = h('input', { value: p.bullet_type ?? '', list: 'bullet-types', placeholder: 'FMJ, JHP…', maxlength: 40 });
+  const casing = h('input', { value: p.case_material ?? '', list: 'case-materials', placeholder: 'Brass, Steel…', maxlength: 40 });
+  const blank = h('input', { type: 'checkbox', checked: p.is_blank === true });
   const rpb = h('input', { type: 'number', min: 1, step: 1, required: true, value: p.rounds_per_box ?? '', placeholder: 'e.g. 50' });
   const cost = moneyInput(p.cost_per_box);
   const minr = h('input', { type: 'number', min: 0, step: 1, value: p.min_rounds ?? '', placeholder: 'blank = no alert' });
@@ -328,11 +330,14 @@ function productFields(calibers, p = {}) {
     labeled('Rounds per box', rpb, '', 'Use 1 for ammo you count by the individual round; it then shows round counts instead of boxes.'),
     labeled('Manufacturer', brandBox.el), labeled('Product / line', name),
     labeled('Bullet weight (gr)', weight, '', '0 or N/A means no traditional bullet weight (shot, slugs, flares…).'), labeled('Bullet type', type),
+    labeled('Case material', casing, '', 'Optional. Used when looking up market prices.'),
+    h('label', { class: 'check' }, blank, h('span', {}, h('b', {}, 'Blank (no projectile)'), h('small', { class: 'hint' }, 'Blanks are priced from blank listings only.'))),
     costRow,
     labeled('Alert when below (rounds)', minr, '', 'Optional. Leave blank for no alert. Otherwise this product is flagged as low when its rounds on hand drop under this number.'),
     h('label', { class: 'check full' }, indoor, h('span', {}, h('b', {}, 'Indoor range safe'),
       h('small', { class: 'hint' }, 'Uncheck for ammo that indoor ranges do not allow (steel core, bimetal, tracer, incendiary, some shot…). The kiosk asks for confirmation when it is checked out.'))),
     labeled('Notes', notes, 'full'),
+    h('datalist', { id: 'case-materials' }, ['Brass', 'Steel', 'Aluminum', 'Nickel', 'Plastic'].map((t) => h('option', { value: t }))),
     h('datalist', { id: 'bullet-types' }, ['FMJ', 'TMJ', 'JHP', 'HP', 'SP', 'LRN', 'LSWC', 'BTHP', 'SMK', 'Birdshot', 'Buckshot', 'Slug'].map((t) => h('option', { value: t }))));
   cost.el.addEventListener('input', showPerRound);
   cost.el.addEventListener('blur', showPerRound);
@@ -345,6 +350,7 @@ function productFields(calibers, p = {}) {
       caliber_id: caliberId, brand: brand.value.trim(), name: name.value.trim(),
       bullet_weight_gr: weightValue(), bullet_type: type.value.trim(),
       rounds_per_box: Number(rpb.value), cost_per_box: cost.value(), notes: notes.value, indoor_safe: indoor.checked,
+      case_material: casing.value.trim(), is_blank: blank.checked,
       min_rounds: minr.value === '' ? null : Number(minr.value),
     };
   };
@@ -1275,6 +1281,8 @@ function stepModal(title, onClose) {
   return { close, show(content, buttons) { clear(body, content); clear(actions, buttons); } };
 }
 
+const priceLogLink = (job) => h('a', { href: `/api/prices/jobs/${job.id}/log`, target: '_blank', rel: 'noopener' }, 'View the search log');
+
 /** Pick which products to price, look their prices up, and save the ones you accept. */
 async function priceDialog(calibers, preset = {}, done = () => {}) {
   let job = null, timer = null, plan = null, planError = '', picker = null, products = null, busy = false;
@@ -1347,7 +1355,7 @@ async function priceDialog(calibers, preset = {}, done = () => {}) {
   const drawRunning = () => modal.show(h('div', {},
     h('p', {}, job.state === 'running' ? `Checked ${fmtInt(job.done)} of ${fmtInt(job.total)} products (${fmtInt(job.calls)} search${job.calls === 1 ? '' : 'es'})…` : 'Finishing…'),
     h('progress', { max: job.total || 1, value: job.done, style: { width: '100%' } }),
-    h('p', { class: 'sub' }, 'The service allows only a few searches a minute, so this can take a while. You can keep this window open or cancel and review what has been found so far.')),
+    h('p', { class: 'sub' }, 'The service allows only a few searches a minute, so this can take a while. You can keep this window open or cancel and review what has been found so far. ', priceLogLink(job))),
   [h('button', { class: 'btn', type: 'button', onclick: () => post(`/api/prices/jobs/${job.id}/cancel`).catch(() => {}) }, 'Cancel')]);
   const poll = async () => {
     try { job = await get(`/api/prices/jobs/${job.id}`); } catch (e) { modal.show(h('p', { class: 'err' }, e.message), [h('button', { class: 'btn', type: 'button', onclick: modal.close }, 'Close')]); return; }
@@ -1376,7 +1384,7 @@ async function priceDialog(calibers, preset = {}, done = () => {}) {
     modal.show(h('div', {},
       job.message ? h('p', { class: 'err' }, job.message) : null,
       job.state === 'cancelled' ? h('p', { class: 'sub' }, 'Cancelled. These are the products checked before it stopped.') : null,
-      h('p', { class: 'sub' }, `${fmtInt(job.calls)} search${job.calls === 1 ? '' : 'es'} used. Prices are the average per round of matching in-stock listings with shipping 5.0+ and no purchase limit; tick the ones to save. Low-confidence matches are not ticked.`),
+      h('p', { class: 'sub' }, `${fmtInt(job.calls)} search${job.calls === 1 ? '' : 'es'} used. Prices are the average per round of matching in-stock listings with shipping 5.0+ and no purchase limit; tick the ones to save. Low-confidence matches are not ticked. `, priceLogLink(job)),
       h('div', { class: 'toolbar' }, h('button', { class: 'btn sm', type: 'button', onclick: () => mark(true) }, 'Tick all'), h('button', { class: 'btn sm', type: 'button', onclick: () => mark(false) }, 'Tick none')),
       h('div', { class: 'serials' }, rows.length ? table(['', 'Product', ['Now', 'num'], ['New', 'num'], ['Change', 'num'], ['Listings', 'num'], 'Match'], trs, { sort: false }) : empty('Nothing was checked.'))),
     [h('button', { class: 'btn', type: 'button', onclick: modal.close }, 'Close'), apply]);
@@ -1402,19 +1410,26 @@ async function priceCalibers(done = () => {}) {
     const options = c.options.map((o) => ({ id: o.slug, name: o.label }));
     picks.clear();
     clear(body, h('p', { class: 'sub' }, 'Calibers are matched by name where possible. Fix any that are missing or wrong; an empty box skips that caliber.'),
-      h('div', { class: 'serials' }, table(['Your caliber', ['Products', 'num'], 'AmmoSeek caliber'], c.calibers.filter((x) => x.products).map((x) => {
+      h('p', { class: 'sub' }, '"Must include" and "Must exclude" are optional words (separated by spaces) that a listing\'s description must or must not contain, for example include "shot" and exclude "buck slug" to keep a birdshot caliber away from buckshot and slugs.'),
+      h('div', { class: 'serials' }, table(['Your caliber', ['Products', 'num'], 'AmmoSeek caliber', 'Keywords'], c.calibers.filter((x) => x.products).map((x) => {
         const pick = searchPicker(options, x.slug, { placeholder: 'Type to search', none: 'No matching caliber', empty: '', optional: true, bad: (t) => `"${t}" is not an AmmoSeek caliber. Pick one from the list, or clear the box.`, missing: '' });
-        picks.set(x.id, { pick, was: x.slug || null, name: x.name });
-        return h('tr', {}, td(h('b', {}, x.name)), td(fmtInt(x.products), 'num'), td(pick.el));
+        const inc = h('input', { value: x.include, maxlength: 80, placeholder: 'Must include', style: { width: '128px' }, 'aria-label': `Must include for ${x.name}` });
+        const exc = h('input', { value: x.exclude, maxlength: 80, placeholder: 'Must exclude', style: { width: '128px', marginTop: '4px' }, 'aria-label': `Must exclude for ${x.name}` });
+        picks.set(x.id, { pick, inc, exc, was: x.slug || null, wasInc: x.include, wasExc: x.exclude, name: x.name });
+        return h('tr', {}, td(h('b', {}, x.name)), td(fmtInt(x.products), 'num'), td(pick.el), td([inc, exc]));
       }), { sort: false })));
   };
   draw(cfg);
   dialog({ title: 'Match calibers to AmmoSeek', ok: 'Save', wide: true, body,
     onOk: async () => {
-      for (const [id, { pick, was, name }] of picks) {
+      for (const [id, { pick, inc, exc, was, wasInc, wasExc, name }] of picks) {
         let slug;
         try { slug = pick.value(); } catch (e) { throw new Error(`${name}: ${e.message}`); }
-        if ((slug || null) !== was) await put(`/api/prices/calibers/${id}`, { slug: slug || '' });
+        const change = {};
+        if ((slug || null) !== was) change.slug = slug || '';
+        if (inc.value.trim() !== wasInc) change.include = inc.value.trim();
+        if (exc.value.trim() !== wasExc) change.exclude = exc.value.trim();
+        if (Object.keys(change).length) await put(`/api/prices/calibers/${id}`, change);
       }
       done();
     } });

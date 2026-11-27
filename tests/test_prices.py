@@ -186,3 +186,128 @@ def test_editing_a_products_cost_stamps_its_price_date(authed):
     stamped = c.put(f"/api/products/{p['id']}", json={**body, "cost_per_box": 12.5}).json()
     assert stamped["price_updated"]
     assert c.put(f"/api/products/{p['id']}", json={**body, "cost_per_box": None}).json()["price_updated"] is None
+
+
+# ------------------------------------------------------------ 1.15.2: filters, case material, blanks, words, log
+def test_query_carries_the_fixed_filters_blank_flag_case_and_words():
+    q = pricing.query_for(FEDERAL)
+    assert q["condition"] == "new" and q["hide_purchase_limits"] == "true" and q["shipping_rating"] == "high"
+    assert q["show_blanks"] == "false" and q["include"] == "Federal" and q["grains"] == 115 and q["casing"] == "" and q["exclude"] == ""
+    blank = pricing.query_for({**FEDERAL, "is_blank": True, "case_material": "Brass"}, {"include": "shot", "exclude": "buck slug"})
+    assert blank["show_blanks"] == "true" and blank["casing"] == "brass" and blank["include"] == "shot" and blank["exclude"] == "buck slug"
+    assert pricing.query_for({**FEDERAL, "case_material": "Plastic hull"})["casing"] == ""
+    assert pricing.search_key("9mm-luger", q) != pricing.search_key("9mm-luger", blank)
+
+
+def test_estimate_checks_case_blank_and_must_words_and_explains_itself():
+    steel = FEDERAL | {"case_material": "Steel"}
+    items = [listing("Federal American Eagle 9mm 115gr FMJ steel", "Federal", 115, "$20.00", 50) | {"casing": "steel"},
+             listing("Federal American Eagle 9mm 115gr FMJ", "Federal", 115, "$30.00", 50) | {"casing": "brass"},
+             listing("Federal American Eagle 9mm 115gr FMJ blank", "Federal", 115, "$10.00", 50) | {"casing": "steel"}]
+    trace: list[str] = []
+    r = pricing.estimate(steel, items, trace=trace)
+    assert r["price"] == pytest.approx(0.40) and r["listings"] == 1
+    text = "\n".join(trace)
+    assert "case is brass, not steel" in text and "listing is a blank but the product is not" in text and "usable" in text and "chosen" in text
+
+    blanks = FEDERAL | {"is_blank": True, "bullet_type": ""}
+    assert pricing.estimate(blanks, items)["price"] == pytest.approx(0.20)
+    assert pricing.estimate(FEDERAL, items, {"include": "steel"})["listings"] == 1
+    assert pricing.estimate(FEDERAL, items, {"exclude": "steel"})["listings"] == 1
+    assert pricing.estimate(FEDERAL, items, {"include": "birdshot"})["confidence"] == "none"
+
+
+def test_a_rejected_case_filter_is_retried_without_it(monkeypatch):
+    seen = []
+
+    def fetch(endpoint, params, key):
+        seen.append(dict(params))
+        if "casing" in params:
+            raise pricing.PriceError("bad option", stale=True)
+        return {"status": "success", "data": {"items": [listing("x", "Federal", 115, "$1.00", 50)], "total": 1, "filtered": 1}}
+
+    monkeypatch.setattr(pricing, "fetch", fetch)
+    log: list[str] = []
+    items = pricing.search("k", "9mm-luger", pricing.query_for(FEDERAL | {"case_material": "brass"}), log)
+    assert len(items) == 1 and "casing" in seen[0] and "casing" not in seen[1]
+    assert sum("REQUEST" in x for x in log) == 2 and any("without the case-material filter" in x for x in log)
+    with pytest.raises(pricing.PriceError) as bad:
+        pricing._checked({"status": "error", "message": "stale_input"})
+    assert bad.value.stale
+
+
+def test_words_blank_and_case_reach_the_search_and_the_log_is_available(authed, fake_service):
+    c = authed
+    c.put("/api/prices/settings", json={"key": "secret-key", "per_minute": 250})
+    cal = c.get("/api/calibers").json()[0]
+    c.put(f"/api/prices/calibers/{cal['id']}", json={"slug": "9mm-luger", "include": "  eagle ", "exclude": "buck  slug"})
+    c.put(f"/api/prices/calibers/{cal['id']}", json={"exclude": "buck slug blank"})
+    row = [x for x in c.get("/api/prices/config").json()["calibers"] if x["id"] == cal["id"]][0]
+    assert row["slug"] == "9mm-luger" and row["include"] == "eagle" and row["exclude"] == "buck slug blank"
+    p = make_product(c, case_material=" Brass ")
+    assert p["case_material"] == "Brass" and p["is_blank"] is False
+    blank = make_product(c, name="Blanks", is_blank=True, case_material="Steel")
+    assert blank["is_blank"] is True
+
+    job = c.post("/api/prices/jobs", json={"scope": "caliber", "id": cal["id"], "in_stock_only": False}).json()
+    done = wait_done(c, job)
+    assert done["calls"] == 2
+    searches = [x[1] for x in fake_service if x[0] == "search_ammo"]
+    assert {s["show_blanks"] for s in searches} == {"true", "false"} and {s.get("casing") for s in searches} == {"brass", "steel"}
+    assert all(s["include"] == "eagle" and s["exclude"] == "buck slug blank" and s["condition"] == "new" and s["hide_purchase_limits"] == "true"
+               and s["shipping_rating"] == "high" and s["length"] == 40 and s["start"] == 0 for s in searches)
+
+    log = c.get(f"/api/prices/jobs/{job['id']}/log")
+    assert log.status_code == 200 and log.headers["content-type"].startswith("text/plain")
+    assert "secret-key" not in log.text and "REQUEST search_ammo" in log.text and "RESULT:" in log.text and "Federal American Eagle" in log.text
+    assert "usable" in log.text and "chosen" in log.text
+    assert c.get("/api/prices/jobs/nope/log").status_code == 404
+
+    c.put(f"/api/prices/calibers/{cal['id']}", json={"include": "", "exclude": ""})
+    row = [x for x in c.get("/api/prices/config").json()["calibers"] if x["id"] == cal["id"]][0]
+    assert row["include"] == "" and row["exclude"] == ""
+
+
+def test_case_material_and_blank_are_saved_exported_and_imported(authed):
+    c = authed
+    plain = make_product(c)
+    assert plain["case_material"] == "" and plain["is_blank"] is False
+    p = make_product(c, name="Blanks", case_material="Brass", is_blank=True)
+    csv_text = c.get("/api/export/products.csv").text
+    assert csv_text.splitlines()[0].endswith(",case_material,blank") and ",Brass,yes" in csv_text
+    r = c.post("/api/import/products", content=csv_text.encode()).json()
+    assert (r["update"], r["unchanged"], r["error_count"]) == (0, 2, 0)
+    edited = csv_text.replace(",Brass,yes", ",Steel,no")
+    assert c.post("/api/import/products?apply=true", content=edited.encode()).status_code == 200
+    after = {x["id"]: x for x in c.get("/api/products").json()}[p["id"]]
+    assert after["case_material"] == "Steel" and after["is_blank"] is False
+    assert c.post("/api/import/products", content=csv_text.replace(",Brass,yes", ",Brass,maybe").encode()).json()["error_count"] == 1
+
+
+def test_a_backup_from_before_case_material_and_blank_still_restores(authed, tmp_path):
+    p = make_product(authed, name="Old", case_material="Brass", is_blank=True)
+    src = tmp_path / "full.db"
+    src.write_bytes(authed.get("/api/backup").content)
+    con = sqlite3.connect(src)
+    con.execute("ALTER TABLE products DROP COLUMN case_material")
+    con.execute("ALTER TABLE products DROP COLUMN is_blank")
+    con.commit()
+    con.close()
+    make_product(authed, name="Newer")
+    assert authed.post("/api/restore", content=src.read_bytes()).status_code == 200
+    prods = authed.get("/api/products").json()
+    assert [x["name"] for x in prods] == ["Old"] and prods[0]["case_material"] == "" and prods[0]["is_blank"] is False
+
+
+def test_startup_upgrade_adds_case_material_and_blank(tmp_path, monkeypatch):
+    from sqlalchemy import create_engine, text
+    import app.db as db
+
+    eng = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    with eng.begin() as con:
+        con.execute(text("CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT)"))
+        con.execute(text("INSERT INTO products (id, name) VALUES (1, 'x')"))
+    monkeypatch.setattr(db, "engine", eng)
+    db.upgrade_schema()
+    with eng.begin() as con:
+        assert con.execute(text("SELECT case_material, is_blank FROM products")).one() == ("", 0)

@@ -12,12 +12,15 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from datetime import datetime
 from difflib import SequenceMatcher
 
 BASE_URL = "https://api.parse.bot/scraper/0a603c5c-dac6-4a0a-a758-05abdfc3060e/"
 TIMEOUT = 40
 PAGE_LENGTH = 40
 MIN_SHIPPING = 50  # AmmoSeek shipping score in tenths; higher is cheaper shipping
+SHIPPING_BUCKET = "high"  # the service's own filter: rating above 4
+CASINGS_SENT = {"brass", "steel", "aluminum", "nickel"}
 RETRY_WAIT = 20  # seconds to wait after a 429 before trying once more
 SKIPPED_BRANDS = {"", "misc", "miscellaneous", "surplus", "unknown", "other", "handload", "handloads", "reload", "reloads"}
 GENERIC_WORDS = {"loose", "box", "boxes", "ammo", "ammunition", "bulk", "the", "and", "for", "round", "rounds", "case", "cases"}
@@ -32,10 +35,11 @@ TYPE_WORDS = {
 class PriceError(Exception):
     """A search could not be made. `fatal` means no further search will work (bad key, no connection)."""
 
-    def __init__(self, message: str, fatal: bool = False, rate_limited: bool = False):
+    def __init__(self, message: str, fatal: bool = False, rate_limited: bool = False, stale: bool = False):
         super().__init__(message)
         self.fatal = fatal
         self.rate_limited = rate_limited
+        self.stale = stale
 
 
 def _pause(seconds: float) -> None:
@@ -48,17 +52,26 @@ def fetch(endpoint: str, params: dict, key: str):
     req = urllib.request.Request(f"{BASE_URL}{endpoint}" + (f"?{query}" if query else ""), headers={"X-API-Key": key, "Accept": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            return json.loads(resp.read().decode("utf-8", "replace"))
+            return _checked(json.loads(resp.read().decode("utf-8", "replace")))
     except urllib.error.HTTPError as e:
         if e.code in (401, 403):
             raise PriceError("The price service did not accept the API key.", fatal=True)
         if e.code == 429:
             raise PriceError("The price service's rate limit was reached.", rate_limited=True)
-        raise PriceError(f"The price service answered with an error ({e.code}).")
+        body = e.read().decode("utf-8", "replace") if hasattr(e, "read") else ""
+        raise PriceError(f"The price service answered with an error ({e.code}).", stale="stale_input" in body)
     except (urllib.error.URLError, TimeoutError, OSError):
         raise PriceError("Could not reach the price service from the server.", fatal=True)
     except ValueError:
         raise PriceError("The price service sent a reply that could not be read.")
+
+
+def _checked(js):
+    """The decoded reply, or a PriceError when the service says the request was not a success."""
+    if isinstance(js, dict) and js.get("status") not in (None, "success"):
+        text = json.dumps(js)[:300]
+        raise PriceError(f"The price service reported a problem: {text}", stale="stale_input" in text)
+    return js
 
 
 def _payload(js):
@@ -91,25 +104,63 @@ def caliber_options(key: str) -> list[dict]:
     return sorted(out, key=lambda o: o["label"].lower())
 
 
-def search(key: str, slug: str, grains: int | None, include: str) -> list[dict]:
-    """One page of in-stock listings for a caliber, optionally narrowed by grain and a brand word."""
-    params = {"caliber": slug, "length": PAGE_LENGTH, "start": 0}
-    if grains:
-        params["grains"] = grains
-    if include:
-        params["include"] = include
-    for attempt in (0, 1):
+def query_for(product: dict, words: dict | None = None) -> dict:
+    """The search options for a product, beyond the caliber: grain, keywords, case material, blanks and the fixed filters."""
+    grains, brand_word = search_words(product)
+    words = words or {}
+    casing = str(product.get("case_material") or "").strip().lower()
+    return {"grains": grains, "include": (words.get("include") or "").strip() or brand_word,
+            "exclude": (words.get("exclude") or "").strip(), "condition": "new", "hide_purchase_limits": "true",
+            "shipping_rating": SHIPPING_BUCKET, "show_blanks": "true" if product.get("is_blank") else "false",
+            "casing": casing if casing in CASINGS_SENT else ""}
+
+
+def search_key(slug: str, query: dict) -> tuple:
+    return (slug, tuple(sorted((k, v) for k, v in query.items() if v not in (None, ""))))
+
+
+def _stamp() -> str:
+    return datetime.now().strftime("%H:%M:%S")
+
+
+def describe(it: dict) -> str:
+    """One line for a listing: retailer, maker, description, price, count, per-round price, shipping, limit, case and condition."""
+    each = per_round(it)
+    return (f"{it.get('retailer', '?')} | {it.get('mfg', '')} | {str(it.get('descr', ''))[:90]} | {it.get('price', '?')} for {it.get('count', '?')} "
+            f"= {'$%.4f/rd' % each if each else 'n/a'} | {it.get('grains', '?')}gr | ship {it.get('shipping_rating', '?')} | limit {it.get('purchaselimit', '?')} "
+            f"| {it.get('casing', '?')} | {it.get('condition', '?')}")
+
+
+def search(key: str, slug: str, query: dict, log: list[str] | None = None) -> list[dict]:
+    """The first page (40 listings, cheapest first) of in-stock listings for a caliber, narrowed by the query."""
+    log = [] if log is None else log
+    params = {"caliber": slug, "length": PAGE_LENGTH, "start": 0, **{k: v for k, v in query.items() if v not in (None, "")}}
+    waited = dropped = False
+    while True:
+        log.append(f"{_stamp()} REQUEST search_ammo {json.dumps(params)}")
         try:
             data = _payload(fetch("search_ammo", params, key))
             break
         except PriceError as e:
-            if not e.rate_limited or attempt:
+            if e.rate_limited and not waited:
+                waited = True
+                log.append(f"  rate limited; waiting {RETRY_WAIT} seconds, then trying once more")
+                _pause(RETRY_WAIT)
+            elif e.stale and "casing" in params and not dropped:
+                dropped = True
+                params.pop("casing")
+                log.append("  the service rejected an option; trying again without the case-material filter (listings are still checked for it here)")
+            else:
+                log.append(f"  FAILED: {e}")
                 raise
-            _pause(RETRY_WAIT)
     items = data.get("items") if isinstance(data, dict) else None
     if items is None:
         items = _find_dicts(data, "retailer")
-    return [i for i in items if isinstance(i, dict)]
+    items = [i for i in items if isinstance(i, dict)]
+    meta = f" (service total {data.get('total')}, filtered {data.get('filtered')})" if isinstance(data, dict) and "total" in data else ""
+    log.append(f"  RESPONSE {len(items)} listings{meta}")
+    log.extend(f"    {n}. {describe(it)}" for n, it in enumerate(items, 1))
+    return items
 
 
 # ------------------------------------------------------------------ matching
@@ -191,35 +242,71 @@ def _name_score(name: str, descr: str) -> float:
     return sum(1 for w in words if w in descr) / len(words)
 
 
-def estimate(product: dict, items: list[dict]) -> dict:
+def _has_words(words: str, text: str) -> list[str]:
+    """The words (split on spaces) that do not appear in the text."""
+    return [w for w in words.lower().split() if w not in text]
+
+
+def reject_reason(product: dict, it: dict, words: dict) -> str | None:
+    """Why a listing cannot be used for the product, or None when it can."""
+    descr = str(it.get("descr") or "").lower()
+    maker = squash(it.get("mfg"))
+    brand, grain = squash(product.get("brand")), product.get("grain")
+    if str(it.get("condition") or "new").lower() != "new":
+        return f"condition is {it.get('condition')}, not new"
+    if not good_shipping(it):
+        return f"shipping rating {it.get('shipping_rating')!r} is below 50 and not free"
+    if has_purchase_limit(it):
+        return f"has a purchase limit ({it.get('purchaselimit')})"
+    is_blank = bool(re.search(r"\bblanks?\b", descr))
+    if product.get("is_blank") and not is_blank:
+        return "product is a blank but the listing does not say blank"
+    if is_blank and not product.get("is_blank"):
+        return "listing is a blank but the product is not"
+    case, listed = str(product.get("case_material") or "").strip().lower(), str(it.get("casing") or "").strip().lower()
+    if case and listed and case not in listed and listed not in case:
+        return f"case is {listed}, not {case}"
+    if not (brand and ((maker and (brand in maker or maker in brand)) or brand in squash(descr))):
+        return "brand does not match"
+    text = f"{descr} {str(it.get('mfg') or '').lower()}"
+    missing = _has_words(words.get("include") or "", text)
+    if missing:
+        return f"must-include word missing: {' '.join(missing)}"
+    present = [w for w in (words.get("exclude") or "").lower().split() if w in text]
+    if present:
+        return f"must-exclude word present: {' '.join(present)}"
+    if grain and grain > 0:
+        try:
+            if abs(int(it.get("grains")) - round(grain)) > 1:
+                return f"grain {it.get('grains')} is not within 1 of {round(grain)}"
+        except (TypeError, ValueError):
+            return "listing has no grain weight"
+    if not per_round(it):
+        return "no price per round"
+    return None
+
+
+def estimate(product: dict, items: list[dict], words: dict | None = None, trace: list[str] | None = None) -> dict:
     """Average price per round of the matching listings with good shipping and no purchase limit, with how sure the match is."""
-    brand = squash(product.get("brand"))
-    grain = product.get("grain")
+    words = words or {}
+    trace = [] if trace is None else trace
     tiers: list[list[float]] = [[], [], []]
     for it in items:
-        if not eligible(it):
-            continue
-        if str(it.get("condition") or "new").lower() != "new":
+        why = reject_reason(product, it, words)
+        if why:
+            trace.append(f"    skip: {why} | {describe(it)}")
             continue
         descr = str(it.get("descr") or "").lower()
-        maker = squash(it.get("mfg"))
-        if not (brand and ((maker and (brand in maker or maker in brand)) or brand in squash(descr))):
-            continue
-        if grain and grain > 0:
-            try:
-                if abs(int(it.get("grains")) - round(grain)) > 1:
-                    continue
-            except (TypeError, ValueError):
-                continue
         price = per_round(it)
-        if not price:
-            continue
         name_ok, type_ok = _name_score(product.get("name", ""), descr), _type_score(product.get("bullet_type", ""), descr)
         if name_ok == 1.0 and type_ok >= 0.5:
             tiers[0].append(price)
         if name_ok >= 0.5:
             tiers[1].append(price)
         tiers[2].append(price)
+        trace.append(f"    usable: name match {name_ok:.0%}, bullet type match {type_ok:.0%}, ${price:.4f}/rd | {describe(it)}")
+    names = ("brand, grain, full name and bullet type", "brand, grain and part of the name", "brand and grain only")
+    trace.append("    usable listings by match level: " + "; ".join(f"{names[i]}: {len(t)}" for i, t in enumerate(tiers)))
     tier = next((i for i, t in enumerate(tiers) if len(t) >= 3), next((i for i, t in enumerate(tiers) if t), None))
     if tier is None:
         note = "No matching listings with shipping 5.0+ and no purchase limit" if items else "No in-stock listings found"
@@ -227,6 +314,8 @@ def estimate(product: dict, items: list[dict]) -> dict:
     prices = sorted(tiers[tier])
     mid = statistics.mean(prices)
     n = len(prices)
+    trace.append(f"    chosen: the first match level with 3 or more listings, else the first with any ({names[tier]}); "
+                 f"average of {n} price{'s' if n != 1 else ''} = ${mid:.4f}/rd")
     if tier == 0 and n >= 3:
         confidence = "high"
     elif (tier == 0) or (tier == 1 and n >= 3):
@@ -265,10 +354,17 @@ class Job:
         self.calls = 0
         self.results: list[dict] = []
         self.cancel = threading.Event()
+        self.log: list[str] = [f"Quartermaster price check {self.id} started {datetime.now():%Y-%m-%d %H:%M:%S}",
+                               f"{len(products)} product(s); at most {per_minute} search(es) a minute.",
+                               "Searches ask for the first 40 listings (cheapest first), new condition, purchase limits hidden and shipping rating above 4;",
+                               "listings are then checked again here (shipping 5.0+ or free, no limit) and averaged per round.", ""]
 
     def view(self) -> dict:
         return {"id": self.id, "state": self.state, "message": self.message, "total": len(self.products),
                 "done": len(self.results), "calls": self.calls, "results": self.results}
+
+    def log_text(self) -> str:
+        return "\n".join(self.log) + "\n"
 
 
 JOBS: dict[str, Job] = {}
@@ -276,7 +372,7 @@ _lock = threading.Lock()
 
 
 def start(products: list[dict], key: str, per_minute: int) -> Job:
-    """Begin a job in the background. Each product is {id, label, brand, name, grain, bullet_type, slug, current}."""
+    """Begin a job in the background. Each product is {id, label, brand, name, grain, bullet_type, case_material, is_blank, words, slug, current}."""
     job = Job(products, key, per_minute)
     with _lock:
         for old in [j for j in JOBS.values() if j.state != "running"][:-4]:
@@ -287,7 +383,16 @@ def start(products: list[dict], key: str, per_minute: int) -> Job:
 
 
 def planned_calls(products: list[dict]) -> int:
-    return len({(p["slug"], *search_words(p)) for p in products if p.get("slug") and not skip_reason(p)})
+    return len({search_key(p["slug"], query_for(p, p.get("words"))) for p in products if p.get("slug") and not skip_reason(p)})
+
+
+def _describe_product(p: dict) -> list[str]:
+    cur = p.get("current")
+    words = p.get("words") or {}
+    return [f"=== {p['label']} ({p.get('caliber', '')}) ===",
+            f"  product: brand {p.get('brand') or '-'}, name {p.get('name') or '-'}, grain {p.get('grain') or '-'}, bullet type {p.get('bullet_type') or '-'}, "
+            f"case {p.get('case_material') or '-'}, blank {'yes' if p.get('is_blank') else 'no'}, current price {'$%.4f/rd' % cur if cur else 'none'}",
+            f"  caliber match: {p.get('slug') or 'none'}; must include '{words.get('include', '')}', must exclude '{words.get('exclude', '')}'"]
 
 
 def _run(job: Job) -> None:
@@ -297,30 +402,48 @@ def _run(job: Job) -> None:
         for p in job.products:
             if job.cancel.is_set():
                 job.state = "cancelled"
+                job.log.append("Cancelled.")
                 return
             row = {"id": p["id"], "label": p["label"], "caliber": p.get("caliber", ""), "current": p.get("current"), "rounds_per_box": p.get("rounds_per_box")}
+            job.log.extend(_describe_product(p))
             reason = skip_reason(p) or (None if p.get("slug") else "This caliber isn't matched to an AmmoSeek caliber yet")
             if reason:
                 job.results.append({**row, "price": None, "listings": 0, "confidence": "none", "note": reason})
+                job.log.extend([f"  skipped: {reason}", ""])
                 continue
-            grains, include = search_words(p)
-            ck = (p["slug"], grains, include)
+            words = p.get("words") or {}
+            query = query_for(p, words)
+            ck = search_key(p["slug"], query)
             if ck not in cache:
                 wait = job.gap - (time.monotonic() - last)
                 if last and wait > 0:
                     _pause(wait)
                 last = time.monotonic()
-                job.calls += 1
+                lg: list[str] = []
                 try:
-                    cache[ck] = search(job.key, p["slug"], grains, include)
+                    cache[ck] = search(job.key, p["slug"], query, lg)
                 except PriceError as e:
+                    job.calls += sum(1 for x in lg if "REQUEST" in x)
+                    job.log.extend(lg)
+                    job.results.append({**row, "price": None, "listings": 0, "confidence": "none", "note": str(e)})
                     if e.fatal or e.rate_limited:
                         job.state, job.message = "stopped", str(e)
-                        job.results.append({**row, "price": None, "listings": 0, "confidence": "none", "note": str(e)})
+                        job.log.append(f"  stopped: {e}")
                         return
-                    job.results.append({**row, "price": None, "listings": 0, "confidence": "none", "note": str(e)})
+                    job.log.extend([f"  no result: {e}", ""])
                     continue
-            job.results.append({**row, **estimate(p, cache[ck])})
+                job.calls += sum(1 for x in lg if "REQUEST" in x)
+                job.log.extend(lg)
+            else:
+                job.log.append("  search: same options as an earlier product, so that search's listings are reused (no new request)")
+            trace: list[str] = []
+            result = estimate(p, cache[ck], words, trace)
+            job.log.extend(trace)
+            job.results.append({**row, **result})
+            shown = f"${result['price']:.4f}/rd from {result['listings']} listing(s)" if result["price"] else "no price"
+            job.log.extend([f"  RESULT: {shown}; confidence {result['confidence']}; {result['note'] or 'good match'}", ""])
         job.state = "done"
+        job.log.append("Done.")
     except Exception as e:
         job.state, job.message = "stopped", f"Stopped unexpectedly: {e}"
+        job.log.append(job.message)

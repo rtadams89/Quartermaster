@@ -31,10 +31,10 @@ def test_csv_round_trip_keeps_the_flag(authed):
     p = make_product(authed, indoor_safe=False)
     add_code(authed, p, "012345678905")
     text = authed.get("/api/export/products.csv").text
-    assert text.splitlines()[1].split(",")[-1] == "no"
+    assert text.splitlines()[1].split(",")[-3] == "no"
     r = do_import(authed, text).json()
     assert (r["update"], r["unchanged"], r["error_count"]) == (0, 1, 0)
-    edited = text.replace(",no\r\n", ",yes\r\n").replace(",no\n", ",yes\n")
+    edited = text.replace(",no,,no", ",yes,,no")
     assert do_import(authed, edited).json()["update"] == 1
     do_import(authed, edited, apply=True)
     assert authed.get("/api/products").json()[0]["indoor_safe"] is True
@@ -52,7 +52,7 @@ def test_older_csv_without_the_column_leaves_it_alone(authed):
     add_code(authed, p, "012345678905")
     head = "caliber,manufacturer,name,weight_gr,type,rounds_per_box,cost_per_box,low_stock_rounds,codes,notes\n"
     rows = authed.get("/api/export/products.csv").text.splitlines()[1:]
-    old = head + "\n".join(r.rsplit(",", 1)[0] for r in rows) + "\n"
+    old = head + "\n".join(r.rsplit(",", 3)[0] for r in rows) + "\n"
     do_import(authed, old, apply=True)
     assert authed.get("/api/products").json()[0]["indoor_safe"] is False
 

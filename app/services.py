@@ -77,6 +77,8 @@ def product_dict(p: Product | None) -> dict | None:
         "price_updated": iso(p.price_updated) if p.price_updated else None,
         "notes": p.notes,
         "indoor_safe": bool(p.indoor_safe),
+        "case_material": p.case_material or "",
+        "is_blank": bool(p.is_blank),
     }
 
 
@@ -141,6 +143,8 @@ def spec_text(p: Product) -> str:
         bits.append(f"{fmt_weight(p.bullet_weight_gr)} gr")
     if p.bullet_type:
         bits.append(p.bullet_type)
+    if p.is_blank:
+        bits.append("blank")
     spec = " ".join(bits)
     box = "by the round" if p.rounds_per_box == 1 else f"{p.rounds_per_box} rd/box"
     text = f"{spec} · {box}" if spec else box

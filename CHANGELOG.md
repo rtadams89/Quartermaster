@@ -2,6 +2,12 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.15.2
+- **Case material and Blank.** Each product now has a *Case material* (optional) and a *Blank (no projectile)* checkbox (off by default). Both are in the product form, the products CSV (`case_material`, `blank` columns; older files without them still import) and backups (older backups still restore). Blank products show "blank" in their spec.
+- **Better price searches.** Searches now ask the service itself for new condition only, purchase limits hidden, shipping rating above 4, blanks shown only for blank products, and the product's case material (brass, steel, aluminum or nickel; other materials are checked here instead). If the service rejects the case-material option, the search is repeated without it. Every listing is still checked again here: shipping 5.0 or better (or free), no purchase limit, case material, blank or not, brand and grain.
+- **Must include / Must exclude.** *Settings → Match calibers to AmmoSeek* has two optional keyword boxes per caliber. The words go into the search and each listing's description must contain every "must include" word and none of the "must exclude" words.
+- **Search log.** A price check now keeps a log in memory: each search sent to the service, every listing it returned, why each listing was used or skipped, which match level was chosen and how the average was reached. *View the search log* on the price-check screens opens it. It is lost when the server restarts, and the API key is never in it.
+
 ## 1.15.1
 - Price updates now request the first 40 listings (the most the service returns, cheapest first) and never fetch more pages. Only listings with a shipping rating of 5.0 or better (or free) and no purchase limit are used, and the price is the average per round of those matching listings instead of the median. Outlier trimming was removed.
 

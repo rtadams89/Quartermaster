@@ -79,6 +79,8 @@ class Product(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     # False = outdoor ranges only; the kiosk asks for confirmation at checkout.
     indoor_safe: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("1"))
+    case_material: Mapped[str] = mapped_column(String(40), default="", server_default=text("''"))
+    is_blank: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     caliber: Mapped[Caliber] = relationship(back_populates="products")

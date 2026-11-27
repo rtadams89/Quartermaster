@@ -179,6 +179,8 @@ class ProductIn(BaseModel):
     cost_per_box: float | None = Field(default=None, ge=0)
     notes: str = ""
     indoor_safe: bool = True
+    case_material: str = Field(default="", max_length=40)
+    is_blank: bool = False
     min_rounds: int | None = MIN_ROUNDS
 
 
@@ -255,6 +257,7 @@ def create_product(body: ProductIn, db: Session = Depends(get_db)):
     _check_caliber(db, body.caliber_id)
     fields = body.model_dump(exclude={"min_rounds"})
     fields["brand"] = canonical_brand(db, body.brand)
+    fields["case_material"] = body.case_material.strip()
     p = Product(**fields)
     if p.cost_per_box is not None:
         p.price_updated = utcnow()
@@ -273,6 +276,7 @@ def update_product(pid: int, body: ProductIn, db: Session = Depends(get_db)):
     _check_caliber(db, body.caliber_id)
     fields = body.model_dump(exclude={"min_rounds"})
     fields["brand"] = canonical_brand(db, body.brand, pid)
+    fields["case_material"] = body.case_material.strip()
     if fields["cost_per_box"] != p.cost_per_box:
         p.price_updated = utcnow() if fields["cost_per_box"] is not None else None
     for k, v in fields.items():

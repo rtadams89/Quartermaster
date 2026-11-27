@@ -96,7 +96,7 @@ def test_export_then_import_is_a_no_op_round_trip(authed):
     add_code(authed, p, "012345678905")
     add_code(authed, p, "036000291452")
     csv_text = authed.get("/api/export/products.csv").text
-    assert csv_text.splitlines()[0] == HEAD.strip()
+    assert csv_text.splitlines()[0] == HEAD.strip() + ",case_material,blank"
     r = do_import(authed, csv_text).json()
     assert (r["create"], r["update"], r["unchanged"], r["error_count"]) == (0, 0, 1, 0)
 
