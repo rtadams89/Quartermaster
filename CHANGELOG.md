@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.16.4
+- When the price service answers with an error (including a rate limit), the search log now records its full reply: the HTTP status, the response headers (such as Retry-After) and the first 500 characters of the body.
+
 ## 1.16.3
 - The search log now shows each request as it is sent, and any rate-limit waits as they happen. Before, a search's lines appeared only after it finished, so a long wait looked like a freeze.
 - Cancel now works during a rate-limit wait or the pause between searches instead of waiting for it to end.

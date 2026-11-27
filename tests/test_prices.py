@@ -541,3 +541,15 @@ def test_cancel_interrupts_a_rate_limit_wait(monkeypatch):
     with pytest.raises(pricing.PriceError) as err:
         pricing.search("k", "9mm-luger", {}, cancel=cancel)
     assert str(err.value) == "Cancelled." and calls["n"] == 1
+
+
+def test_the_service_reply_to_an_error_is_logged(monkeypatch):
+    def fake(endpoint, params, key):
+        raise pricing.PriceError("limit", rate_limited=True, retry_after=1, detail="HTTP 429 Too Many Requests; headers {}; body 'slow down'")
+
+    log = []
+    monkeypatch.setattr(pricing, "fetch", fake)
+    monkeypatch.setattr(pricing, "_pause", lambda s, c=None: None)
+    with pytest.raises(pricing.PriceError):
+        pricing.search("k", "9mm-luger", {}, log)
+    assert any("service replied: HTTP 429" in x and "slow down" in x for x in log)

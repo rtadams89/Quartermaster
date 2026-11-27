@@ -35,8 +35,9 @@ TYPE_WORDS = {
 class PriceError(Exception):
     """A search failed. `fatal`: no further search will work."""
 
-    def __init__(self, message: str, fatal: bool = False, rate_limited: bool = False, stale: bool = False, retry_after: int | None = None):
+    def __init__(self, message: str, fatal: bool = False, rate_limited: bool = False, stale: bool = False, retry_after: int | None = None, detail: str = ""):
         super().__init__(message)
+        self.detail = detail
         self.retry_after = retry_after
         self.fatal = fatal
         self.rate_limited = rate_limited
@@ -59,13 +60,15 @@ def fetch(endpoint: str, params: dict, key: str):
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
             return _checked(json.loads(resp.read().decode("utf-8", "replace")))
     except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")[:500] if hasattr(e, "read") else ""
+        shown = {k: v for k, v in (e.headers.items() if getattr(e, "headers", None) else []) if k.lower() != "set-cookie"}
+        detail = f"HTTP {e.code} {e.reason}; headers {json.dumps(shown)}; body {body!r}"
         if e.code in (401, 403):
-            raise PriceError("The price service did not accept the API key.", fatal=True)
+            raise PriceError("The price service did not accept the API key.", fatal=True, detail=detail)
         if e.code == 429:
-            after = str(e.headers.get("Retry-After", "") if getattr(e, "headers", None) else "").strip()
-            raise PriceError("The price service's rate limit was reached.", rate_limited=True, retry_after=int(after) if after.isdigit() else None)
-        body = e.read().decode("utf-8", "replace") if hasattr(e, "read") else ""
-        raise PriceError(f"The price service answered with an error ({e.code}).", stale="stale_input" in body)
+            after = str(shown.get("Retry-After", "")).strip()
+            raise PriceError("The price service's rate limit was reached.", rate_limited=True, retry_after=int(after) if after.isdigit() else None, detail=detail)
+        raise PriceError(f"The price service answered with an error ({e.code}).", stale="stale_input" in body, detail=detail)
     except (urllib.error.URLError, TimeoutError, OSError):
         raise PriceError("Could not reach the price service from the server.", fatal=True)
     except ValueError:
@@ -151,6 +154,8 @@ def search(key: str, slug: str, query: dict, log: list[str] | None = None, cance
             data = _payload(fetch("search_ammo", params, key))
             break
         except PriceError as e:
+            if e.detail:
+                log.append(f"  service replied: {e.detail}")
             if e.rate_limited and retries < len(RETRY_WAITS):
                 wait = min(e.retry_after, MAX_RETRY_AFTER) if e.retry_after else RETRY_WAITS[retries]
                 retries += 1
