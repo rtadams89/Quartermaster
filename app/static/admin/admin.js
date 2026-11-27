@@ -1296,13 +1296,13 @@ async function priceDialog(calibers, preset = {}, done = () => {}) {
     done();
   });
   const scope = h('select', { 'aria-label': 'What to update', onchange: () => { drawPick(); refresh(); } },
-    h('option', { value: 'all' }, 'All products'), h('option', { value: 'caliber' }, 'All products in a caliber'), h('option', { value: 'product' }, 'One product'));
+    h('option', { value: 'all' }, 'All products'), h('option', { value: 'caliber' }, 'All products in a caliber'), h('option', { value: 'stale' }, 'Products not updated in 90+ days'), h('option', { value: 'product' }, 'One product'));
   scope.value = preset.product ? 'product' : preset.caliberId ? 'caliber' : 'all';
   const pickHolder = h('span');
   const stock = h('input', { type: 'checkbox', checked: true, onchange: () => refresh() });
   const stockLabel = h('label', { class: 'chk' }, stock, 'Only products with stock on hand');
   const target = () => {
-    if (scope.value === 'all') return { scope: 'all', in_stock_only: stock.checked };
+    if (scope.value === 'all' || scope.value === 'stale') return { scope: scope.value, in_stock_only: stock.checked };
     if (preset.product && scope.value === 'product') return { scope: 'product', id: preset.product.id };
     try {
       const id = picker.value();
@@ -1327,16 +1327,45 @@ async function priceDialog(calibers, preset = {}, done = () => {}) {
   const refresh = () => { clearTimeout(wait); wait = setTimeout(async () => {
     const t = target();
     plan = null; planError = '';
+    const sig = JSON.stringify(t);
+    if (sig !== lastTarget) { unchecked.clear(); lastTarget = sig; }
     if (t) { try { plan = await post('/api/prices/plan', t); } catch (e) { planError = e.message; } }
     drawSetup();
   }, 250); };
   const lastNote = (r) => [r.confidence === 'none' ? null : h('span', { class: 'tag ' + (r.confidence === 'high' ? 'in' : 'out') }, r.confidence), r.note ? ` ${r.note}` : ''];
 
-  // Built once; only the summary is refreshed.
-  const info = h('div');
+  // Built once; only the summary and the product list are refreshed.
+  const unchecked = new Set(), boxes = new Map();
+  let lastTarget = '';
+  const info = h('div'), summary = h('p'), listBox = h('div');
+  const listed = () => scope.value !== 'product' && plan?.items?.length > 0;
+  const picked = () => (plan?.items ?? []).filter((i) => !i.note && !unchecked.has(i.id));
+  const drawSummary = () => {
+    if (!plan) { clear(summary); return; }
+    const sel = listed() ? picked() : null;
+    const calls = sel ? new Set(sel.map((i) => i.key)).size : plan.calls;
+    const minutes = calls / (plan.per_minute || 5);
+    clear(summary, h('b', {}, sel ? `${fmtInt(sel.length)} of ${fmtInt(plan.items.length)} products selected` : `${fmtInt(plan.products)} product${plan.products === 1 ? '' : 's'}`),
+      ` to check, using up to ${fmtInt(calls)} search${calls === 1 ? '' : 'es'} of your plan` + (calls ? ` (about ${minutes < 1 ? 'a minute' : `${Math.round(minutes * 10) / 10} minutes`})` : ''));
+    startBtn.disabled = !(plan.key_set && calls > 0);
+  };
+  const mark = (on) => { boxes.forEach((b, id) => { if (!b.disabled) { b.checked = on; if (on) unchecked.delete(id); else unchecked.add(id); } }); drawSummary(); };
+  const drawList = () => {
+    boxes.clear();
+    if (!listed()) { clear(listBox, plan && scope.value !== 'product' ? empty('No products match.') : null); return; }
+    const rows = plan.items.map((i) => {
+      const box = h('input', { type: 'checkbox', disabled: !!i.note, checked: !i.note && !unchecked.has(i.id), 'aria-label': `Check the price of ${i.label}`,
+        onchange: () => { if (box.checked) unchecked.delete(i.id); else unchecked.add(i.id); drawSummary(); } });
+      boxes.set(i.id, box);
+      return h('tr', {}, td(box), td([h('b', {}, i.label), i.note && h('div', { class: 'muted', style: { fontSize: '12px' } }, i.note)]), td(i.caliber), td(i.current != null ? fmtPerRound(i.current) : '—', 'num'),
+        td(i.price_updated ? fmtPriceDate(i.price_updated) : 'never', 'num'));
+    });
+    clear(listBox, h('div', { class: 'toolbar' }, h('button', { class: 'btn sm', type: 'button', onclick: () => mark(true) }, 'Select all'), h('button', { class: 'btn sm', type: 'button', onclick: () => mark(false) }, 'Select none')),
+      h('div', { class: 'serials' }, table(['', 'Product', 'Caliber', ['Now', 'num'], ['Updated', 'num']], rows, { sort: false })));
+  };
   const setupEl = h('div', {},
     h('p', { class: 'sub' }, 'Looks up current in-stock prices on AmmoSeek and sets each product to the average price per round of its matching listings (only those with shipping rating 5.0 or better and no purchase limit). You review the prices before anything is saved.'),
-    h('div', { class: 'toolbar' }, scope, pickHolder, stockLabel), info);
+    h('div', { class: 'toolbar' }, scope, pickHolder, stockLabel), info, summary, listBox);
   const cancelBtn = h('button', { class: 'btn', type: 'button', onclick: () => modal.close() }, 'Cancel');
   const startBtn = h('button', { class: 'btn primary', type: 'button', disabled: true, onclick: () => start() }, 'Check prices');
   let view = '';
@@ -1345,20 +1374,20 @@ async function priceDialog(calibers, preset = {}, done = () => {}) {
     if (plan && !plan.key_set) parts.push(h('p', { class: 'err' }, 'Enter your parse.bot API key under Settings first.'));
     if (planError) parts.push(h('p', { class: 'err' }, planError));
     if (plan) {
-      parts.push(h('p', {}, h('b', {}, `${fmtInt(plan.products)} product${plan.products === 1 ? '' : 's'}`),
-        ` to check, using up to ${fmtInt(plan.calls)} search${plan.calls === 1 ? '' : 'es'} of your plan` + (plan.calls ? ` (about ${plan.minutes < 1 ? 'a minute' : `${plan.minutes} minutes`})` : '')));
-      if (plan.skipped.length) parts.push(h('p', { class: 'sub' }, `Can't be priced automatically (mixed, surplus or unbranded ammo): ${plan.skipped.map((s) => s.label).join(', ')}.`));
       if (!plan.options_loaded && plan.key_set) parts.push(h('p', { class: 'sub' }, 'Your calibers aren\'t matched to AmmoSeek yet. ', h('button', { class: 'btn sm', type: 'button', onclick: () => priceCalibers(refresh) }, 'Match calibers')));
       else if (plan.unmatched.length) parts.push(h('p', { class: 'sub' }, `Not matched to an AmmoSeek caliber yet, so skipped: ${plan.unmatched.join(', ')}. `,
         h('button', { class: 'btn sm', type: 'button', onclick: () => priceCalibers(refresh) }, 'Match calibers')));
     }
     clear(info, parts);
-    startBtn.disabled = !(plan && plan.key_set && plan.calls > 0);
+    drawList();
+    drawSummary();
+    if (!plan) startBtn.disabled = true;
     if (view !== 'setup') { view = 'setup'; modal.show(setupEl, [cancelBtn, startBtn]); }
   };
 
   const start = async () => {
     const t = target();
+    if (listed()) t.ids = picked().map((i) => i.id);
     try { job = await post('/api/prices/jobs', t); } catch (e) { planError = e.message; drawSetup(); return; }
     drawRunning();
     poll();

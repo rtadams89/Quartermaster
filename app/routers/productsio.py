@@ -11,7 +11,7 @@ from ..codes import is_magazine_code, normalize_code
 from ..csvsafe import safe_row, unsafe
 from ..db import get_db
 from ..models import Barcode, Caliber, Product
-from ..services import brand_spellings, canonical_case, fmt_weight, minimums, set_minimum
+from ..services import CASE_MATERIALS, brand_spellings, canonical_case, fmt_weight, minimums, set_minimum
 
 router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
 
@@ -79,8 +79,8 @@ def _parse_row(raw: dict, present: set[str]) -> tuple[dict | None, str | None]:
     if "case_material" in present:
         try:
             out["case_material"] = canonical_case(g["case_material"])
-        except ValueError as e:
-            return None, str(e)
+        except ValueError:
+            return None, "case_material must be one of: " + ", ".join(CASE_MATERIALS)
     out["rounds_per_box"], bad = _num(g["rounds_per_box"], int, 1, 10000, "rounds_per_box")
     if bad:
         return None, bad

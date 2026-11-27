@@ -1,5 +1,6 @@
 """Market price per round lookups through the parse.bot AmmoSeek API."""
 import json
+import logging
 import re
 import statistics
 import threading
@@ -469,6 +470,7 @@ def _run(job: Job) -> None:
             job.log.extend([f"  RESULT: {shown}; confidence {result['confidence']}; {result['note'] or 'good match'}", ""])
         job.state = "done"
         job.log.append("Done.")
-    except Exception as e:
-        job.state, job.message = "stopped", f"Stopped unexpectedly: {e}"
+    except Exception:
+        logging.getLogger(__name__).exception("price job %s failed", job.id)
+        job.state, job.message = "stopped", "Stopped unexpectedly; see the server log."
         job.log.append(job.message)

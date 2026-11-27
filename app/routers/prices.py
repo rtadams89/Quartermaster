@@ -1,5 +1,6 @@
 """Look up current market prices on request, review them, and save the ones you accept."""
 import json
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
@@ -8,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import pricing, security
-from ..db import get_db, utcnow
+from ..db import get_db, iso, utcnow
 from ..models import Caliber, Product, Setting
 from ..services import inventory_by_product
 
@@ -20,6 +21,7 @@ SLUGS_KEY = "price_caliber_slugs"
 OPTIONS_KEY = "price_caliber_options"
 WORDS_KEY = "price_caliber_words"
 DEFAULT_PER_MINUTE = 5
+STALE_DAYS = 90
 
 
 def _get(db: Session, key: str, default: str = "") -> str:
@@ -148,14 +150,18 @@ def set_slug(cid: int, body: SlugIn, db: Session = Depends(get_db)):
 
 
 class ScopeIn(BaseModel):
-    scope: str = Field(pattern="^(product|caliber|all)$")
+    scope: str = Field(pattern="^(product|caliber|all|stale)$")
     id: int | None = None
     in_stock_only: bool = True
+    ids: list[int] | None = Field(default=None, max_length=5000)
 
 
 def _products(db: Session, body: ScopeIn) -> list[dict]:
     slugs, words = _slugs(db), _json(db, WORDS_KEY, {})
     rows, _ = inventory_by_product(db)
+    updated = dict(db.execute(select(Product.id, Product.price_updated)).all())
+    cutoff = utcnow() - timedelta(days=STALE_DAYS)
+    chosen = set(body.ids) if body.ids is not None else None
     wanted = []
     for r in rows:
         if body.scope == "product" and r["id"] != body.id:
@@ -164,10 +170,15 @@ def _products(db: Session, body: ScopeIn) -> list[dict]:
             continue
         if body.scope != "product" and body.in_stock_only and not r["rounds"]:
             continue
+        if body.scope == "stale" and updated.get(r["id"]) and updated[r["id"]] >= cutoff:
+            continue
+        if chosen is not None and r["id"] not in chosen:
+            continue
         wanted.append({"id": r["id"], "label": r["label"], "caliber": r["caliber"], "brand": r["brand"], "name": r["name"],
                        "grain": r["bullet_weight_gr"], "bullet_type": r["bullet_type"], "rounds_per_box": r["rounds_per_box"],
                        "current": r["cost_per_round"], "slug": slugs.get(str(r["caliber_id"])),
-                       "case_material": r["case_material"], "is_blank": r["is_blank"], "words": words.get(str(r["caliber_id"]), {})})
+                       "case_material": r["case_material"], "is_blank": r["is_blank"], "words": words.get(str(r["caliber_id"]), {}),
+                       "price_updated": iso(updated[r["id"]]) if updated.get(r["id"]) else None})
     if body.scope in ("product", "caliber") and not wanted:
         raise HTTPException(404, "Nothing to price for that choice")
     return sorted(wanted, key=lambda p: (p["caliber"] or "", p["label"].lower()))
@@ -180,7 +191,14 @@ def plan(body: ScopeIn, db: Session = Depends(get_db)):
     per_minute = _per_minute(db)
     calls = pricing.planned_calls(products)
     skipped = [{"label": p["label"], "reason": pricing.skip_reason(p)} for p in products if pricing.skip_reason(p)]
+    items = []
+    for p in products:
+        note = pricing.skip_reason(p) or (None if p["slug"] else "Caliber isn't matched to an AmmoSeek caliber yet")
+        key = None if note else str(pricing.search_key(p["slug"], pricing.query_for(p, p.get("words"))))
+        items.append({"id": p["id"], "label": p["label"], "caliber": p["caliber"], "current": p["current"],
+                      "price_updated": p["price_updated"], "note": note, "key": key})
     return {"products": len(products), "calls": calls, "minutes": round(calls / per_minute, 1), "unmatched": pending, "skipped": skipped,
+            "per_minute": per_minute, "items": items,
             "key_set": bool(_get(db, PRICE_KEY)), "options_loaded": bool(_json(db, OPTIONS_KEY, []))}
 
 
@@ -190,6 +208,8 @@ def start_job(body: ScopeIn, db: Session = Depends(get_db)):
     if not key:
         raise HTTPException(400, "Enter the price service API key in Settings first")
     products = _products(db, body)
+    if not products:
+        raise HTTPException(400, "Choose at least one product")
     return pricing.start(products, key, _per_minute(db)).view()
 
 

@@ -283,7 +283,8 @@ def test_case_material_and_blank_are_saved_exported_and_imported(authed):
     after = {x["id"]: x for x in c.get("/api/products").json()}[p["id"]]
     assert after["case_material"] == "Steel" and after["is_blank"] is False
     assert c.post("/api/import/products", content=csv_text.replace(",Brass,yes", ",Brass,maybe").encode()).json()["error_count"] == 1
-    assert c.post("/api/import/products", content=csv_text.replace(",Brass,yes", ",Plastic,yes").encode()).json()["error_count"] == 1
+    bad = c.post("/api/import/products", content=csv_text.replace(",Brass,yes", ",Plastic,yes").encode()).json()
+    assert bad["error_count"] == 1 and bad["errors"][0]["error"] == "case_material must be one of: Brass, Steel, Aluminum, Composite, Alloy"
     lower = c.post("/api/import/products?apply=true", content=csv_text.replace(",Brass,yes", ",ALLOY,yes").encode())
     assert lower.status_code == 200 and {x["id"]: x for x in c.get("/api/products").json()}[p["id"]]["case_material"] == "Alloy"
 
@@ -388,3 +389,57 @@ def test_blank_products_with_no_brand_are_priced_from_all_blank_listings(authed,
     plan = c.post("/api/prices/plan", json={"scope": "all", "in_stock_only": False}).json()
     assert plan["products"] == 2 and plan["calls"] == 1
     assert [s["label"] for s in plan["skipped"]] == ["Surplus Loose"]
+
+
+def test_an_unexpected_failure_does_not_expose_its_details(authed, fake_service, monkeypatch):
+    c = authed
+    c.put("/api/prices/settings", json={"key": "secret-key", "per_minute": 250})
+    cal = c.get("/api/calibers").json()[0]
+    c.put(f"/api/prices/calibers/{cal['id']}", json={"slug": "9mm-luger"})
+    make_product(c)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("/srv/secret/path.py exploded")
+
+    monkeypatch.setattr(pricing, "estimate", boom)
+    job = c.post("/api/prices/jobs", json={"scope": "all", "in_stock_only": False}).json()
+    done = wait_done(c, job)
+    assert done["state"] == "stopped" and "secret" not in done["message"] and "secret/path" not in c.get(f"/api/prices/jobs/{job['id']}/log").text
+
+
+def test_stale_scope_lists_products_not_updated_in_90_days_and_ids_narrow_a_run(authed, fake_service):
+    from datetime import timedelta
+
+    from app.db import SessionLocal, utcnow
+    from app.models import Product
+
+    c = authed
+    c.put("/api/prices/settings", json={"key": "secret-key", "per_minute": 250})
+    cal = c.get("/api/calibers").json()[0]
+    c.put(f"/api/prices/calibers/{cal['id']}", json={"slug": "9mm-luger"})
+    fresh = make_product(c, name="Fresh", cost_per_box=20.0)
+    never = make_product(c, name="Never")
+    old = make_product(c, name="Old", cost_per_box=20.0)
+    stale_edge = make_product(c, name="Edge", cost_per_box=20.0)
+    unpriced = make_product(c, brand="Surplus", name="Loose", bullet_weight_gr=0, rounds_per_box=1)
+    with SessionLocal() as db:
+        db.get(Product, old["id"]).price_updated = utcnow() - timedelta(days=91)
+        db.get(Product, stale_edge["id"]).price_updated = utcnow() - timedelta(days=89)
+        db.commit()
+
+    plan = c.post("/api/prices/plan", json={"scope": "stale", "in_stock_only": False}).json()
+    by_name = {i["label"]: i for i in plan["items"]}
+    assert set(by_name) == {"Federal Never", "Federal Old", "Surplus Loose"}
+    assert by_name["Federal Never"]["price_updated"] is None and by_name["Federal Old"]["price_updated"]
+    assert by_name["Federal Never"]["note"] is None and by_name["Federal Never"]["key"]
+    assert by_name["Surplus Loose"]["note"] and by_name["Surplus Loose"]["key"] is None
+    assert plan["per_minute"] == 250
+
+    only = c.post("/api/prices/plan", json={"scope": "stale", "in_stock_only": False, "ids": [never["id"]]}).json()
+    assert [i["label"] for i in only["items"]] == ["Federal Never"] and only["calls"] == 1
+
+    assert c.post("/api/prices/jobs", json={"scope": "stale", "in_stock_only": False, "ids": []}).status_code == 400
+    job = c.post("/api/prices/jobs", json={"scope": "stale", "in_stock_only": False, "ids": [never["id"], old["id"]]}).json()
+    done = wait_done(c, job)
+    assert sorted(r["label"] for r in done["results"]) == ["Federal Never", "Federal Old"]
+    assert fresh["id"] and unpriced["id"]

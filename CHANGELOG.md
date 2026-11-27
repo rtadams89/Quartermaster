@@ -2,6 +2,13 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.16.0
+- Update prices has a new choice, *Products not updated in 90+ days*, which covers products whose price was last set more than 90 days ago or never. Like *All products* and *All products in a caliber*, it can be limited to products with stock on hand.
+- Those three choices now list the products that will be checked, with their current price per round and when it was last updated. Untick any you want left out, or use *Select all* / *Select none*. The number of searches updates as you tick, and products that can't be priced (surplus or unbranded ammo, or a caliber not matched to AmmoSeek yet) are listed greyed out with the reason.
+
+## 1.15.9
+- Security: error text from exceptions is no longer sent to the browser. CSV import reports a fixed message for a bad case material, and a price check that fails unexpectedly now shows a generic message and writes the details to the server log. This addresses the two CodeQL "Information exposure through an exception" alerts in the CSV import.
+
 ## 1.15.8
 - The price date in the Products list is now shown as m/d/yy h:mm in 24-hour time and stays on one line. Comments added over recent versions were trimmed to what the code does.
 
