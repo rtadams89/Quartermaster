@@ -307,7 +307,7 @@ function productFields(calibers, p = {}) {
   };
   weight.addEventListener('blur', () => { if (weightValue() === 0) weight.value = 'N/A'; });
   const type = h('input', { value: p.bullet_type ?? '', list: 'bullet-types', placeholder: 'FMJ, JHP…', maxlength: 40 });
-  const casing = h('select', {}, h('option', { value: '' }, '(any)'), ...CASE_MATERIALS.map((t) => h('option', { value: t }, `${t} case only`)));
+  const casing = h('select', {}, h('option', { value: '' }, ''), ...CASE_MATERIALS.map((t) => h('option', { value: t }, t)));
   casing.value = CASE_MATERIALS.includes(p.case_material) ? p.case_material : '';
   const blank = h('input', { type: 'checkbox', checked: p.is_blank === true });
   const rpb = h('input', { type: 'number', min: 1, step: 1, required: true, value: p.rounds_per_box ?? '', placeholder: 'e.g. 50' });
@@ -333,8 +333,8 @@ function productFields(calibers, p = {}) {
     labeled('Rounds per box', rpb, '', 'Use 1 for ammo you count by the individual round; it then shows round counts instead of boxes.'),
     labeled('Manufacturer', brandBox.el), labeled('Product / line', name),
     labeled('Bullet weight (gr)', weight, '', '0 or N/A means no traditional bullet weight (shot, slugs, flares…).'), labeled('Bullet type', type),
-    labeled('Case material', casing, '', 'Optional. (any) means don\'t narrow market price lookups by case. The choices match AmmoSeek\'s.'),
-    h('label', { class: 'check' }, blank, h('span', {}, h('b', {}, 'Blank (no projectile)'), h('small', { class: 'hint' }, 'Blanks are priced from blank listings only.'))),
+    labeled('Case material', casing),
+    h('label', { class: 'check' }, blank, h('span', {}, h('b', {}, 'Blank (no projectile)'))),
     costRow,
     labeled('Alert when below (rounds)', minr, '', 'Optional. Leave blank for no alert. Otherwise this product is flagged as low when its rounds on hand drop under this number.'),
     h('label', { class: 'check full' }, indoor, h('span', {}, h('b', {}, 'Indoor range safe'),

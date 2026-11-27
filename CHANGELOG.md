@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.15.4
+- The *Case material* dropdown now lists just Brass, Steel, Aluminum, Composite and Alloy, with a blank choice for none, and the extra hint text on it and on *Blank* is gone.
+
 ## 1.15.3
 - *Case material* is now a dropdown with the choices AmmoSeek uses: (any), Brass, Steel, Aluminum, Composite and Alloy. Price searches send any chosen material to the service. The CSV `case_material` column accepts those names (any capitalization) or blank.
 
