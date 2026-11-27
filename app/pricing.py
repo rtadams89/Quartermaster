@@ -1,8 +1,4 @@
-"""Current market price per round, looked up on request through the parse.bot AmmoSeek API.
-
-A price job makes one search per (caliber, grain, brand) and reduces the listings that match each product
-to an average price per round. The admin reviews the result before any price is saved.
-"""
+"""Market price per round lookups through the parse.bot AmmoSeek API."""
 import json
 import re
 import statistics
@@ -18,9 +14,9 @@ from difflib import SequenceMatcher
 BASE_URL = "https://api.parse.bot/scraper/0a603c5c-dac6-4a0a-a758-05abdfc3060e/"
 TIMEOUT = 40
 PAGE_LENGTH = 40
-MIN_SHIPPING = 50  # AmmoSeek shipping score in tenths; higher is cheaper shipping
-SHIPPING_BUCKET = "high"  # the service's own filter: rating above 4
-BAND = 2  # with a recorded price, listings under half or over double it are ignored
+MIN_SHIPPING = 50  # shipping score in tenths (50 is 5.0)
+SHIPPING_BUCKET = "high"  # service filter: rating above 4
+BAND = 2  # factor above and below the current price
 CASINGS_SENT = {"brass", "steel", "aluminum", "composite", "alloy"}
 RETRY_WAIT = 20  # seconds to wait after a 429 before trying once more
 SKIPPED_BRANDS = {"", "misc", "miscellaneous", "surplus", "unknown", "other", "handload", "handloads", "reload", "reloads"}
@@ -35,7 +31,7 @@ TYPE_WORDS = {
 
 
 class PriceError(Exception):
-    """A search could not be made. `fatal` means no further search will work (bad key, no connection)."""
+    """A search failed. `fatal`: no further search will work."""
 
     def __init__(self, message: str, fatal: bool = False, rate_limited: bool = False, stale: bool = False):
         super().__init__(message)
@@ -199,7 +195,7 @@ def has_purchase_limit(item: dict) -> bool:
 
 
 def good_shipping(item: dict) -> bool:
-    """Free shipping, or a shipping score of 5.0 or better (the service sends tenths: 50 is 5.0; "cf 76" is conditionally free, score 7.6)."""
+    """Free shipping, or a shipping score of 5.0 or more ("cf 76" counts as 7.6)."""
     rating = str(item.get("shipping_rating") or "").strip().lower()
     if rating == "free":
         return True
@@ -224,7 +220,7 @@ def brandless(product: dict) -> bool:
 
 
 def skip_reason(product: dict) -> str | None:
-    """Mixed, surplus and unbranded ammo has nothing to match on, except blanks, which are priced across all blank listings."""
+    """The reason a product is not priced: mixed, surplus or unbranded ammo other than blanks."""
     if brandless(product) and not product.get("is_blank"):
         return "Mixed, surplus or unbranded ammo can't be priced automatically"
     return None

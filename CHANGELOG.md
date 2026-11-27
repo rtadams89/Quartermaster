@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.15.8
+- The price date in the Products list is now shown as m/d/yy h:mm in 24-hour time and stays on one line. Comments added over recent versions were trimmed to what the code does.
+
 ## 1.15.7
 - Update prices: blank products with no real brand (such as Surplus blanks) can now be priced. With no brand to match, they are priced from all new blank listings of the caliber and shown as medium confidence at best. Other mixed, surplus or unbranded products are still skipped, and the dialog now lists which products were skipped instead of just showing 0 searches.
 

@@ -104,7 +104,7 @@ def clear_key(db: Session = Depends(get_db)):
 
 @router.post("/options")
 def load_options(db: Session = Depends(get_db)):
-    """Fetch AmmoSeek's caliber list (one search credit) and keep it for matching calibers."""
+    """Fetch AmmoSeek's caliber list and keep it for matching calibers."""
     key = _get(db, PRICE_KEY)
     if not key:
         raise HTTPException(400, "Enter the price service API key first")

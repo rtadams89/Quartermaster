@@ -506,7 +506,7 @@ def _drill_result(level: str, crumbs: list[str], rows: list[dict]) -> dict:
 
 
 def magazine_states(db: Session) -> dict[str, tuple[str, datetime]]:
-    """Each checked-out or checked-in magazine's status and when it last changed. A magazine never checked out is not listed."""
+    """Each checked-out or checked-in magazine's status and when it last changed."""
     latest = select(func.max(MagazineEvent.id)).group_by(MagazineEvent.serial)
     rows = db.execute(select(MagazineEvent.serial, MagazineEvent.kind, MagazineEvent.ts).where(MagazineEvent.id.in_(latest)))
     return {serial: (kind, ts) for serial, kind, ts in rows}

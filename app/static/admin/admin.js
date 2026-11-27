@@ -104,6 +104,8 @@ function makeSortable(tbl, ths, labels) {
 }
 const empty = (msg) => h('div', { class: 'empty' }, msg);
 const boxesCell = (n) => td(h('span', { class: n < 0 ? 'neg' : '' }, fmtInt(n)), 'num');
+/** m/d/yy h:mm, 24-hour. */
+const fmtPriceDate = (iso) => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(-2)} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const specOf = (p, { naWeight = true } = {}) => [p.bullet_weight_gr === 0 ? (naWeight ? 'N/A' : '') : p.bullet_weight_gr ? `${p.bullet_weight_gr} gr` : '', p.bullet_type, p.is_blank ? 'Blank' : '', p.rounds_per_box === 1 ? 'by the round' : `${p.rounds_per_box}/box`, naWeight && p.indoor_safe === false ? 'Outdoor only' : ''].filter(Boolean).join(' · ');
 /** The same, for a printed label: no weight line at all when the weight is N/A. */
 const labelSpecOf = (p) => specOf(p, { naWeight: false });
@@ -287,7 +289,7 @@ function moneyInput(initial) {
   return { el: input, value: () => parseMoney(input.value) };
 }
 
-const CASE_MATERIALS = ['Brass', 'Steel', 'Aluminum', 'Composite', 'Alloy']; // as offered by AmmoSeek
+const CASE_MATERIALS = ['Brass', 'Steel', 'Aluminum', 'Composite', 'Alloy'];
 
 function productFields(calibers, p = {}) {
   const cal = caliberPicker(calibers.filter((c) => c.active || c.id === p.caliber_id), p.caliber_id);
@@ -751,7 +753,7 @@ async function products() {
     if (q.value.trim()) qs.set('q', q.value.trim());
     const list = await get('/api/products?' + qs);
     clear(holder, list.length ? table(['', 'Caliber', 'Product', 'Details', ['Cost per round', 'num'], 'Codes', ''], list.map((p) =>
-      h('tr', {}, td(thumb(p.photo_codes[0] || p.codes[0], p.photo_codes.length > 0, load)), td(p.caliber), td(h('b', {}, p.label)), td(specOf(p) + (p.cost_per_box != null ? ` · ${fmtMoney(p.cost_per_box)}/${isSingle(p) ? 'round' : 'box'}` : '')), td([fmtPerRound(p.cost_per_round) || '—', p.price_updated && h('div', { class: 'muted', style: { fontSize: '12px' } }, fmtWhen(p.price_updated))], 'num'), td(p.codes.length ? codesOf(p.codes) : h('em', { class: 'muted' }, 'none')),
+      h('tr', {}, td(thumb(p.photo_codes[0] || p.codes[0], p.photo_codes.length > 0, load)), td(p.caliber), td(h('b', {}, p.label)), td(specOf(p) + (p.cost_per_box != null ? ` · ${fmtMoney(p.cost_per_box)}/${isSingle(p) ? 'round' : 'box'}` : '')), td([fmtPerRound(p.cost_per_round) || '—', p.price_updated && h('div', { class: 'muted', style: { fontSize: '12px', whiteSpace: 'nowrap' } }, fmtPriceDate(p.price_updated))], 'num'), td(p.codes.length ? codesOf(p.codes) : h('em', { class: 'muted' }, 'none')),
         td([h('button', { class: 'btn sm', onclick: () => productDialog(calibers, p, load) }, 'Edit'), ' ', h('button', { class: 'btn sm', onclick: () => priceDialog(calibers, { product: { id: p.id, label: p.label } }, load) }, 'Price'), ' ',
           h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete product?', `Delete ${p.label}? Its codes keep their history and go back to "unidentified".`, 'Delete', async () => { await del(`/api/products/${p.id}`); load(); refreshBadge(); }) }, 'Delete')], 'actions'))))
       : empty('No products match.'));
@@ -866,7 +868,7 @@ async function calibers() {
           h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete caliber?', c.products ? `${c.name} is used by ${c.products} product(s) and can't be deleted. Mark it inactive instead.` : `Delete ${c.name}?`, 'Delete', async () => { await del(`/api/calibers/${c.id}`); calibers(); }) }, 'Delete')], 'actions'))), { sort: false }));
 }
 
-/** Add, rename and delete caliber groups (a cartridge whose loads are separate calibers, such as 9mm Luger). */
+/** Add, rename and delete caliber groups. */
 async function caliberGroups(done) {
   let groups = await get('/api/caliber-groups');
   const holder = h('div', { class: 'serials' });
@@ -1330,7 +1332,7 @@ async function priceDialog(calibers, preset = {}, done = () => {}) {
   }, 250); };
   const lastNote = (r) => [r.confidence === 'none' ? null : h('span', { class: 'tag ' + (r.confidence === 'high' ? 'in' : 'out') }, r.confidence), r.note ? ` ${r.note}` : ''];
 
-  // The setup screen is built once and only its summary is refreshed, so the caliber box keeps focus while you type.
+  // Built once; only the summary is refreshed.
   const info = h('div');
   const setupEl = h('div', {},
     h('p', { class: 'sub' }, 'Looks up current in-stock prices on AmmoSeek and sets each product to the average price per round of its matching listings (only those with shipping rating 5.0 or better and no purchase limit). You review the prices before anything is saved.'),

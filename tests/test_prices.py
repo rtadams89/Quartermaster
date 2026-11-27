@@ -189,7 +189,6 @@ def test_editing_a_products_cost_stamps_its_price_date(authed):
     assert c.put(f"/api/products/{p['id']}", json={**body, "cost_per_box": None}).json()["price_updated"] is None
 
 
-# ------------------------------------------------------------ 1.15.2: filters, case material, blanks, words, log
 def test_query_carries_the_fixed_filters_blank_flag_case_and_words():
     q = pricing.query_for(FEDERAL)
     assert q["condition"] == "new" and q["hide_purchase_limits"] == "true" and q["shipping_rating"] == "high"
@@ -348,7 +347,7 @@ def test_one_round_listings_and_prices_far_from_the_current_one_are_ignored():
     r = pricing.estimate(sterling, items, trace=trace)
     assert r["price"] == pytest.approx(0.319) and r["listings"] == 2
     assert "counts 1 round" in "\n".join(trace)
-    # a count of 1 is fine for a product counted by the round, and the band alone catches a wrong per-round price
+    # loose products accept a count of 1; the price band rejects the wrong per-round price
     loose = sterling | {"rounds_per_box": 1}
     assert "counts 1 round" not in "\n".join(_trace(loose, items[2:3]))
     items[3]["count"] = 50
