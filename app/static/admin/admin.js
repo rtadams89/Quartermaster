@@ -743,8 +743,8 @@ async function products() {
     if (q.value.trim()) qs.set('q', q.value.trim());
     const list = await get('/api/products?' + qs);
     clear(holder, list.length ? table(['', 'Caliber', 'Product', 'Details', ['Cost per round', 'num'], 'Codes', ''], list.map((p) =>
-      h('tr', {}, td(thumb(p.photo_codes[0] || p.codes[0], p.photo_codes.length > 0, load)), td(p.caliber), td(h('b', {}, p.label)), td(specOf(p) + (p.cost_per_box != null ? ` · ${fmtMoney(p.cost_per_box)}/${isSingle(p) ? 'round' : 'box'}` : '')), td(fmtPerRound(p.cost_per_round) || '—', 'num'), td(p.codes.length ? codesOf(p.codes) : h('em', { class: 'muted' }, 'none')),
-        td([h('button', { class: 'btn sm', onclick: () => productDialog(calibers, p, load) }, 'Edit'), ' ',
+      h('tr', {}, td(thumb(p.photo_codes[0] || p.codes[0], p.photo_codes.length > 0, load)), td(p.caliber), td(h('b', {}, p.label)), td(specOf(p) + (p.cost_per_box != null ? ` · ${fmtMoney(p.cost_per_box)}/${isSingle(p) ? 'round' : 'box'}` : '')), td([fmtPerRound(p.cost_per_round) || '—', p.price_updated && h('div', { class: 'muted', style: { fontSize: '12px' } }, fmtWhen(p.price_updated))], 'num'), td(p.codes.length ? codesOf(p.codes) : h('em', { class: 'muted' }, 'none')),
+        td([h('button', { class: 'btn sm', onclick: () => productDialog(calibers, p, load) }, 'Edit'), ' ', h('button', { class: 'btn sm', onclick: () => priceDialog(calibers, { product: { id: p.id, label: p.label } }, load) }, 'Price'), ' ',
           h('button', { class: 'btn sm danger', onclick: () => confirmBox('Delete product?', `Delete ${p.label}? Its codes keep their history and go back to "unidentified".`, 'Delete', async () => { await del(`/api/products/${p.id}`); load(); refreshBadge(); }) }, 'Delete')], 'actions'))))
       : empty('No products match.'));
   };
@@ -753,6 +753,7 @@ async function products() {
   clear(main, h('h1', {}, 'Products'), h('div', { class: 'toolbar' }, calPick.el, q, h('span', { class: 'grow' }),
     h('a', { class: 'btn', href: '/api/export/products.csv' }, 'Export CSV'),
     h('button', { class: 'btn', onclick: () => importProducts(load) }, 'Import CSV'),
+    h('button', { class: 'btn', onclick: () => priceDialog(calibers, {}, load) }, 'Update prices'),
     h('button', { class: 'btn primary', onclick: () => productDialog(calibers, null, load) }, '+ New product')), holder);
   await load();
 }
@@ -1264,6 +1265,174 @@ async function magazineDialog(calibers, m, done, ticked, clone) {
   });
 }
 
+// ------------------------------------------------------------ price updates
+/** A modal whose body and buttons are replaced as a task moves from step to step. */
+function stepModal(title, onClose) {
+  const body = h('div'), actions = h('div', { class: 'actions' });
+  const close = () => { bg.remove(); onClose?.(); };
+  const bg = h('div', { class: 'modal-bg' }, h('div', { class: 'modal', style: { maxWidth: '980px' } }, h('h2', {}, title), body, actions));
+  document.body.append(bg);
+  return { close, show(content, buttons) { clear(body, content); clear(actions, buttons); } };
+}
+
+/** Pick which products to price, look their prices up, and save the ones you accept. */
+async function priceDialog(calibers, preset = {}, done = () => {}) {
+  let job = null, timer = null, plan = null, planError = '', picker = null, products = null, busy = false;
+  const modal = stepModal('Update prices', () => {
+    clearTimeout(timer);
+    if (job?.state === 'running') post(`/api/prices/jobs/${job.id}/cancel`).catch(() => {});
+    done();
+  });
+  const scope = h('select', { 'aria-label': 'What to update', onchange: () => { drawPick(); refresh(); } },
+    h('option', { value: 'all' }, 'All products'), h('option', { value: 'caliber' }, 'All products in a caliber'), h('option', { value: 'product' }, 'One product'));
+  scope.value = preset.product ? 'product' : preset.caliberId ? 'caliber' : 'all';
+  const pickHolder = h('span');
+  const stock = h('input', { type: 'checkbox', checked: true, onchange: () => refresh() });
+  const stockLabel = h('label', { class: 'chk' }, stock, 'Only products with stock on hand');
+  const target = () => {
+    if (scope.value === 'all') return { scope: 'all', in_stock_only: stock.checked };
+    if (preset.product && scope.value === 'product') return { scope: 'product', id: preset.product.id };
+    try {
+      const id = picker.value();
+      return scope.value === 'caliber' ? { scope: 'caliber', id, in_stock_only: stock.checked } : { scope: 'product', id };
+    } catch { return null; }
+  };
+  const drawPick = async () => {
+    picker = null;
+    clear(pickHolder);
+    stockLabel.hidden = scope.value === 'product';
+    if (scope.value === 'caliber') {
+      picker = searchPicker(calibers, preset.caliberId ?? null, { placeholder: 'Type to search, e.g. 9mm or 45', none: 'No matching caliber', empty: 'No calibers yet.', bad: () => '', missing: '', onChange: refresh });
+      pickHolder.append(picker.el);
+    } else if (scope.value === 'product') {
+      if (preset.product) { pickHolder.append(h('b', {}, preset.product.label)); return; }
+      products ??= await get('/api/products');
+      picker = productPicker(products, { onChange: refresh });
+      pickHolder.append(picker.el);
+    }
+  };
+  let wait;
+  const refresh = () => { clearTimeout(wait); wait = setTimeout(async () => {
+    const t = target();
+    plan = null; planError = '';
+    if (t) { try { plan = await post('/api/prices/plan', t); } catch (e) { planError = e.message; } }
+    drawSetup();
+  }, 250); };
+  const lastNote = (r) => [r.confidence === 'none' ? null : h('span', { class: 'tag ' + (r.confidence === 'high' ? 'in' : 'out') }, r.confidence), r.note ? ` ${r.note}` : ''];
+
+  const drawSetup = () => {
+    const parts = [];
+    if (plan && !plan.key_set) parts.push(h('p', { class: 'err' }, 'Enter your parse.bot API key under Settings first.'));
+    if (planError) parts.push(h('p', { class: 'err' }, planError));
+    if (plan) {
+      parts.push(h('p', {}, h('b', {}, `${fmtInt(plan.products)} product${plan.products === 1 ? '' : 's'}`),
+        ` to check, using up to ${fmtInt(plan.calls)} search${plan.calls === 1 ? '' : 'es'} of your plan` + (plan.calls ? ` (about ${plan.minutes < 1 ? 'a minute' : `${plan.minutes} minutes`})` : '')));
+      if (!plan.options_loaded && plan.key_set) parts.push(h('p', { class: 'sub' }, 'Your calibers aren\'t matched to AmmoSeek yet. ', h('button', { class: 'btn sm', type: 'button', onclick: () => priceCalibers(refresh) }, 'Match calibers')));
+      else if (plan.unmatched.length) parts.push(h('p', { class: 'sub' }, `Not matched to an AmmoSeek caliber yet, so skipped: ${plan.unmatched.join(', ')}. `,
+        h('button', { class: 'btn sm', type: 'button', onclick: () => priceCalibers(refresh) }, 'Match calibers')));
+    }
+    modal.show(h('div', {},
+      h('p', { class: 'sub' }, 'Looks up current in-stock prices on AmmoSeek and sets each product to the average price per round of its matching listings (only those with shipping rating 5.0 or better and no purchase limit). You review the prices before anything is saved.'),
+      h('div', { class: 'toolbar' }, scope, pickHolder, stockLabel), parts),
+    [h('button', { class: 'btn', type: 'button', onclick: modal.close }, 'Cancel'),
+      h('button', { class: 'btn primary', type: 'button', disabled: !(plan && plan.key_set && plan.calls > 0), onclick: start }, 'Check prices')]);
+  };
+
+  const start = async () => {
+    const t = target();
+    try { job = await post('/api/prices/jobs', t); } catch (e) { planError = e.message; drawSetup(); return; }
+    drawRunning();
+    poll();
+  };
+  const drawRunning = () => modal.show(h('div', {},
+    h('p', {}, job.state === 'running' ? `Checked ${fmtInt(job.done)} of ${fmtInt(job.total)} products (${fmtInt(job.calls)} search${job.calls === 1 ? '' : 'es'})…` : 'Finishing…'),
+    h('progress', { max: job.total || 1, value: job.done, style: { width: '100%' } }),
+    h('p', { class: 'sub' }, 'The service allows only a few searches a minute, so this can take a while. You can keep this window open or cancel and review what has been found so far.')),
+  [h('button', { class: 'btn', type: 'button', onclick: () => post(`/api/prices/jobs/${job.id}/cancel`).catch(() => {}) }, 'Cancel')]);
+  const poll = async () => {
+    try { job = await get(`/api/prices/jobs/${job.id}`); } catch (e) { modal.show(h('p', { class: 'err' }, e.message), [h('button', { class: 'btn', type: 'button', onclick: modal.close }, 'Close')]); return; }
+    if (job.state === 'running') { drawRunning(); timer = setTimeout(poll, 1500); } else drawReview();
+  };
+
+  const drawReview = () => {
+    const rows = job.results;
+    const boxes = new Map();
+    const apply = h('button', { class: 'btn primary', type: 'button' });
+    const count = () => { const n = [...boxes.values()].filter((b) => b.checked).length; apply.textContent = `Save ${fmtInt(n)} price${n === 1 ? '' : 's'}`; apply.disabled = !n || busy; };
+    const trs = rows.map((r) => {
+      const box = h('input', { type: 'checkbox', disabled: r.price == null, checked: r.price != null && (r.confidence === 'high' || r.confidence === 'medium'), onchange: count, 'aria-label': `Save the price for ${r.label}` });
+      boxes.set(r.id, box);
+      const change = r.price != null && r.current ? (r.price - r.current) / r.current : null;
+      return h('tr', {}, td(box), td([h('b', {}, r.label), ' ', h('span', { class: 'muted' }, r.caliber)]), td(r.current != null ? fmtPerRound(r.current) : '—', 'num'),
+        td(r.price != null ? fmtPerRound(r.price) : '—', 'num'),
+        td(change == null ? '' : `${change > 0 ? '+' : ''}${Math.round(change * 100)}%`, 'num'), td(fmtInt(r.listings), 'num'), td(lastNote(r)));
+    });
+    const mark = (on) => boxes.forEach((b) => { if (!b.disabled) b.checked = on; count(); });
+    apply.addEventListener('click', async () => {
+      const items = rows.filter((r) => boxes.get(r.id).checked && r.price != null).map((r) => ({ product_id: r.id, price: r.price }));
+      busy = true; count();
+      try { const r = await post('/api/prices/apply', { items }); toast(`Saved ${fmtInt(r.saved)} price${r.saved === 1 ? '' : 's'}`, 'ok'); modal.close(); } catch (e) { toast(e.message, 'error'); busy = false; count(); }
+    });
+    modal.show(h('div', {},
+      job.message ? h('p', { class: 'err' }, job.message) : null,
+      job.state === 'cancelled' ? h('p', { class: 'sub' }, 'Cancelled. These are the products checked before it stopped.') : null,
+      h('p', { class: 'sub' }, `${fmtInt(job.calls)} search${job.calls === 1 ? '' : 'es'} used. Prices are the average per round of matching in-stock listings with shipping 5.0+ and no purchase limit; tick the ones to save. Low-confidence matches are not ticked.`),
+      h('div', { class: 'toolbar' }, h('button', { class: 'btn sm', type: 'button', onclick: () => mark(true) }, 'Tick all'), h('button', { class: 'btn sm', type: 'button', onclick: () => mark(false) }, 'Tick none')),
+      h('div', { class: 'serials' }, rows.length ? table(['', 'Product', ['Now', 'num'], ['New', 'num'], ['Change', 'num'], ['Listings', 'num'], 'Match'], trs, { sort: false }) : empty('Nothing was checked.'))),
+    [h('button', { class: 'btn', type: 'button', onclick: modal.close }, 'Close'), apply]);
+    count();
+  };
+
+  await drawPick();
+  drawSetup();
+  refresh();
+}
+
+/** Choose the AmmoSeek caliber that goes with each of your calibers. */
+async function priceCalibers(done = () => {}) {
+  const cfg = await get('/api/prices/config');
+  const picks = new Map();
+  const body = h('div');
+  const draw = (c) => {
+    if (!c.options.length) {
+      clear(body, h('p', { class: 'sub' }, 'Load AmmoSeek\'s caliber list first (this uses one search of your plan), then match each of your calibers to it.'),
+        h('button', { class: 'btn primary', type: 'button', onclick: async () => { try { draw(await post('/api/prices/options')); } catch (e) { toast(e.message, 'error'); } } }, 'Load AmmoSeek calibers'));
+      return;
+    }
+    const options = c.options.map((o) => ({ id: o.slug, name: o.label }));
+    picks.clear();
+    clear(body, h('p', { class: 'sub' }, 'Calibers are matched by name where possible. Fix any that are missing or wrong; an empty box skips that caliber.'),
+      h('div', { class: 'serials' }, table(['Your caliber', ['Products', 'num'], 'AmmoSeek caliber'], c.calibers.filter((x) => x.products).map((x) => {
+        const pick = searchPicker(options, x.slug, { placeholder: 'Type to search', none: 'No matching caliber', empty: '', optional: true, bad: (t) => `"${t}" is not an AmmoSeek caliber. Pick one from the list, or clear the box.`, missing: '' });
+        picks.set(x.id, { pick, was: x.slug || null, name: x.name });
+        return h('tr', {}, td(h('b', {}, x.name)), td(fmtInt(x.products), 'num'), td(pick.el));
+      }), { sort: false })));
+  };
+  draw(cfg);
+  dialog({ title: 'Match calibers to AmmoSeek', ok: 'Save', wide: true, body,
+    onOk: async () => {
+      for (const [id, { pick, was, name }] of picks) {
+        let slug;
+        try { slug = pick.value(); } catch (e) { throw new Error(`${name}: ${e.message}`); }
+        if ((slug || null) !== was) await put(`/api/prices/calibers/${id}`, { slug: slug || '' });
+      }
+      done();
+    } });
+}
+
+/** Settings: the price service key and how fast to search. */
+function priceForm(cfg) {
+  const key = h('input', { type: 'password', autocomplete: 'off', size: 34, placeholder: cfg.key_set ? 'Key saved (type to replace it)' : 'parse.bot API key' });
+  const rate = h('input', { type: 'number', min: 1, max: 250, step: 1, value: cfg.per_minute, style: { width: '80px' } });
+  return h('div', {},
+    h('form', { class: 'toolbar', onsubmit: async (e) => {
+      e.preventDefault();
+      try { await put('/api/prices/settings', { key: key.value, per_minute: Number(rate.value) || 5 }); toast('Saved', 'ok'); settings(); } catch (er) { toast(er.message, 'error'); }
+    } }, key, h('label', {}, 'Searches per minute ', rate), h('button', { class: 'btn primary', type: 'submit' }, 'Save'),
+    cfg.key_set && h('button', { class: 'btn', type: 'button', onclick: async () => { await del('/api/prices/key'); toast('Key removed', 'ok'); settings(); } }, 'Remove key')),
+    h('div', { class: 'toolbar' }, h('button', { class: 'btn', type: 'button', onclick: () => priceCalibers() }, 'Match calibers to AmmoSeek…')));
+}
+
 // ----------------------------------------------------------------- settings
 const lockoutText = (s) => (s % 3600 === 0 ? `${s / 3600} hour${s === 3600 ? '' : 's'}` : s % 60 === 0 ? `${s / 60} minute${s === 60 ? '' : 's'}` : `${s} seconds`);
 
@@ -1310,7 +1479,7 @@ function soundForm(cur) {
 async function settings(restored) {
   const pin = (ph) => h('input', { type: 'password', inputmode: 'numeric', pattern: '\\d{4}', maxlength: 4, placeholder: ph, autocomplete: 'off', style: { width: '110px' } });
   const cur = pin('Current'), nw = pin('New'), cf = pin('Confirm');
-  const [locks, prefs] = await Promise.all([get('/api/security/lockouts'), get('/api/settings')]);
+  const [locks, prefs, priceCfg] = await Promise.all([get('/api/security/lockouts'), get('/api/settings'), get('/api/prices/config')]);
   const photoToggle = h('input', { type: 'checkbox', checked: prefs.photo_prompt, onchange: async (e) => {
     try { await put('/api/settings', { photo_prompt: e.target.checked }); toast('Saved', 'ok'); } catch (er) { toast(er.message, 'error'); e.target.checked = !e.target.checked; }
   } });
@@ -1332,6 +1501,9 @@ async function settings(restored) {
       'Ask for a photo of the box at the kiosk when a brand-new barcode is scanned (needs a camera on the Pi)'),
     h('div', {}, h('label', { class: 'chk', style: { fontSize: '15px', color: 'var(--text)' } }, flipToggle,
       'Turn the camera image upside down (for a camera mounted the other way up; it applies to the live view and the saved photo)')),
+    h('h2', {}, 'Ammo prices'),
+    h('p', { class: 'sub' }, 'Current market prices come from AmmoSeek listings through parse.bot, an unofficial third-party service. Get a parse.bot API key, enter it here, and set the searches per minute your plan allows. Prices are looked up only when you choose Update prices on the Products page.'),
+    priceForm(priceCfg),
     h('h2', {}, 'Kiosk sounds'),
     h('p', { class: 'sub' }, 'Beeps when the kiosk scans an item, hits an error, or finishes a batch. The kiosk picks up changes the next time it returns to the home screen. Test sound plays on this device, so the kiosk\'s speaker may sound different.'),
     soundForm(prefs.sound),

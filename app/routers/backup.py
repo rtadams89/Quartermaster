@@ -2,10 +2,10 @@
 
 A backup is a SQLite file holding all inventory data: calibers, products, barcodes, box photos,
 the full transaction history, the label counter and preferences. It does not include the PIN hash,
-login sessions or lockout counters.
+the price service key, login sessions or lockout counters.
 
 Restoring replaces all inventory data with the backup's contents and keeps the current PIN,
-the current login sessions and the lockout counters.
+the current price service key, the current login sessions and the lockout counters.
 """
 import os
 import sqlite3
@@ -22,13 +22,14 @@ from starlette.background import BackgroundTask
 from .. import config, models, security  # noqa: F401  (models import registers every table)
 from ..db import Base, SessionLocal, engine, get_db
 from ..seed import seed
-from .auth import _too_many  # same lockout response as the PIN change
+from .auth import _too_many
+from .prices import PRICE_KEY  # same lockout response as the PIN change
 
 router = APIRouter(prefix="/api", dependencies=[Depends(security.require_auth)])
 
 EPHEMERAL_TABLES = {"auth_sessions", "login_attempts"}
 # Columns added after a backup was made are filled with their default when it is restored.
-OPTIONAL_COLUMNS = {("products", "indoor_safe"), ("magazine_items", "material"), ("calibers", "group_id")}
+OPTIONAL_COLUMNS = {("products", "indoor_safe"), ("magazine_items", "material"), ("calibers", "group_id"), ("products", "price_updated")}
 OPTIONAL_TABLES = {"caliber_groups", "pack_codes", "magazine_items", "magazine_events", "batch_magazines"}
 CORE_TABLES = {"calibers", "products", "barcodes", "transactions"}
 MAX_RESTORE_BYTES = 1024 * 1024 * 1024
@@ -81,7 +82,7 @@ def download_backup():
         try:
             for table in EPHEMERAL_TABLES:
                 con.execute(f'DELETE FROM "{table}"')
-            con.execute("DELETE FROM settings WHERE key = ?", (security.PIN_KEY,))
+            con.execute("DELETE FROM settings WHERE key IN (?, ?)", (security.PIN_KEY, PRICE_KEY))
             con.commit()
         finally:
             con.close()
@@ -159,7 +160,7 @@ def _apply(backup: Path) -> None:
         try:
             for t in reversed(tables):  # children before parents
                 if t.name == "settings":
-                    con.execute('DELETE FROM main."settings" WHERE key != ?', (security.PIN_KEY,))
+                    con.execute('DELETE FROM main."settings" WHERE key NOT IN (?, ?)', (security.PIN_KEY, PRICE_KEY))
                 else:
                     con.execute(f'DELETE FROM main."{t.name}"')
             for t in tables:  # parents before children
@@ -169,7 +170,7 @@ def _apply(backup: Path) -> None:
                 cols = ", ".join(f'"{c.name}"' for c in t.columns if c.name in inbk)
                 sql = f'INSERT INTO main."{t.name}" ({cols}) SELECT {cols} FROM bk."{t.name}"'
                 if t.name == "settings":
-                    con.execute(sql + " WHERE key != ?", (security.PIN_KEY,))
+                    con.execute(sql + " WHERE key NOT IN (?, ?)", (security.PIN_KEY, PRICE_KEY))
                 else:
                     con.execute(sql)
             if con.execute("PRAGMA foreign_key_check").fetchall():

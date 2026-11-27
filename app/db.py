@@ -48,6 +48,8 @@ def upgrade_schema() -> None:
         have = {r[1] for r in con.exec_driver_sql('PRAGMA table_info("products")')}
         if have and "indoor_safe" not in have:
             con.exec_driver_sql("ALTER TABLE products ADD COLUMN indoor_safe BOOLEAN NOT NULL DEFAULT 1")
+        if have and "price_updated" not in have:
+            con.exec_driver_sql("ALTER TABLE products ADD COLUMN price_updated DATETIME")
         have = {r[1] for r in con.exec_driver_sql('PRAGMA table_info("calibers")')}
         if have and "group_id" not in have:
             con.exec_driver_sql("ALTER TABLE calibers ADD COLUMN group_id INTEGER REFERENCES caliber_groups(id)")

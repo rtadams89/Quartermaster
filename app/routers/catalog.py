@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from .. import config, lookup, security
 from ..codes import is_magazine_code, normalize_code
-from ..db import get_db
+from ..db import get_db, utcnow
 from ..models import Barcode, BarcodePhoto, BatchItem, Caliber, CaliberGroup, Magazine, PackCode, Product, Transaction, UpcLookup
 from .photos import process_image, store_photo
 from ..services import (brand_spellings, canonical_brand, inventory_by_product, minimums, missing_details, photo_codes,
@@ -256,6 +256,8 @@ def create_product(body: ProductIn, db: Session = Depends(get_db)):
     fields = body.model_dump(exclude={"min_rounds"})
     fields["brand"] = canonical_brand(db, body.brand)
     p = Product(**fields)
+    if p.cost_per_box is not None:
+        p.price_updated = utcnow()
     db.add(p)
     db.flush()
     set_minimum(db, "product", p.id, body.min_rounds)
@@ -271,6 +273,8 @@ def update_product(pid: int, body: ProductIn, db: Session = Depends(get_db)):
     _check_caliber(db, body.caliber_id)
     fields = body.model_dump(exclude={"min_rounds"})
     fields["brand"] = canonical_brand(db, body.brand, pid)
+    if fields["cost_per_box"] != p.cost_per_box:
+        p.price_updated = utcnow() if fields["cost_per_box"] is not None else None
     for k, v in fields.items():
         setattr(p, k, v)
     set_minimum(db, "product", pid, body.min_rounds)

@@ -2,6 +2,14 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.15.1
+- Price updates now request the first 40 listings (the most the service returns, cheapest first) and never fetch more pages. Only listings with a shipping rating of 5.0 or better (or free) and no purchase limit are used, and the price is the average per round of those matching listings instead of the median. Outlier trimming was removed.
+
+## 1.15.0
+- **Update prices.** The Products page has an *Update prices* button, and each product has a *Price* button. Choose one product, all products in a caliber, or all products (by default only those with stock on hand). Quartermaster looks up current in-stock listings on AmmoSeek through the parse.bot service, takes the median price per round of the listings that match each product by brand, grain, bullet type and name, and shows you the old and new prices, how many listings were found and how sure the match is. Nothing is saved until you tick prices and choose *Save*. Prices are only looked up when you ask; nothing runs on a schedule.
+- A product's cost is now its current price per round (the box price is that times the rounds per box), and the Products list shows when it was last set. Mixed, surplus and unbranded ammo is skipped.
+- **Setup:** Settings has a new *Ammo prices* section for your parse.bot API key and the searches per minute your plan allows, plus *Match calibers to AmmoSeek*, which pairs each of your calibers with AmmoSeek's caliber list. The key is left out of backups and kept when you restore one. Older backups still restore.
+
 ## 1.14.1
 - The dashboard's *Products* box is replaced by *Magazines out*, the number of magazines currently checked out. Click it to see them on the Magazines page.
 

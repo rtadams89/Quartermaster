@@ -75,6 +75,7 @@ class Product(Base):
     bullet_type: Mapped[str] = mapped_column(String(40), default="")
     rounds_per_box: Mapped[int] = mapped_column(Integer)
     cost_per_box: Mapped[float | None] = mapped_column(Float, nullable=True)
+    price_updated: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     notes: Mapped[str] = mapped_column(Text, default="")
     # False = outdoor ranges only; the kiosk asks for confirmation at checkout.
     indoor_safe: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("1"))

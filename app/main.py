@@ -8,7 +8,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from . import __version__, config
 from .assets import FreshStatic
 from .db import Base, SessionLocal, engine, upgrade_schema
-from .routers import auth, backup, batches, catalog, inventory, labels, magazines, photos, productsio, reports, settings
+from .routers import auth, backup, batches, catalog, inventory, labels, magazines, photos, prices, productsio, reports, settings
 from .seed import seed
 
 STATIC = Path(__file__).parent / "static"
@@ -74,7 +74,7 @@ class Hardening(BaseHTTPMiddleware):
 
 app.add_middleware(Hardening)
 
-for r in (auth.router, batches.router, catalog.router, photos.router, inventory.router, labels.router, magazines.router,
+for r in (auth.router, batches.router, catalog.router, photos.router, inventory.router, labels.router, magazines.router, prices.router,
           settings.router, backup.router, productsio.router, reports.router):
     app.include_router(r)
 

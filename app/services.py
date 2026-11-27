@@ -74,6 +74,7 @@ def product_dict(p: Product | None) -> dict | None:
         "single": p.rounds_per_box == 1,  # counted by the individual round, not by the box
         "cost_per_box": p.cost_per_box,
         "cost_per_round": round(p.cost_per_box / p.rounds_per_box, 4) if p.cost_per_box is not None else None,
+        "price_updated": iso(p.price_updated) if p.price_updated else None,
         "notes": p.notes,
         "indoor_safe": bool(p.indoor_safe),
     }
