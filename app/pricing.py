@@ -462,6 +462,7 @@ class Job:
         self.products = products
         self.key = key
         self.tax = tax
+        self.per_minute = per_minute
         self.gap = 60.0 / max(1, per_minute)
         self.state = "running"  # running | done | cancelled | stopped
         self.message = ""
@@ -475,7 +476,7 @@ class Job:
 
     def view(self) -> dict:
         return {"id": self.id, "state": self.state, "message": self.message, "total": len(self.products),
-                "done": len(self.results), "calls": self.calls, "results": self.results, "daily_remaining": daily_left()}
+                "done": len(self.results), "calls": self.calls, "results": self.results, "daily_remaining": daily_left(), "per_minute": self.per_minute}
 
     def log_text(self) -> str:
         return "\n".join(self.log) + "\n"
@@ -540,8 +541,6 @@ def _run(job: Job) -> None:
                 try:
                     cache[ck] = search(job.key, p["slug"], query, job.log, job.cancel)
                 except PriceError as e:
-                    last = time.monotonic()
-                    job.calls += sum("REQUEST" in x for x in job.log[first:])
                     if job.cancel.is_set():
                         job.state = "cancelled"
                         job.log.append("Cancelled.")
@@ -554,7 +553,7 @@ def _run(job: Job) -> None:
                     job.log.extend([f"  no result: {e}", ""])
                     continue
                 last = time.monotonic()
-                job.calls += sum("REQUEST" in x for x in job.log[first:])
+                job.calls += 1
             else:
                 job.log.append("  search: same options as an earlier product, so that search's listings are reused (no new request)")
             trace: list[str] = []

@@ -2,6 +2,10 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.18.1
+- While prices are being checked, the window now states your actual searches-per-minute setting instead of "a few".
+- A search that does not complete (failed, or refused with a rate limit) no longer counts as a search used, and no longer delays the next search.
+
 ## 1.18.0
 - Price estimates now use the cost per round you would actually pay. Listings whose shipping is not free get $0.025 per round added (a "conditionally free" rating counts as not free), and then the tax rate is added on top of every listing's per-round cost.
 - New *Tax %* field in Settings, next to the searches-per-minute box (0 to 30, default 0). It is saved with your other settings and included in backups.

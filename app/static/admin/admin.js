@@ -1396,7 +1396,7 @@ async function priceDialog(calibers, preset = {}, done = () => {}) {
   const drawRunning = () => { view = ''; modal.show(h('div', {},
     h('p', {}, job.state === 'running' ? `Checked ${fmtInt(job.done)} of ${fmtInt(job.total)} products (${fmtInt(job.calls)} search${job.calls === 1 ? '' : 'es'})…` : 'Finishing…'),
     h('progress', { max: job.total || 1, value: job.done, style: { width: '100%' } }),
-    h('p', { class: 'sub' }, 'The service allows only a few searches a minute, so this can take a while. You can keep this window open or cancel and review what has been found so far. ', priceLogLink(job))),
+    h('p', { class: 'sub' }, `Searches are limited to ${fmtInt(job.per_minute)} a minute, so this can take a while. You can keep this window open or cancel and review what has been found so far. `, priceLogLink(job))),
   [h('button', { class: 'btn', type: 'button', onclick: () => post(`/api/prices/jobs/${job.id}/cancel`).catch(() => {}) }, 'Cancel')]); };
   const poll = async () => {
     try { job = await get(`/api/prices/jobs/${job.id}`); } catch (e) { modal.show(h('p', { class: 'err' }, e.message), [h('button', { class: 'btn', type: 'button', onclick: modal.close }, 'Close')]); return; }

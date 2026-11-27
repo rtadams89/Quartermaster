@@ -663,3 +663,26 @@ def test_the_tax_rate_is_saved_in_settings_and_used_by_jobs(authed):
     assert c.get("/api/prices/config").json()["tax_percent"] == 8.6
     assert c.put("/api/prices/settings", json={"key": "", "per_minute": 5, "tax_percent": 99}).status_code == 422
     assert c.put("/api/prices/settings", json={"key": "", "per_minute": 5, "tax_percent": -1}).status_code == 422
+
+
+def test_failed_searches_are_not_counted_and_do_not_delay_the_next(monkeypatch):
+    clock = {"t": 1000.0}
+    pauses = []
+    state = {"n": 0}
+
+    def fake_search(key, slug, query, log, cancel=None):
+        state["n"] += 1
+        log.append("REQUEST x")
+        if state["n"] == 1:
+            raise pricing.PriceError("bad reply")
+        log.append("RESPONSE 1 listings")
+        return [listing("Federal 9mm", "Federal", 115, "$20.00", 50)]
+
+    monkeypatch.setattr(pricing, "time", type("T", (), {"monotonic": staticmethod(lambda: clock["t"])}))
+    monkeypatch.setattr(pricing, "_pause", lambda s, c=None: pauses.append(s))
+    monkeypatch.setattr(pricing, "search", fake_search)
+    products = [{"id": i, "label": f"P{i}", "brand": "Federal", "name": f"N{i}", "grain": 100 + i, "bullet_type": "FMJ",
+                 "slug": "9mm-luger", "words": {}, "current": None} for i in (1, 2)]
+    job = pricing.Job(products, "k", 5)
+    pricing._run(job)
+    assert job.calls == 1 and pauses == [] and job.view()["per_minute"] == 5
