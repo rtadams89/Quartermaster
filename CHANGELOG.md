@@ -2,6 +2,10 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.16.2
+- Fix: a caliber's *Must include* words replaced the product's brand in the search, so a caliber with keywords (for example 12ga Birdshot with "shot") searched every maker. The brand is now always sent, and the keywords are added to it.
+- Searches still ask for 40 listings; if the service sends more, all of them are used.
+
 ## 1.16.1
 - Rate limits are handled more patiently. When the price service says to slow down, a price update now waits 20, then 40, then 60 seconds (or as long as the service asks, up to two minutes) and retries before stopping. The wait is written to the search log.
 - The pacing between searches now restarts after a search finishes, so a retry no longer leaves the next search firing right away.

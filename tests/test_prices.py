@@ -194,7 +194,7 @@ def test_query_carries_the_fixed_filters_blank_flag_case_and_words():
     assert q["condition"] == "new" and q["hide_purchase_limits"] == "true" and q["shipping_rating"] == "high"
     assert q["show_blanks"] == "false" and q["include"] == "Federal" and q["grains"] == 115 and q["casing"] == "" and q["exclude"] == ""
     blank = pricing.query_for({**FEDERAL, "is_blank": True, "case_material": "Brass"}, {"include": "shot", "exclude": "buck slug"})
-    assert blank["show_blanks"] == "true" and blank["casing"] == "brass" and blank["include"] == "shot" and blank["exclude"] == "buck slug"
+    assert blank["show_blanks"] == "true" and blank["casing"] == "brass" and blank["include"] == "Federal shot" and blank["exclude"] == "buck slug"
     assert pricing.query_for({**FEDERAL, "case_material": "Plastic hull"})["casing"] == ""
     assert pricing.query_for({**FEDERAL, "case_material": "Composite"})["casing"] == "composite"
     assert pricing.search_key("9mm-luger", q) != pricing.search_key("9mm-luger", blank)
@@ -255,7 +255,7 @@ def test_words_blank_and_case_reach_the_search_and_the_log_is_available(authed, 
     assert done["calls"] == 2
     searches = [x[1] for x in fake_service if x[0] == "search_ammo"]
     assert {s["show_blanks"] for s in searches} == {"true", "false"} and {s.get("casing") for s in searches} == {"brass", "steel"}
-    assert all(s["include"] == "eagle" and s["exclude"] == "buck slug blank" and s["condition"] == "new" and s["hide_purchase_limits"] == "true"
+    assert all(s["include"].endswith(" eagle") and len(s["include"].split()) == 2 and s["exclude"] == "buck slug blank" and s["condition"] == "new" and s["hide_purchase_limits"] == "true"
                and s["shipping_rating"] == "high" and s["length"] == 40 and s["start"] == 0 for s in searches)
 
     log = c.get(f"/api/prices/jobs/{job['id']}/log")
@@ -515,3 +515,15 @@ def test_pacing_restarts_after_a_retry(monkeypatch):
     job = pricing.Job(products, "k", 1)
     pricing._run(job)
     assert pauses == [60, 60]
+
+
+def test_must_include_words_are_added_to_the_brand_not_a_replacement():
+    q = pricing.query_for({**FEDERAL, "brand": "Challenger"}, {"include": "shot"})
+    assert q["include"] == "Challenger shot"
+    assert pricing.query_for({"brand": "", "is_blank": True}, {})["include"] == "blank"
+
+
+def test_every_listing_the_service_sends_is_used(monkeypatch):
+    many = [listing("Federal 9mm", "Federal", 115, "$20.00", 50) for _ in range(100)]
+    monkeypatch.setattr(pricing, "fetch", lambda e, p, k: {"items": many})
+    assert len(pricing.search("k", "9mm-luger", {})) == 100

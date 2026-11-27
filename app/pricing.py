@@ -111,7 +111,9 @@ def query_for(product: dict, words: dict | None = None) -> dict:
     grains, brand_word = search_words(product)
     words = words or {}
     casing = str(product.get("case_material") or "").strip().lower()
-    return {"grains": grains, "include": (words.get("include") or "").strip() or ("blank" if brandless(product) else brand_word),
+    extra = (words.get("include") or "").strip()
+    include = "blank" if brandless(product) and not extra else " ".join(w for w in (brand_word, extra) if w)
+    return {"grains": grains, "include": include,
             "exclude": (words.get("exclude") or "").strip(), "condition": "new", "hide_purchase_limits": "true",
             "shipping_rating": SHIPPING_BUCKET, "show_blanks": "true" if product.get("is_blank") else "false",
             "casing": casing if casing in CASINGS_SENT else ""}
