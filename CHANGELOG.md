@@ -2,6 +2,10 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.16.1
+- Rate limits are handled more patiently. When the price service says to slow down, a price update now waits 20, then 40, then 60 seconds (or as long as the service asks, up to two minutes) and retries before stopping. The wait is written to the search log.
+- The pacing between searches now restarts after a search finishes, so a retry no longer leaves the next search firing right away.
+
 ## 1.16.0
 - Update prices has a new choice, *Products not updated in 90+ days*, which covers products whose price was last set more than 90 days ago or never. Like *All products* and *All products in a caliber*, it can be limited to products with stock on hand.
 - Those three choices now list the products that will be checked, with their current price per round and when it was last updated. Untick any you want left out, or use *Select all* / *Select none*. The number of searches updates as you tick, and products that can't be priced (surplus or unbranded ammo, or a caliber not matched to AmmoSeek yet) are listed greyed out with the reason.

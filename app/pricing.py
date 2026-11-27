@@ -19,7 +19,8 @@ MIN_SHIPPING = 50  # shipping score in tenths (50 is 5.0)
 SHIPPING_BUCKET = "high"  # service filter: rating above 4
 BAND = 2  # factor above and below the current price
 CASINGS_SENT = {"brass", "steel", "aluminum", "composite", "alloy"}
-RETRY_WAIT = 20  # seconds to wait after a 429 before trying once more
+RETRY_WAITS = (20, 40, 60)  # seconds to wait after each 429 before trying again
+MAX_RETRY_AFTER = 120  # longest Retry-After the service may ask for
 SKIPPED_BRANDS = {"", "misc", "miscellaneous", "surplus", "unknown", "other", "handload", "handloads", "reload", "reloads"}
 GENERIC_WORDS = {"loose", "box", "boxes", "ammo", "ammunition", "bulk", "the", "and", "for", "round", "rounds", "case", "cases"}
 TYPE_WORDS = {
@@ -34,8 +35,9 @@ TYPE_WORDS = {
 class PriceError(Exception):
     """A search failed. `fatal`: no further search will work."""
 
-    def __init__(self, message: str, fatal: bool = False, rate_limited: bool = False, stale: bool = False):
+    def __init__(self, message: str, fatal: bool = False, rate_limited: bool = False, stale: bool = False, retry_after: int | None = None):
         super().__init__(message)
+        self.retry_after = retry_after
         self.fatal = fatal
         self.rate_limited = rate_limited
         self.stale = stale
@@ -56,7 +58,8 @@ def fetch(endpoint: str, params: dict, key: str):
         if e.code in (401, 403):
             raise PriceError("The price service did not accept the API key.", fatal=True)
         if e.code == 429:
-            raise PriceError("The price service's rate limit was reached.", rate_limited=True)
+            after = str(e.headers.get("Retry-After", "") if getattr(e, "headers", None) else "").strip()
+            raise PriceError("The price service's rate limit was reached.", rate_limited=True, retry_after=int(after) if after.isdigit() else None)
         body = e.read().decode("utf-8", "replace") if hasattr(e, "read") else ""
         raise PriceError(f"The price service answered with an error ({e.code}).", stale="stale_input" in body)
     except (urllib.error.URLError, TimeoutError, OSError):
@@ -134,17 +137,22 @@ def search(key: str, slug: str, query: dict, log: list[str] | None = None) -> li
     """The first page (40 listings, cheapest first) of in-stock listings for a caliber, narrowed by the query."""
     log = [] if log is None else log
     params = {"caliber": slug, "length": PAGE_LENGTH, "start": 0, **{k: v for k, v in query.items() if v not in (None, "")}}
-    waited = dropped = False
+    retries = 0
+    dropped = False
     while True:
         log.append(f"{_stamp()} REQUEST search_ammo {json.dumps(params)}")
         try:
             data = _payload(fetch("search_ammo", params, key))
             break
         except PriceError as e:
-            if e.rate_limited and not waited:
-                waited = True
-                log.append(f"  rate limited; waiting {RETRY_WAIT} seconds, then trying once more")
-                _pause(RETRY_WAIT)
+            if e.rate_limited and retries < len(RETRY_WAITS):
+                wait = min(e.retry_after, MAX_RETRY_AFTER) if e.retry_after else RETRY_WAITS[retries]
+                retries += 1
+                log.append(f"  rate limited; waiting {wait} seconds, then trying again ({retries} of {len(RETRY_WAITS)})")
+                _pause(wait)
+            elif e.rate_limited:
+                log.append(f"  FAILED: {e}")
+                raise PriceError("The price service's rate limit did not clear after waiting; try again later (a monthly credit limit looks the same).", rate_limited=True)
             elif e.stale and "casing" in params and not dropped:
                 dropped = True
                 params.pop("casing")
@@ -444,11 +452,12 @@ def _run(job: Job) -> None:
                 wait = job.gap - (time.monotonic() - last)
                 if last and wait > 0:
                     _pause(wait)
-                last = time.monotonic()
                 lg: list[str] = []
                 try:
                     cache[ck] = search(job.key, p["slug"], query, lg)
+                    last = time.monotonic()
                 except PriceError as e:
+                    last = time.monotonic()
                     job.calls += sum(1 for x in lg if "REQUEST" in x)
                     job.log.extend(lg)
                     job.results.append({**row, "price": None, "listings": 0, "confidence": "none", "note": str(e)})

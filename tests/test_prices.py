@@ -443,3 +443,75 @@ def test_stale_scope_lists_products_not_updated_in_90_days_and_ids_narrow_a_run(
     done = wait_done(c, job)
     assert sorted(r["label"] for r in done["results"]) == ["Federal Never", "Federal Old"]
     assert fresh["id"] and unpriced["id"]
+
+
+def _limited(times, retry_after=None):
+    calls = {"n": 0}
+
+    def fake(endpoint, params, key):
+        calls["n"] += 1
+        if calls["n"] <= times:
+            raise pricing.PriceError("limit", rate_limited=True, retry_after=retry_after)
+        return {"items": [listing("Federal 9mm", "Federal", 115, "$20.00", 50)]}
+
+    return fake, calls
+
+
+def test_a_rate_limit_backs_off_20_then_40_seconds_and_then_succeeds(monkeypatch):
+    fake, calls = _limited(2)
+    pauses = []
+    monkeypatch.setattr(pricing, "fetch", fake)
+    monkeypatch.setattr(pricing, "_pause", pauses.append)
+    assert len(pricing.search("k", "9mm-luger", {})) == 1
+    assert pauses == [20, 40] and calls["n"] == 3
+
+
+def test_a_rate_limit_honours_retry_after_up_to_a_cap(monkeypatch):
+    fake, _ = _limited(2, retry_after=7)
+    pauses = []
+    monkeypatch.setattr(pricing, "fetch", fake)
+    monkeypatch.setattr(pricing, "_pause", pauses.append)
+    pricing.search("k", "9mm-luger", {})
+    assert pauses == [7, 7]
+    fake, _ = _limited(1, retry_after=9999)
+    pauses.clear()
+    monkeypatch.setattr(pricing, "fetch", fake)
+    pricing.search("k", "9mm-luger", {})
+    assert pauses == [pricing.MAX_RETRY_AFTER]
+
+
+def test_a_rate_limit_that_never_clears_stops_after_three_waits(monkeypatch):
+    fake, calls = _limited(99)
+    pauses = []
+    monkeypatch.setattr(pricing, "fetch", fake)
+    monkeypatch.setattr(pricing, "_pause", pauses.append)
+    with pytest.raises(pricing.PriceError) as err:
+        pricing.search("k", "9mm-luger", {})
+    assert err.value.rate_limited and "did not clear" in str(err.value)
+    assert pauses == [20, 40, 60] and calls["n"] == 4
+
+
+def test_pacing_restarts_after_a_retry(monkeypatch):
+    clock = {"t": 1000.0}
+    pauses = []
+
+    def pause(s):
+        pauses.append(s)
+        clock["t"] += s
+
+    state = {"n": 0}
+
+    def fake_search(key, slug, query, log):
+        state["n"] += 1
+        if state["n"] == 2:
+            clock["t"] += 20
+        return [listing("Federal 9mm", "Federal", 115, "$20.00", 50)]
+
+    monkeypatch.setattr(pricing, "time", type("T", (), {"monotonic": staticmethod(lambda: clock["t"])}))
+    monkeypatch.setattr(pricing, "_pause", pause)
+    monkeypatch.setattr(pricing, "search", fake_search)
+    products = [{"id": i, "label": f"P{i}", "brand": "Federal", "name": f"N{i}", "grain": 100 + i, "bullet_type": "FMJ",
+                 "slug": "9mm-luger", "words": {}, "current": None} for i in (1, 2, 3)]
+    job = pricing.Job(products, "k", 1)
+    pricing._run(job)
+    assert pauses == [60, 60]
