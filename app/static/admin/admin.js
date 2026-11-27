@@ -1481,11 +1481,12 @@ async function priceCalibers(done = () => {}) {
 function priceForm(cfg) {
   const key = h('input', { type: 'password', autocomplete: 'off', size: 34, placeholder: cfg.key_set ? 'Key saved (type to replace it)' : 'parse.bot API key' });
   const rate = h('input', { type: 'number', min: 1, max: 250, step: 1, value: cfg.per_minute, style: { width: '80px' } });
+  const tax = h('input', { type: 'number', min: 0, max: 30, step: 0.001, value: cfg.tax_percent ?? 0, style: { width: '80px' } });
   return h('div', {},
     h('form', { class: 'toolbar', onsubmit: async (e) => {
       e.preventDefault();
-      try { await put('/api/prices/settings', { key: key.value, per_minute: Number(rate.value) || 5 }); toast('Saved', 'ok'); settings(); } catch (er) { toast(er.message, 'error'); }
-    } }, key, h('label', {}, 'Searches per minute ', rate), h('button', { class: 'btn primary', type: 'submit' }, 'Save'),
+      try { await put('/api/prices/settings', { key: key.value, per_minute: Number(rate.value) || 5, tax_percent: Number(tax.value) || 0 }); toast('Saved', 'ok'); settings(); } catch (er) { toast(er.message, 'error'); }
+    } }, key, h('label', {}, 'Searches per minute ', rate), h('label', {}, 'Tax % ', tax), h('button', { class: 'btn primary', type: 'submit' }, 'Save'),
     cfg.key_set && h('button', { class: 'btn', type: 'button', onclick: async () => { await del('/api/prices/key'); toast('Key removed', 'ok'); settings(); } }, 'Remove key')),
     h('div', { class: 'toolbar' }, h('button', { class: 'btn', type: 'button', onclick: () => priceCalibers() }, 'Match calibers to AmmoSeek…')));
 }

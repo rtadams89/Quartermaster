@@ -8,7 +8,7 @@ from app import config, pricing
 from tests.conftest import make_product, run_batch
 
 
-def listing(descr, mfg, grains, price, count, condition="new", shipping="55", limit="-"):
+def listing(descr, mfg, grains, price, count, condition="new", shipping="free", limit="-"):
     return {"retailer": "R", "descr": descr, "mfg": mfg, "caliber": "9mm Luger", "price": price, "count": count,
             "cp_cleaned": 0, "grains": grains, "condition": condition, "shipping_rating": shipping, "purchaselimit": limit}
 
@@ -346,7 +346,7 @@ def test_one_round_listings_and_prices_far_from_the_current_one_are_ignored():
     ]
     trace: list[str] = []
     r = pricing.estimate(sterling, items, trace=trace)
-    assert r["price"] == pytest.approx(0.319) and r["listings"] == 2
+    assert r["price"] == pytest.approx(0.3315) and r["listings"] == 2
     assert "counts 1 round" in "\n".join(trace)
     # loose products accept a count of 1; the price band rejects the wrong per-round price
     loose = sterling | {"rounds_per_box": 1}
@@ -637,3 +637,29 @@ def test_a_job_stops_before_searching_when_no_daily_requests_remain(monkeypatch)
     pricing._run(job)
     pricing.LIMITS.update({"daily_remaining": None, "seen": None})
     assert job.state == "stopped" and "daily request limit" in job.message and "UTC" in job.message and not called
+
+
+def test_landed_cost_adds_shipping_unless_free_then_tax():
+    base = {"price": "$20.00", "count": 50}
+    assert pricing.landed({**base, "shipping_rating": "free"}) == pytest.approx(0.40)
+    assert pricing.landed({**base, "shipping_rating": "55"}) == pytest.approx(0.425)
+    assert pricing.landed({**base, "shipping_rating": "cf 76"}) == pytest.approx(0.425)
+    assert pricing.landed({**base, "shipping_rating": "55"}, 8.6) == pytest.approx(0.425 * 1.086)
+    assert pricing.landed({**base, "shipping_rating": "free"}, 10) == pytest.approx(0.44)
+    assert pricing.landed({"price": "", "count": 0}) is None
+
+
+def test_estimate_includes_shipping_and_tax():
+    items = [listing("Federal American Eagle 9mm 115gr FMJ", "Federal", 115, "$20.00", 50, shipping=s) for s in ("free", "60", "free")]
+    assert pricing.estimate(FEDERAL, items)["price"] == pytest.approx((0.4 + 0.425 + 0.4) / 3, abs=1e-4)
+    assert pricing.estimate(FEDERAL, items, tax=10)["price"] == pytest.approx((0.4 + 0.425 + 0.4) / 3 * 1.1, abs=1e-4)
+
+
+def test_the_tax_rate_is_saved_in_settings_and_used_by_jobs(authed):
+    c = authed
+    assert c.get("/api/prices/config").json()["tax_percent"] == 0
+    assert c.put("/api/prices/settings", json={"key": "", "per_minute": 5, "tax_percent": 8.6}).json()["tax_percent"] == 8.6
+    c.put("/api/prices/settings", json={"key": "", "per_minute": 5})
+    assert c.get("/api/prices/config").json()["tax_percent"] == 8.6
+    assert c.put("/api/prices/settings", json={"key": "", "per_minute": 5, "tax_percent": 99}).status_code == 422
+    assert c.put("/api/prices/settings", json={"key": "", "per_minute": 5, "tax_percent": -1}).status_code == 422

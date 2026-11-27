@@ -21,6 +21,7 @@ SLUGS_KEY = "price_caliber_slugs"
 OPTIONS_KEY = "price_caliber_options"
 WORDS_KEY = "price_caliber_words"
 DEFAULT_PER_MINUTE = 5
+TAX_KEY = "price_tax_percent"
 STALE_DAYS = 90
 
 
@@ -45,6 +46,13 @@ def _json(db: Session, key: str, default):
         return json.loads(_get(db, key) or "null") or default
     except ValueError:
         return default
+
+
+def _tax(db: Session) -> float:
+    try:
+        return max(0.0, min(30.0, float(_get(db, TAX_KEY, "0"))))
+    except ValueError:
+        return 0.0
 
 
 def _per_minute(db: Session) -> int:
@@ -79,12 +87,13 @@ def config(db: Session = Depends(get_db)):
                  "label": labels.get(slugs.get(str(c.id)), slugs.get(str(c.id))), "chosen": str(c.id) in saved,
                  "include": words.get(str(c.id), {}).get("include", ""), "exclude": words.get(str(c.id), {}).get("exclude", "")}
                 for c in db.scalars(select(Caliber).order_by(Caliber.sort_order, Caliber.name))]
-    return {"key_set": bool(_get(db, PRICE_KEY)), "per_minute": _per_minute(db), "options": options, "calibers": calibers}
+    return {"key_set": bool(_get(db, PRICE_KEY)), "per_minute": _per_minute(db), "tax_percent": _tax(db), "options": options, "calibers": calibers}
 
 
 class KeyIn(BaseModel):
     key: str = Field(max_length=200)
     per_minute: int = Field(default=DEFAULT_PER_MINUTE, ge=1, le=250)
+    tax_percent: float | None = Field(default=None, ge=0, le=30)
 
 
 @router.put("/settings")
@@ -93,8 +102,10 @@ def save_settings(body: KeyIn, db: Session = Depends(get_db)):
     if body.key.strip():
         _put(db, PRICE_KEY, body.key.strip())
     _put(db, RATE_KEY, str(body.per_minute))
+    if body.tax_percent is not None:
+        _put(db, TAX_KEY, str(body.tax_percent))
     db.commit()
-    return {"key_set": bool(_get(db, PRICE_KEY)), "per_minute": body.per_minute}
+    return {"key_set": bool(_get(db, PRICE_KEY)), "per_minute": body.per_minute, "tax_percent": _tax(db)}
 
 
 @router.delete("/key")
@@ -210,7 +221,7 @@ def start_job(body: ScopeIn, db: Session = Depends(get_db)):
     products = _products(db, body)
     if not products:
         raise HTTPException(400, "Choose at least one product")
-    return pricing.start(products, key, _per_minute(db)).view()
+    return pricing.start(products, key, _per_minute(db), _tax(db)).view()
 
 
 @router.get("/jobs/{job_id}")

@@ -2,6 +2,11 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.18.0
+- Price estimates now use the cost per round you would actually pay. Listings whose shipping is not free get $0.025 per round added (a "conditionally free" rating counts as not free), and then the tax rate is added on top of every listing's per-round cost.
+- New *Tax %* field in Settings, next to the searches-per-minute box (0 to 30, default 0). It is saved with your other settings and included in backups.
+- The half-to-double check against the current price compares the cost including shipping and tax, and the search log shows each listing's cost with shipping and tax.
+
 ## 1.17.0
 - The service's allowance is now tracked from its response headers. Update prices shows how many requests it says are left today (in red if the run needs more than that), and the review screen repeats it. A run stops before sending a request when none are left today.
 - A rate-limit wait of more than 5 minutes (or any daily cap) now stops the check with a clear message: which limit was reached, how long it will last, and roughly what time (UTC) to try again by hand. Waits of 5 minutes or less are still waited out and retried.

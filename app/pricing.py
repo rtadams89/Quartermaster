@@ -17,6 +17,7 @@ TIMEOUT = 40
 PAGE_LENGTH = 40
 MIN_SHIPPING = 50  # shipping score in tenths (50 is 5.0)
 SHIPPING_BUCKET = "high"  # service filter: rating above 4
+SHIPPING_PER_ROUND = 0.025  # dollars added per round when shipping is not free
 BAND = 2  # factor above and below the current price
 CASINGS_SENT = {"brass", "steel", "aluminum", "composite", "alloy"}
 RETRY_WAITS = (20, 40, 60)  # seconds to wait after each 429 before trying again
@@ -267,6 +268,16 @@ def per_round(item: dict) -> float | None:
     return cents / 100 if cents else None
 
 
+def landed(item: dict, tax: float = 0.0) -> float | None:
+    """Dollars per round including $0.025 for shipping that is not free (a "cf" rating is not free), then `tax` percent."""
+    each = per_round(item)
+    if not each:
+        return None
+    if str(item.get("shipping_rating") or "").strip().lower() != "free":
+        each += SHIPPING_PER_ROUND
+    return each * (1 + tax / 100)
+
+
 def has_purchase_limit(item: dict) -> bool:
     return bool(re.search(r"[1-9]", str(item.get("purchaselimit") or "")))
 
@@ -327,7 +338,7 @@ def _has_words(words: str, text: str) -> list[str]:
     return [w for w in words.lower().split() if w not in text]
 
 
-def reject_reason(product: dict, it: dict, words: dict) -> str | None:
+def reject_reason(product: dict, it: dict, words: dict, tax: float = 0.0) -> str | None:
     """Why a listing cannot be used for the product, or None when it can."""
     descr = str(it.get("descr") or "").lower()
     maker = squash(it.get("mfg"))
@@ -361,7 +372,7 @@ def reject_reason(product: dict, it: dict, words: dict) -> str | None:
                 return f"grain {it.get('grains')} is not within 1 of {round(grain)}"
         except (TypeError, ValueError):
             return "listing has no grain weight"
-    each = per_round(it)
+    each = landed(it, tax)
     if not each:
         return "no price per round"
     try:
@@ -376,27 +387,27 @@ def reject_reason(product: dict, it: dict, words: dict) -> str | None:
     return None
 
 
-def estimate(product: dict, items: list[dict], words: dict | None = None, trace: list[str] | None = None) -> dict:
-    """Average price per round of the matching listings with good shipping and no purchase limit, with how sure the match is."""
+def estimate(product: dict, items: list[dict], words: dict | None = None, trace: list[str] | None = None, tax: float = 0.0) -> dict:
+    """Average price per round (shipping and tax included) of the matching listings with good shipping and no purchase limit, with how sure the match is."""
     words = words or {}
     trace = [] if trace is None else trace
     tiers: list[list[float]] = [[], [], []]
     out_of_band = 0
     for it in items:
-        why = reject_reason(product, it, words)
+        why = reject_reason(product, it, words, tax)
         if why:
             out_of_band += why.startswith("price ")
             trace.append(f"    skip: {why} | {describe(it)}")
             continue
         descr = str(it.get("descr") or "").lower()
-        price = per_round(it)
+        price = landed(it, tax)
         name_ok, type_ok = _name_score(product.get("name", ""), descr), _type_score(product.get("bullet_type", ""), descr)
         if name_ok == 1.0 and type_ok >= 0.5:
             tiers[0].append(price)
         if name_ok >= 0.5:
             tiers[1].append(price)
         tiers[2].append(price)
-        trace.append(f"    usable: name match {name_ok:.0%}, bullet type match {type_ok:.0%}, ${price:.4f}/rd | {describe(it)}")
+        trace.append(f"    usable: name match {name_ok:.0%}, bullet type match {type_ok:.0%}, ${price:.4f}/rd with shipping and tax | {describe(it)}")
     names = ("brand, grain, full name and bullet type", "brand, grain and part of the name", "brand and grain only")
     trace.append("    usable listings by match level: " + "; ".join(f"{names[i]}: {len(t)}" for i, t in enumerate(tiers)))
     tier = next((i for i, t in enumerate(tiers) if len(t) >= 3), next((i for i, t in enumerate(tiers) if t), None))
@@ -446,10 +457,11 @@ def guess_slug(names: list[str], options: list[dict]) -> str | None:
 
 # ------------------------------------------------------------------ jobs
 class Job:
-    def __init__(self, products: list[dict], key: str, per_minute: int):
+    def __init__(self, products: list[dict], key: str, per_minute: int, tax: float = 0.0):
         self.id = uuid.uuid4().hex[:12]
         self.products = products
         self.key = key
+        self.tax = tax
         self.gap = 60.0 / max(1, per_minute)
         self.state = "running"  # running | done | cancelled | stopped
         self.message = ""
@@ -457,7 +469,7 @@ class Job:
         self.results: list[dict] = []
         self.cancel = threading.Event()
         self.log: list[str] = [f"Quartermaster price check {self.id} started {datetime.now():%Y-%m-%d %H:%M:%S}",
-                               f"{len(products)} product(s); at most {per_minute} search(es) a minute.",
+                               f"{len(products)} product(s); at most {per_minute} search(es) a minute; ${SHIPPING_PER_ROUND}/rd added when shipping is not free, then {tax:g}% tax.",
                                "Searches ask for the first 40 listings (cheapest first), new condition, purchase limits hidden and shipping rating above 4;",
                                "listings are then checked again here (shipping 5.0+ or free, no limit, not a one-round count, within half to double the current price) and averaged per round.", ""]
 
@@ -473,9 +485,9 @@ JOBS: dict[str, Job] = {}
 _lock = threading.Lock()
 
 
-def start(products: list[dict], key: str, per_minute: int) -> Job:
+def start(products: list[dict], key: str, per_minute: int, tax: float = 0.0) -> Job:
     """Begin a job in the background. Each product is {id, label, brand, name, grain, bullet_type, case_material, is_blank, words, slug, current}."""
-    job = Job(products, key, per_minute)
+    job = Job(products, key, per_minute, tax)
     with _lock:
         for old in [j for j in JOBS.values() if j.state != "running"][:-4]:
             JOBS.pop(old.id, None)
@@ -546,7 +558,7 @@ def _run(job: Job) -> None:
             else:
                 job.log.append("  search: same options as an earlier product, so that search's listings are reused (no new request)")
             trace: list[str] = []
-            result = estimate(p, cache[ck], words, trace)
+            result = estimate(p, cache[ck], words, trace, job.tax)
             job.log.extend(trace)
             job.results.append({**row, **result})
             shown = f"${result['price']:.4f}/rd from {result['listings']} listing(s)" if result["price"] else "no price"
