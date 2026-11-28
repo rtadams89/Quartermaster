@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.18.2
+- The price review screen now lists, under each product, everything the search matched on: brand, name, grain, bullet type, case material, blank, the AmmoSeek caliber, and the caliber's must-include / must-exclude words.
+
 ## 1.18.1
 - While prices are being checked, the window now states your actual searches-per-minute setting instead of "a few".
 - A search that does not complete (failed, or refused with a rate limit) no longer counts as a search used, and no longer delays the next search.

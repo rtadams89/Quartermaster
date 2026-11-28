@@ -519,7 +519,10 @@ def _run(job: Job) -> None:
                 job.state = "cancelled"
                 job.log.append("Cancelled.")
                 return
-            row = {"id": p["id"], "label": p["label"], "caliber": p.get("caliber", ""), "current": p.get("current"), "rounds_per_box": p.get("rounds_per_box")}
+            row = {"id": p["id"], "label": p["label"], "caliber": p.get("caliber", ""), "current": p.get("current"), "rounds_per_box": p.get("rounds_per_box"),
+                   "match": {"brand": p.get("brand") or "", "name": p.get("name") or "", "grain": p.get("grain") or None, "bullet_type": p.get("bullet_type") or "",
+                             "case_material": p.get("case_material") or "", "is_blank": bool(p.get("is_blank")), "slug": p.get("slug") or "",
+                             "include": (p.get("words") or {}).get("include", ""), "exclude": (p.get("words") or {}).get("exclude", "")}}
             job.log.extend(_describe_product(p))
             reason = skip_reason(p) or (None if p.get("slug") else "This caliber isn't matched to an AmmoSeek caliber yet")
             if reason:

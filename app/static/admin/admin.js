@@ -107,6 +107,10 @@ const boxesCell = (n) => td(h('span', { class: n < 0 ? 'neg' : '' }, fmtInt(n)),
 /** m/d/yy h:mm, 24-hour. */
 const fmtPriceDate = (iso) => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(-2)} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const specOf = (p, { naWeight = true } = {}) => [p.bullet_weight_gr === 0 ? (naWeight ? 'N/A' : '') : p.bullet_weight_gr ? `${p.bullet_weight_gr} gr` : '', p.bullet_type, p.is_blank ? 'Blank' : '', p.rounds_per_box === 1 ? 'by the round' : `${p.rounds_per_box}/box`, naWeight && p.indoor_safe === false ? 'Outdoor only' : ''].filter(Boolean).join(' · ');
+/** The product attributes a price search matches on, one line under the product name. */
+const matchLine = (m) => m && h('div', { class: 'muted', style: { fontSize: '12px' } }, [
+  `Brand: ${m.brand || '—'}`, `Name: ${m.name || '—'}`, `Grain: ${m.grain ? `${m.grain} gr` : '—'}`, `Type: ${m.bullet_type || '—'}`, `Case: ${m.case_material || '—'}`, `Blank: ${m.is_blank ? 'yes' : 'no'}`,
+  `AmmoSeek caliber: ${m.slug || '—'}`, m.include && `Must include: ${m.include}`, m.exclude && `Must exclude: ${m.exclude}`].filter(Boolean).join(' · '));
 /** The same, for a printed label: no weight line at all when the weight is N/A. */
 const labelSpecOf = (p) => specOf(p, { naWeight: false });
 // Products with 1 round per box are counted, and shown, by the round.
@@ -1413,7 +1417,7 @@ async function priceDialog(calibers, preset = {}, done = () => {}) {
       const box = h('input', { type: 'checkbox', disabled: r.price == null, checked: r.price != null && (r.confidence === 'high' || r.confidence === 'medium'), onchange: count, 'aria-label': `Save the price for ${r.label}` });
       boxes.set(r.id, box);
       const change = r.price != null && r.current ? (r.price - r.current) / r.current : null;
-      return h('tr', {}, td(box), td([h('b', {}, r.label), ' ', h('span', { class: 'muted' }, r.caliber)]), td(r.current != null ? fmtPerRound(r.current) : '—', 'num'),
+      return h('tr', {}, td(box), td([h('b', {}, r.label), ' ', h('span', { class: 'muted' }, r.caliber), matchLine(r.match)]), td(r.current != null ? fmtPerRound(r.current) : '—', 'num'),
         td(r.price != null ? fmtPerRound(r.price) : '—', 'num'),
         td(change == null ? '' : `${change > 0 ? '+' : ''}${Math.round(change * 100)}%`, 'num'), td(fmtInt(r.listings), 'num'), td(lastNote(r)));
     });

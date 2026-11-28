@@ -686,3 +686,16 @@ def test_failed_searches_are_not_counted_and_do_not_delay_the_next(monkeypatch):
     job = pricing.Job(products, "k", 5)
     pricing._run(job)
     assert job.calls == 1 and pauses == [] and job.view()["per_minute"] == 5
+
+
+def test_each_result_carries_the_attributes_it_was_matched_on(authed, fake_service):
+    c = authed
+    c.put("/api/prices/settings", json={"key": "secret-key", "per_minute": 250})
+    cal = c.get("/api/calibers").json()[0]
+    c.put(f"/api/prices/calibers/{cal['id']}", json={"slug": "9mm-luger", "include": "eagle", "exclude": "slug"})
+    make_product(c, case_material="Brass")
+    job = c.post("/api/prices/jobs", json={"scope": "caliber", "id": cal["id"], "in_stock_only": False}).json()
+    done = wait_done(c, job)
+    m = done["results"][0]["match"]
+    assert m["slug"] == "9mm-luger" and m["include"] == "eagle" and m["exclude"] == "slug" and m["case_material"] == "Brass"
+    assert set(m) == {"brand", "name", "grain", "bullet_type", "case_material", "is_blank", "slug", "include", "exclude"}
