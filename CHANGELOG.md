@@ -2,6 +2,9 @@
 
 All notable changes to Quartermaster, newest first.
 
+## 1.18.3
+- Documentation: the README's price-update section now covers shipping and tax, the Tax % setting, using every listing returned, the service limits, and has screenshots of the settings, product list and review screens. The update window's description and the review screen's note mention shipping and tax.
+
 ## 1.18.2
 - The price review screen now lists, under each product, everything the search matched on: brand, name, grain, bullet type, case material, blank, the AmmoSeek caliber, and the caliber's must-include / must-exclude words.
 

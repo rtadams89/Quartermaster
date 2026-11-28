@@ -1369,7 +1369,7 @@ async function priceDialog(calibers, preset = {}, done = () => {}) {
       h('div', { class: 'serials' }, table(['', 'Product', 'Caliber', ['Now', 'num'], ['Updated', 'num']], rows, { sort: false })));
   };
   const setupEl = h('div', {},
-    h('p', { class: 'sub' }, 'Looks up current in-stock prices on AmmoSeek and sets each product to the average price per round of its matching listings (only those with shipping rating 5.0 or better and no purchase limit). You review the prices before anything is saved.'),
+    h('p', { class: 'sub' }, 'Looks up current in-stock prices on AmmoSeek and sets each product to the average price per round of its matching listings (only those with shipping rating 5.0 or better and no purchase limit), with $0.025 a round added when shipping is not free and then your tax rate. You review the prices before anything is saved.'),
     h('div', { class: 'toolbar' }, scope, pickHolder, stockLabel), info, summary, listBox);
   const cancelBtn = h('button', { class: 'btn', type: 'button', onclick: () => modal.close() }, 'Cancel');
   const startBtn = h('button', { class: 'btn primary', type: 'button', disabled: true, onclick: () => start() }, 'Check prices');
@@ -1430,7 +1430,7 @@ async function priceDialog(calibers, preset = {}, done = () => {}) {
     modal.show(h('div', {},
       job.message ? h('p', { class: 'err' }, job.message) : null,
       job.state === 'cancelled' ? h('p', { class: 'sub' }, 'Cancelled. These are the products checked before it stopped.') : null,
-      h('p', { class: 'sub' }, `${fmtInt(job.calls)} search${job.calls === 1 ? '' : 'es'} used${job.daily_remaining != null ? `; the service reports ${fmtInt(job.daily_remaining)} request${job.daily_remaining === 1 ? '' : 's'} left today` : ''}. Prices are the average per round of matching in-stock listings with shipping 5.0+ and no purchase limit, ignoring single-round counts and prices under half or over double the current one; tick the ones to save. Low-confidence matches are not ticked. `, priceLogLink(job)),
+      h('p', { class: 'sub' }, `${fmtInt(job.calls)} search${job.calls === 1 ? '' : 'es'} used${job.daily_remaining != null ? `; the service reports ${fmtInt(job.daily_remaining)} request${job.daily_remaining === 1 ? '' : 's'} left today` : ''}. Prices are the average per round, with shipping and tax added, of matching in-stock listings with shipping 5.0+ and no purchase limit, ignoring single-round counts and prices under half or over double the current one; tick the ones to save. Low-confidence matches are not ticked. `, priceLogLink(job)),
       h('div', { class: 'toolbar' }, h('button', { class: 'btn sm', type: 'button', onclick: () => mark(true) }, 'Tick all'), h('button', { class: 'btn sm', type: 'button', onclick: () => mark(false) }, 'Tick none')),
       h('div', { class: 'serials' }, rows.length ? table(['', 'Product', ['Now', 'num'], ['New', 'num'], ['Change', 'num'], ['Listings', 'num'], 'Match'], trs, { sort: false }) : empty('Nothing was checked.'))),
     [h('button', { class: 'btn', type: 'button', onclick: modal.close }, 'Close'), apply]);
